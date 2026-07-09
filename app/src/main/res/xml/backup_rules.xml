@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Prototype stores potentially sensitive conversation data; keep local-only by default. -->
+    <exclude domain="database" path="." />
+    <exclude domain="file" path="attachments/" />
+</full-backup-content>
