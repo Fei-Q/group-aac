@@ -37,6 +37,7 @@ class AppContainer(context: Context) {
 
     val sessionRepository = SessionRepository(
         sessionDao = database.sessionDao(),
+        sessionJoinRequestDao = database.sessionJoinRequestDao(),
         userDao = database.userDao(),
         activeSessionStore = activeSessionStore,
         piClient = piClient

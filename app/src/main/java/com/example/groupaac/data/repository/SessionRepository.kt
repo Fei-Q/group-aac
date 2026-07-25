@@ -1,15 +1,18 @@
 package com.example.groupaac.data.repository
 
 import com.example.groupaac.data.dao.SessionDao
+import com.example.groupaac.data.dao.SessionJoinRequestDao
 import com.example.groupaac.data.dao.SessionParticipantRow
 import com.example.groupaac.data.dao.UserDao
 import com.example.groupaac.data.entity.SessionEntity
+import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.pi.PiClient
 import com.example.groupaac.data.pi.PiJoinRequest
 import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.model.ActiveSession
-import com.example.groupaac.model.UserRole
+import com.example.groupaac.model.JoinRequestStatus
+import com.example.groupaac.model.SessionRole
 import com.example.groupaac.util.IdUtils
 import com.example.groupaac.util.TimeUtils
 import kotlinx.coroutines.flow.Flow
@@ -19,6 +22,7 @@ import kotlinx.coroutines.flow.flowOf
 
 class SessionRepository(
     private val sessionDao: SessionDao,
+    private val sessionJoinRequestDao: SessionJoinRequestDao,
     private val userDao: UserDao,
     private val activeSessionStore: ActiveSessionStore,
     private val piClient: PiClient
@@ -31,6 +35,16 @@ class SessionRepository(
         sessionId: String
     ): Flow<List<SessionParticipantRow>> =
         sessionDao.observeMembers(sessionId)
+
+    fun observePendingJoinRequests(
+        sessionId: String
+    ): Flow<List<SessionJoinRequestEntity>> =
+        sessionJoinRequestDao.observePendingBySession(sessionId)
+
+    fun observeJoinRequest(
+        requestId: String
+    ): Flow<SessionJoinRequestEntity?> =
+        sessionJoinRequestDao.observeRequestById(requestId)
 
     fun observeActiveSession(
         userId: String
@@ -72,13 +86,8 @@ class SessionRepository(
     suspend fun createSession(
         name: String,
         ownerUserId: String,
-        displayName: String,
-        role: UserRole
+        displayName: String
     ): ActiveSession {
-        require(role == UserRole.FACILITATOR) {
-            "Only facilitators can create sessions."
-        }
-
         val owner = userDao.getUser(ownerUserId)
             ?: error("User not found.")
         val now = TimeUtils.now()
@@ -89,6 +98,7 @@ class SessionRepository(
             id = IdUtils.newId(),
             name = name.trim().ifBlank { "Group Meeting" },
             joinCode = generateUniqueJoinCode(),
+            hostUserId = ownerUserId,
             createdAt = now,
             actualStartedAt = now
         )
@@ -96,7 +106,7 @@ class SessionRepository(
             sessionId = session.id,
             userId = ownerUserId,
             displayName = cleanDisplayName,
-            role = role,
+            role = SessionRole.HOST,
             joinedAt = now
         )
 
@@ -116,7 +126,7 @@ class SessionRepository(
                 sessionCode = session.joinCode,
                 userId = ownerUserId,
                 displayName = cleanDisplayName,
-                role = role
+                role = SessionRole.HOST
             )
         )
 
@@ -125,7 +135,7 @@ class SessionRepository(
             joinCode = session.joinCode,
             sessionName = session.name,
             userId = ownerUserId,
-            role = role,
+            role = SessionRole.HOST,
             joinedAt = now
         )
     }
@@ -134,7 +144,7 @@ class SessionRepository(
         joinCode: String,
         userId: String,
         displayName: String,
-        role: UserRole
+        role: SessionRole = SessionRole.PARTICIPANT
     ): ActiveSession {
         val user = userDao.getUser(userId)
             ?: error("User not found.")
@@ -188,6 +198,98 @@ class SessionRepository(
         activeSessionStore.clearActiveSession(userId)
     }
 
+    suspend fun getJoinRequest(
+        requestId: String
+    ): SessionJoinRequestEntity? =
+        sessionJoinRequestDao.getRequestById(requestId)
+
+    suspend fun createJoinRequest(
+        sessionId: String,
+        userId: String,
+        displayName: String,
+        requestedRole: SessionRole
+    ): SessionJoinRequestEntity {
+        require(requestedRole != SessionRole.HOST) {
+            "Host access cannot be requested."
+        }
+
+        val user = userDao.getUser(userId)
+            ?: error("User not found.")
+        val now = TimeUtils.now()
+        val request = SessionJoinRequestEntity(
+            id = IdUtils.newId(),
+            sessionId = sessionId,
+            userId = userId,
+            displayName = displayName.trim().ifBlank { user.displayName },
+            requestedRole = requestedRole,
+            status = JoinRequestStatus.PENDING,
+            requestedAt = now
+        )
+        sessionJoinRequestDao.upsertRequest(request)
+        return request
+    }
+
+    suspend fun requestFacilitatorAccess(
+        sessionId: String,
+        userId: String,
+        displayName: String
+    ): SessionJoinRequestEntity =
+        createJoinRequest(
+            sessionId = sessionId,
+            userId = userId,
+            displayName = displayName,
+            requestedRole = SessionRole.FACILITATOR
+        )
+
+    suspend fun approveJoinRequest(
+        requestId: String,
+        decidedByUserId: String
+    ): Boolean {
+        val request = sessionJoinRequestDao.getRequestById(requestId)
+            ?: return false
+        val updated = sessionJoinRequestDao.approveRequest(
+            requestId = requestId,
+            decidedByUserId = decidedByUserId,
+            decidedAt = TimeUtils.now()
+        )
+        if (updated == 0) {
+            return false
+        }
+
+        val existingMember = sessionDao.getMember(
+            sessionId = request.sessionId,
+            userId = request.userId
+        )
+        sessionDao.upsertMember(
+            SessionMemberEntity(
+                sessionId = request.sessionId,
+                userId = request.userId,
+                displayName = request.displayName,
+                role = request.requestedRole,
+                joinedAt = existingMember?.joinedAt ?: request.requestedAt
+            )
+        )
+        return true
+    }
+
+    suspend fun declineJoinRequest(
+        requestId: String,
+        decidedByUserId: String
+    ): Boolean {
+        return sessionJoinRequestDao.declineRequest(
+            requestId = requestId,
+            decidedByUserId = decidedByUserId,
+            decidedAt = TimeUtils.now()
+        ) > 0
+    }
+
+    suspend fun cancelJoinRequest(requestId: String): Boolean {
+        return sessionJoinRequestDao.cancelRequest(
+            requestId = requestId,
+            decidedAt = TimeUtils.now()
+        ) > 0
+    }
+
     suspend fun endSession(sessionId: String) {
         sessionDao.markSessionEnded(sessionId)
     }
@@ -199,28 +301,28 @@ class SessionRepository(
                 sessionId,
                 "demo-alice",
                 "Alice",
-                UserRole.PARTICIPANT,
+                SessionRole.PARTICIPANT,
                 now - 100_000
             ),
             SessionMemberEntity(
                 sessionId,
                 "demo-bob",
                 "Bob",
-                UserRole.PARTICIPANT,
+                SessionRole.PARTICIPANT,
                 now - 90_000
             ),
             SessionMemberEntity(
                 sessionId,
                 "demo-eve",
                 "Eve",
-                UserRole.PARTICIPANT,
+                SessionRole.PARTICIPANT,
                 now - 80_000
             ),
             SessionMemberEntity(
                 sessionId,
                 "demo-mary",
                 "Mary",
-                UserRole.PARTICIPANT,
+                SessionRole.PARTICIPANT,
                 now - 70_000
             )
         )

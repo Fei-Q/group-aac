@@ -7,6 +7,7 @@ import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.repository.AccountRepository
 import com.example.groupaac.data.repository.SessionRepository
 import com.example.groupaac.model.ActiveSession
+import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SessionConnectionState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -124,7 +125,7 @@ class SessionCoordinatorViewModel(
                     joinCode = code,
                     userId = user.id,
                     displayName = displayName,
-                    role = user.role
+                    role = SessionRole.PARTICIPANT
                 )
             }.onSuccess { activeSession ->
                 _uiState.value = _uiState.value.copy(
@@ -161,8 +162,7 @@ class SessionCoordinatorViewModel(
                 sessionRepository.createSession(
                     name = name,
                     ownerUserId = user.id,
-                    displayName = displayName,
-                    role = user.role
+                    displayName = displayName
                 )
             }.onSuccess { activeSession ->
                 _uiState.value = _uiState.value.copy(

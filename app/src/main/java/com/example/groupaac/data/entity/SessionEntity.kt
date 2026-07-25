@@ -8,6 +8,7 @@ data class SessionEntity(
     @PrimaryKey val id: String,
     val name: String,
     val joinCode: String,
+    val hostUserId: String? = null,
 
     // When the session row/code was created in local storage.
     val createdAt: Long,

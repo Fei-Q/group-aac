@@ -7,14 +7,14 @@ import androidx.room.Query
 import androidx.room.Transaction
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
-import com.example.groupaac.model.UserRole
+import com.example.groupaac.model.SessionRole
 import kotlinx.coroutines.flow.Flow
 
 data class SessionParticipantRow(
     val sessionId: String,
     val userId: String,
     val displayName: String,
-    val role: UserRole,
+    val role: SessionRole,
     val joinedAt: Long
 )
 
