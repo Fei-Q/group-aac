@@ -415,11 +415,7 @@ private fun FindSessionCard(
             )
 
             PrimaryButton(
-                text = if (onScanQrCode == null) {
-                    "Scan QR code — coming soon"
-                } else {
-                    "Scan QR code"
-                },
+                text = "Scan QR code",
                 onClick = {
                     onScanQrCode?.invoke()
                 },
