@@ -62,7 +62,7 @@ fun ParticipantCard(
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(row.displayName, style = MaterialTheme.typography.titleLarge)
-                Text(row.lastActivityLabel, color = AacTextSecondary)
+                Text(row.lastActivityLabel, color = AacTextSecondary, style = MaterialTheme.typography.bodyMedium)
                 Text(row.elapsedLabel, color = AacTextSecondary, style = MaterialTheme.typography.bodyMedium)
             }
             SignalBadge(row.activeSignal, row.signalState)

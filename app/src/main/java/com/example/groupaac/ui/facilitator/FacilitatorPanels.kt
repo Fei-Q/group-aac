@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -61,7 +60,8 @@ fun ParticipantDetailSidebar(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(participant.displayName, style = MaterialTheme.typography.headlineMedium)
                 SignalBadge(participant.activeSignal, participant.signalState)
-                Text(participant.lastActivityLabel, color = AacTextSecondary)
+                Text(participant.lastActivityLabel, color = AacTextSecondary, style = MaterialTheme.typography.bodyMedium)
+                Text(participant.elapsedLabel, color = AacTextSecondary, style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     SecondaryButton("Snooze", onClick = { onSnooze(participant.userId) }, modifier = Modifier.weight(1f))
                 }

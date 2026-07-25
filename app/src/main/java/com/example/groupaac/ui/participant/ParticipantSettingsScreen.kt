@@ -30,17 +30,14 @@ import com.example.groupaac.ui.theme.GroupAacTheme
 
 @Composable
 fun ParticipantSettingsScreen(
-    uiState: ParticipantUiState,
+    user: UserEntity?,
+    settings: UserSettingsEntity,
     onUpdateSettings: (UserSettingsEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val settings = uiState.settings ?: UserSettingsEntity(
-        userId = uiState.user?.id ?: ""
-    )
-
     when (rememberAppWindowSize()) {
         AppWindowSize.Phone -> ParticipantSettingsScreenPhone(
-            uiState = uiState,
+            user = user,
             settings = settings,
             onUpdateSettings = onUpdateSettings,
             modifier = modifier
@@ -48,7 +45,7 @@ fun ParticipantSettingsScreen(
 
         AppWindowSize.Tablet,
         AppWindowSize.Desktop -> ParticipantSettingsScreenTablet(
-            uiState = uiState,
+            user = user,
             settings = settings,
             onUpdateSettings = onUpdateSettings,
             modifier = modifier
@@ -56,9 +53,29 @@ fun ParticipantSettingsScreen(
     }
 }
 
+/**
+ * Temporary compatibility overload for the obsolete ParticipantHomeScreen.
+ * Remove it after that old host screen is deleted.
+ */
+@Composable
+fun ParticipantSettingsScreen(
+    uiState: ParticipantUiState,
+    onUpdateSettings: (UserSettingsEntity) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    ParticipantSettingsScreen(
+        user = uiState.user,
+        settings = uiState.settings ?: UserSettingsEntity(
+            userId = uiState.user?.id.orEmpty()
+        ),
+        onUpdateSettings = onUpdateSettings,
+        modifier = modifier
+    )
+}
+
 @Composable
 private fun ParticipantSettingsScreenPhone(
-    uiState: ParticipantUiState,
+    user: UserEntity?,
     settings: UserSettingsEntity,
     onUpdateSettings: (UserSettingsEntity) -> Unit,
     modifier: Modifier = Modifier
@@ -72,8 +89,7 @@ private fun ParticipantSettingsScreenPhone(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         SettingsHeader()
-
-        ProfileCard(uiState)
+        ProfileCard(user)
         AccessibilitySettingsCard(
             settings = settings,
             onUpdateSettings = onUpdateSettings
@@ -83,7 +99,7 @@ private fun ParticipantSettingsScreenPhone(
 
 @Composable
 private fun ParticipantSettingsScreenTablet(
-    uiState: ParticipantUiState,
+    user: UserEntity?,
     settings: UserSettingsEntity,
     onUpdateSettings: (UserSettingsEntity) -> Unit,
     modifier: Modifier = Modifier
@@ -107,7 +123,7 @@ private fun ParticipantSettingsScreenTablet(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                ProfileCard(uiState)
+                ProfileCard(user)
             }
 
             Column(
@@ -143,9 +159,7 @@ private fun SettingsHeader() {
 }
 
 @Composable
-private fun ProfileCard(
-    uiState: ParticipantUiState
-) {
+private fun ProfileCard(user: UserEntity?) {
     AppCard {
         Column(
             verticalArrangement = Arrangement.spacedBy(18.dp)
@@ -156,11 +170,11 @@ private fun ProfileCard(
             )
 
             Text(
-                text = "Username: ${uiState.user?.displayName ?: "Unknown"}"
+                text = "Username: ${user?.displayName ?: "Unknown"}"
             )
 
             Text(
-                text = "Role: ${uiState.user?.role?.label ?: "Unknown"}",
+                text = "Role: ${user?.role?.label ?: "Unknown"}",
                 color = AacTextSecondary
             )
         }
@@ -206,7 +220,9 @@ private fun AccessibilitySettingsCard(
                 checked = settings.participantShowTypingStatus,
                 onChecked = {
                     onUpdateSettings(
-                        settings.copy(participantShowTypingStatus = it)
+                        settings.copy(
+                            participantShowTypingStatus = it
+                        )
                     )
                 }
             )
@@ -247,24 +263,22 @@ private fun SettingsSwitch(
     }
 }
 
-private fun previewParticipantSettingsUiState(): ParticipantUiState {
-    return ParticipantUiState(
-        user = UserEntity(
-            id = "u1",
-            displayName = "Alice",
-            role = UserRole.PARTICIPANT,
-            createdAt = 0
-        ),
-        settings = UserSettingsEntity(userId = "u1")
-    )
-}
+private fun previewUser() = UserEntity(
+    id = "u1",
+    displayName = "Alice",
+    role = UserRole.PARTICIPANT,
+    createdAt = 0
+)
+
+private fun previewSettings() = UserSettingsEntity(userId = "u1")
 
 @Preview(showBackground = true, widthDp = 360, heightDp = 800)
 @Composable
-fun ParticipantSettingsScreenPhonePreview() {
+private fun ParticipantSettingsScreenPhonePreview() {
     GroupAacTheme {
         ParticipantSettingsScreen(
-            uiState = previewParticipantSettingsUiState(),
+            user = previewUser(),
+            settings = previewSettings(),
             onUpdateSettings = {}
         )
     }
@@ -272,10 +286,11 @@ fun ParticipantSettingsScreenPhonePreview() {
 
 @Preview(showBackground = true, widthDp = 800, heightDp = 1280)
 @Composable
-fun ParticipantSettingsScreenTabletPortraitPreview() {
+private fun ParticipantSettingsScreenTabletPortraitPreview() {
     GroupAacTheme {
         ParticipantSettingsScreen(
-            uiState = previewParticipantSettingsUiState(),
+            user = previewUser(),
+            settings = previewSettings(),
             onUpdateSettings = {}
         )
     }
@@ -283,10 +298,11 @@ fun ParticipantSettingsScreenTabletPortraitPreview() {
 
 @Preview(showBackground = true, widthDp = 1280, heightDp = 800)
 @Composable
-fun ParticipantSettingsScreenTabletLandscapePreview() {
+private fun ParticipantSettingsScreenTabletLandscapePreview() {
     GroupAacTheme {
         ParticipantSettingsScreen(
-            uiState = previewParticipantSettingsUiState(),
+            user = previewUser(),
+            settings = previewSettings(),
             onUpdateSettings = {}
         )
     }

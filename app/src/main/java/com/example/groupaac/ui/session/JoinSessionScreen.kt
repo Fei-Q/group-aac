@@ -1,12 +1,7 @@
 package com.example.groupaac.ui.session
 
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,20 +10,22 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,187 +37,151 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.example.groupaac.R
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.model.UserRole
 import com.example.groupaac.ui.common.AppCard
 import com.example.groupaac.ui.common.PrimaryButton
+import com.example.groupaac.ui.common.SecondaryButton
 import com.example.groupaac.ui.theme.AacBackground
-import com.example.groupaac.ui.theme.AacGreen
+import com.example.groupaac.ui.theme.AacBorder
 import com.example.groupaac.ui.theme.AacTextSecondary
 import com.example.groupaac.ui.theme.GroupAacTheme
-import kotlinx.coroutines.delay
-import com.example.groupaac.ui.common.RoleSelectionButton
-import com.example.groupaac.ui.common.RoleSelectionButtonLayout
-import com.example.groupaac.ui.common.RoleSelectionButtonStyle
-import androidx.compose.material3.Icon
-import androidx.compose.ui.res.painterResource
-import com.example.groupaac.R
-import com.example.groupaac.ui.theme.AacBorder
-
-private const val MOCK_SCANNED_SESSION_CODE = "12345678"
-private val AacErrorRed = Color(0xFFB3261E)
-
-private enum class SessionLookupStatus {
-    Idle,
-    Loading,
-    Found,
-    NotFound
-}
-
-private data class LocatedSessionPreview(
-    val sessionCodeDigits: String,
-    val sessionName: String,
-    val scheduledTime: String
-)
 
 @Composable
 fun JoinSessionScreen(
-    currentUser: UserEntity?,
-    onJoin: (String, String, UserRole, Boolean) -> Unit,
-    onBack: () -> Unit
+    currentUser: UserEntity,
+    isJoining: Boolean,
+    errorMessage: String?,
+    onJoin: (
+        code: String,
+        displayName: String,
+        rememberProfile: Boolean
+    ) -> Unit,
+    modifier: Modifier = Modifier,
+    onScanQrCode: (() -> Unit)? = null
 ) {
-    val configuration = LocalConfiguration.current
-    val isTablet = configuration.screenWidthDp >= 700
+    val isTablet = LocalConfiguration.current.screenWidthDp >= 700
 
     var codeDigits by rememberSaveable {
         mutableStateOf("")
     }
-
-    var lookupStatus by rememberSaveable {
-        mutableStateOf(SessionLookupStatus.Idle)
+    var displayName by rememberSaveable(currentUser.id) {
+        mutableStateOf(currentUser.displayName)
     }
-
-    var displayName by rememberSaveable(currentUser?.id) {
-        mutableStateOf(currentUser?.displayName.orEmpty())
-    }
-
-    var selectedRole by rememberSaveable(currentUser?.id) {
-        mutableStateOf(currentUser?.role ?: UserRole.PARTICIPANT)
-    }
-
-    var rememberSettings by rememberSaveable {
+    var rememberProfile by rememberSaveable {
         mutableStateOf(false)
     }
-
-    LaunchedEffect(codeDigits) {
-        lookupStatus = when {
-            codeDigits.length < 8 -> SessionLookupStatus.Idle
-            codeDigits.length == 8 -> {
-                SessionLookupStatus.Loading
-            }
-            else -> SessionLookupStatus.Idle
-        }
-
-        if (codeDigits.length == 8) {
-            delay(800)
-
-            lookupStatus = if (mockSessionLookupSucceeds(codeDigits)) {
-                SessionLookupStatus.Found
-            } else {
-                SessionLookupStatus.NotFound
-            }
-        }
+    var localValidationError by rememberSaveable {
+        mutableStateOf<String?>(null)
     }
 
-    val locatedSession =
-        if (lookupStatus == SessionLookupStatus.Found) {
-            LocatedSessionPreview(
-                sessionCodeDigits = codeDigits,
-                sessionName = "Group AAC Session",
-                scheduledTime = "July 4th, 3-4 pm"
-            )
-        } else {
-            null
-        }
-
-    val joinEnabled = locatedSession != null && displayName.isNotBlank()
+    LaunchedEffect(currentUser.id, currentUser.displayName) {
+        displayName = currentUser.displayName
+    }
 
     fun updateCode(raw: String) {
         codeDigits = normalizeSessionDigits(raw)
+        localValidationError = null
     }
 
-    fun scanQrCode() {
-        // TODO: Replace this with CameraX / ML Kit scanner.
-        // Scanner success should call updateCode(scannedCode).
-        updateCode(MOCK_SCANNED_SESSION_CODE)
-    }
+    fun submitJoin() {
+        val cleanDisplayName = displayName.trim()
 
-    fun joinLocatedSession() {
-        val session = locatedSession ?: return
+        localValidationError = when {
+            codeDigits.length != 8 ->
+                "Enter the complete eight-digit session code."
 
-        if (displayName.isBlank()) {
-            return
+            cleanDisplayName.isBlank() ->
+                "Enter your display name."
+
+            else -> null
         }
 
-        onJoin(
-            session.sessionCodeDigits,
-            displayName.trim(),
-            selectedRole,
-            rememberSettings
-        )
+        if (localValidationError == null) {
+            onJoin(
+                codeDigits,
+                cleanDisplayName,
+                rememberProfile
+            )
+        }
     }
+
+    val joinEnabled =
+        codeDigits.length == 8 &&
+            displayName.isNotBlank() &&
+            !isJoining
 
     if (isTablet) {
         TabletJoinSession(
+            currentUser = currentUser,
             codeDigits = codeDigits,
             onCodeChange = ::updateCode,
-            lookupStatus = lookupStatus,
-            locatedSession = locatedSession,
             displayName = displayName,
-            onDisplayNameChange = { displayName = it },
-            selectedRole = selectedRole,
-            onRoleChange = { selectedRole = it },
-            rememberSettings = rememberSettings,
-            onRememberSettingsChange = { rememberSettings = it },
-            onScanClick = ::scanQrCode,
+            onDisplayNameChange = {
+                displayName = it
+                localValidationError = null
+            },
+            rememberProfile = rememberProfile,
+            onRememberProfileChange = {
+                rememberProfile = it
+            },
+            isJoining = isJoining,
             joinEnabled = joinEnabled,
-            onJoin = ::joinLocatedSession,
-            onBack = onBack
+            errorMessage = localValidationError ?: errorMessage,
+            onJoin = ::submitJoin,
+            onScanQrCode = onScanQrCode,
+            modifier = modifier
         )
     } else {
         PhoneJoinSession(
+            currentUser = currentUser,
             codeDigits = codeDigits,
             onCodeChange = ::updateCode,
-            lookupStatus = lookupStatus,
-            locatedSession = locatedSession,
             displayName = displayName,
-            onDisplayNameChange = { displayName = it },
-            selectedRole = selectedRole,
-            onRoleChange = { selectedRole = it },
-            rememberSettings = rememberSettings,
-            onRememberSettingsChange = { rememberSettings = it },
-            onScanClick = ::scanQrCode,
+            onDisplayNameChange = {
+                displayName = it
+                localValidationError = null
+            },
+            rememberProfile = rememberProfile,
+            onRememberProfileChange = {
+                rememberProfile = it
+            },
+            isJoining = isJoining,
             joinEnabled = joinEnabled,
-            onJoin = ::joinLocatedSession,
-            onBack = onBack
+            errorMessage = localValidationError ?: errorMessage,
+            onJoin = ::submitJoin,
+            onScanQrCode = onScanQrCode,
+            modifier = modifier
         )
     }
 }
 
 @Composable
 private fun PhoneJoinSession(
+    currentUser: UserEntity,
     codeDigits: String,
     onCodeChange: (String) -> Unit,
-    lookupStatus: SessionLookupStatus,
-    locatedSession: LocatedSessionPreview?,
     displayName: String,
     onDisplayNameChange: (String) -> Unit,
-    selectedRole: UserRole,
-    onRoleChange: (UserRole) -> Unit,
-    rememberSettings: Boolean,
-    onRememberSettingsChange: (Boolean) -> Unit,
-    onScanClick: () -> Unit,
+    rememberProfile: Boolean,
+    onRememberProfileChange: (Boolean) -> Unit,
+    isJoining: Boolean,
     joinEnabled: Boolean,
+    errorMessage: String?,
     onJoin: () -> Unit,
-    onBack: () -> Unit
+    onScanQrCode: (() -> Unit)?,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(AacBackground)
             .verticalScroll(rememberScrollState())
@@ -228,30 +189,36 @@ private fun PhoneJoinSession(
         verticalArrangement = Arrangement.spacedBy(18.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        JoinScreenHeader(onBack = onBack)
+        JoinScreenHeader()
 
-        FindGroupCard(
+        FindSessionCard(
             codeDigits = codeDigits,
             onCodeChange = onCodeChange,
-            lookupStatus = lookupStatus,
-            locatedSession = locatedSession,
-            onScanClick = onScanClick,
+            onScanQrCode = onScanQrCode,
+            enabled = !isJoining,
             modifier = Modifier.fillMaxWidth()
         )
 
-        EditProfileCard(
+        ProfileCard(
+            currentUser = currentUser,
             displayName = displayName,
             onDisplayNameChange = onDisplayNameChange,
-            selectedRole = selectedRole,
-            onRoleChange = onRoleChange,
-            rememberSettings = rememberSettings,
-            onRememberSettingsChange = onRememberSettingsChange,
-            roleButtonsStacked = true,
+            rememberProfile = rememberProfile,
+            onRememberProfileChange = onRememberProfileChange,
+            enabled = !isJoining,
             modifier = Modifier.fillMaxWidth()
         )
 
+        errorMessage
+            ?.takeIf(String::isNotBlank)
+            ?.let { ErrorMessageCard(it) }
+
+        if (isJoining) {
+            JoiningIndicator()
+        }
+
         PrimaryButton(
-            text = "Join",
+            text = if (isJoining) "Joining…" else "Join session",
             onClick = onJoin,
             enabled = joinEnabled,
             modifier = Modifier.fillMaxWidth()
@@ -261,23 +228,22 @@ private fun PhoneJoinSession(
 
 @Composable
 private fun TabletJoinSession(
+    currentUser: UserEntity,
     codeDigits: String,
     onCodeChange: (String) -> Unit,
-    lookupStatus: SessionLookupStatus,
-    locatedSession: LocatedSessionPreview?,
     displayName: String,
     onDisplayNameChange: (String) -> Unit,
-    selectedRole: UserRole,
-    onRoleChange: (UserRole) -> Unit,
-    rememberSettings: Boolean,
-    onRememberSettingsChange: (Boolean) -> Unit,
-    onScanClick: () -> Unit,
+    rememberProfile: Boolean,
+    onRememberProfileChange: (Boolean) -> Unit,
+    isJoining: Boolean,
     joinEnabled: Boolean,
+    errorMessage: String?,
     onJoin: () -> Unit,
-    onBack: () -> Unit
+    onScanQrCode: (() -> Unit)?,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(AacBackground)
             .verticalScroll(rememberScrollState())
@@ -285,7 +251,7 @@ private fun TabletJoinSession(
         verticalArrangement = Arrangement.spacedBy(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        JoinScreenHeader(onBack = onBack)
+        JoinScreenHeader()
 
         Row(
             modifier = Modifier
@@ -298,31 +264,42 @@ private fun TabletJoinSession(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                FindGroupCard(
+                FindSessionCard(
                     codeDigits = codeDigits,
                     onCodeChange = onCodeChange,
-                    lookupStatus = lookupStatus,
-                    locatedSession = locatedSession,
-                    onScanClick = onScanClick,
+                    onScanQrCode = onScanQrCode,
+                    enabled = !isJoining,
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                errorMessage
+                    ?.takeIf(String::isNotBlank)
+                    ?.let { ErrorMessageCard(it) }
+
+                if (isJoining) {
+                    JoiningIndicator()
+                }
+
                 PrimaryButton(
-                    text = "Join",
+                    text = if (isJoining) {
+                        "Joining…"
+                    } else {
+                        "Join session"
+                    },
                     onClick = onJoin,
                     enabled = joinEnabled,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
 
-            EditProfileCard(
+            ProfileCard(
+                currentUser = currentUser,
                 displayName = displayName,
                 onDisplayNameChange = onDisplayNameChange,
-                selectedRole = selectedRole,
-                onRoleChange = onRoleChange,
-                rememberSettings = rememberSettings,
-                onRememberSettingsChange = onRememberSettingsChange,
-                roleButtonsStacked = false,
+                rememberProfile = rememberProfile,
+                onRememberProfileChange =
+                    onRememberProfileChange,
+                enabled = !isJoining,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -330,40 +307,33 @@ private fun TabletJoinSession(
 }
 
 @Composable
-private fun JoinScreenHeader(
-    onBack: () -> Unit
-) {
-    Box(
+private fun JoinScreenHeader() {
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        contentAlignment = Alignment.Center
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        IconButton(
-            onClick = onBack,
-            modifier = Modifier.align(Alignment.CenterStart)
-        ) {
-            Text(
-                text = "←",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.secondary
-            )
-        }
-
         Text(
-            text = "Join a Session!",
+            text = "Join a Session",
             style = MaterialTheme.typography.headlineLarge,
             color = MaterialTheme.colorScheme.secondary,
             fontWeight = FontWeight.Bold
+        )
+
+        Text(
+            text = "Enter the code shared by your facilitator.",
+            color = AacTextSecondary,
+            textAlign = TextAlign.Center
         )
     }
 }
 
 @Composable
-private fun FindGroupCard(
+private fun FindSessionCard(
     codeDigits: String,
     onCodeChange: (String) -> Unit,
-    lookupStatus: SessionLookupStatus,
-    locatedSession: LocatedSessionPreview?,
-    onScanClick: () -> Unit,
+    onScanQrCode: (() -> Unit)?,
+    enabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     AppCard(
@@ -374,7 +344,7 @@ private fun FindGroupCard(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
-                text = "1. Find my group:",
+                text = "1. Find my session",
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.secondary,
                 fontWeight = FontWeight.Bold
@@ -383,138 +353,129 @@ private fun FindGroupCard(
             CenteredCodeInputField(
                 codeDigits = codeDigits,
                 onCodeChange = onCodeChange,
+                enabled = enabled,
                 modifier = Modifier.fillMaxWidth()
             )
 
-            when (lookupStatus) {
-                SessionLookupStatus.Idle -> {
-                    Text(
-                        text = "or",
-                        modifier = Modifier.align(Alignment.CenterHorizontally),
-                        color = AacTextSecondary,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    PrimaryButton(
-                        text = "Scan QR Code",
-                        onClick = onScanClick,
-                        modifier = Modifier.fillMaxWidth(),
-                        leadingIconRes = R.drawable.ic_scan_qr_code
-                    )
+            Text(
+                text = "or",
+                modifier = Modifier.align(
+                    Alignment.CenterHorizontally
+                ),
+                color = AacTextSecondary,
+                style = MaterialTheme.typography.bodySmall
+            )
 
-                    Text(
-                        text = "Scan session QR code or enter the number code.",
-                        color = AacTextSecondary,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
+            SecondaryButton(
+                text = if (onScanQrCode == null) {
+                    "Scan QR code — coming soon"
+                } else {
+                    "Scan QR code"
+                },
+                onClick = {
+                    onScanQrCode?.invoke()
+                },
+                enabled = enabled && onScanQrCode != null,
+                modifier = Modifier.fillMaxWidth(),
+                leadingIconRes = R.drawable.ic_scan_qr_code
+            )
 
-                SessionLookupStatus.Loading -> {
-                    SessionLookupLoading()
-                }
-
-                SessionLookupStatus.Found -> {
-                    if (locatedSession != null) {
-                        LocatedSessionPreviewBlock(locatedSession)
-                    }
-                }
-
-                SessionLookupStatus.NotFound -> {
-                    SessionLookupError()
-                }
-            }
+            Text(
+                text = "The code is checked when you tap Join session.",
+                color = AacTextSecondary,
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
     }
 }
 
 @Composable
-private fun SessionLookupLoading() {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(20.dp),
-            strokeWidth = 2.dp
-        )
-
-        Text(
-            text = "Finding session...",
-            color = AacTextSecondary,
-            style = MaterialTheme.typography.labelLarge
-        )
-    }
-}
-
-@Composable
-private fun SessionLookupError() {
-    Column(
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Text(
-            text = "No session found.",
-            color = AacErrorRed,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold
-        )
-
-        Text(
-            text = "Check the number code and try again.",
-            color = AacTextSecondary,
-            style = MaterialTheme.typography.bodyMedium
-        )
-    }
-}
-
-@Composable
-private fun LocatedSessionPreviewBlock(
-    locatedSession: LocatedSessionPreview
+private fun ProfileCard(
+    currentUser: UserEntity,
+    displayName: String,
+    onDisplayNameChange: (String) -> Unit,
+    rememberProfile: Boolean,
+    onRememberProfileChange: (Boolean) -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier
 ) {
-    Column(
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    AppCard(
+        modifier = modifier,
+        contentPadding = PaddingValues(18.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
-                text = "Session found!",
-                color = AacGreen,
-                style = MaterialTheme.typography.labelLarge
+                text = "2. Check my information",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.secondary,
+                fontWeight = FontWeight.Bold
             )
 
-            Spacer(Modifier.width(8.dp))
+            OutlinedTextField(
+                value = displayName,
+                onValueChange = onDisplayNameChange,
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = {
+                    Text("Display name")
+                },
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Done
+                )
+            )
 
-            Box(
-                modifier = Modifier
-                    .size(20.dp)
-                    .background(AacGreen, CircleShape),
-                contentAlignment = Alignment.Center
+            Text(
+                text = "Joining as",
+                style = MaterialTheme.typography.bodyLarge
+            )
+
+            ReadOnlyRoleBadge(
+                role = currentUser.role
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Checkbox(
+                    checked = rememberProfile,
+                    onCheckedChange = onRememberProfileChange,
+                    enabled = enabled
+                )
+
+                Spacer(Modifier.width(8.dp))
+
                 Text(
-                    text = "✓",
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold
+                    text = "Remember this display name.",
+                    color = AacTextSecondary,
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
         }
+    }
+}
 
-        Column(
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(
-                text = "Group Name: ${locatedSession.sessionName}",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.secondary,
-                fontWeight = FontWeight.Bold
-            )
-
-            Text(
-                text = "Scheduled Time: ${locatedSession.scheduledTime}",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.secondary,
-                fontWeight = FontWeight.Bold
-            )
-        }
+@Composable
+private fun ReadOnlyRoleBadge(
+    role: UserRole
+) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer
+    ) {
+        Text(
+            text = role.label,
+            modifier = Modifier.padding(
+                horizontal = 16.dp,
+                vertical = 12.dp
+            ),
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -522,11 +483,13 @@ private fun LocatedSessionPreviewBlock(
 private fun CenteredCodeInputField(
     codeDigits: String,
     onCodeChange: (String) -> Unit,
+    enabled: Boolean,
     modifier: Modifier = Modifier
 ) {
     BasicTextField(
         value = formatSessionCode(codeDigits),
         onValueChange = onCodeChange,
+        enabled = enabled,
         singleLine = true,
         textStyle = MaterialTheme.typography.bodyLarge.copy(
             color = MaterialTheme.colorScheme.onSurface,
@@ -538,8 +501,15 @@ private fun CenteredCodeInputField(
         ),
         modifier = modifier
             .heightIn(min = 56.dp)
-            .border(1.dp, AacBorder, RoundedCornerShape(4.dp))
-            .background(Color.White, RoundedCornerShape(4.dp))
+            .border(
+                width = 1.dp,
+                color = AacBorder,
+                shape = RoundedCornerShape(4.dp)
+            )
+            .background(
+                color = Color.White,
+                shape = RoundedCornerShape(4.dp)
+            )
             .padding(horizontal = 14.dp),
         decorationBox = { innerTextField ->
             Row(
@@ -548,7 +518,9 @@ private fun CenteredCodeInputField(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    painter = painterResource(id = R.drawable.ic_enter_code),
+                    painter = painterResource(
+                        id = R.drawable.ic_enter_code
+                    ),
                     contentDescription = null,
                     modifier = Modifier.size(22.dp),
                     tint = AacTextSecondary
@@ -562,7 +534,7 @@ private fun CenteredCodeInputField(
                 ) {
                     if (codeDigits.isBlank()) {
                         Text(
-                            text = "Enter Number Code",
+                            text = "Enter number code",
                             style = MaterialTheme.typography.bodyLarge,
                             color = AacTextSecondary
                         )
@@ -574,169 +546,98 @@ private fun CenteredCodeInputField(
         }
     )
 }
+
 @Composable
-private fun EditProfileCard(
-    displayName: String,
-    onDisplayNameChange: (String) -> Unit,
-    selectedRole: UserRole,
-    onRoleChange: (UserRole) -> Unit,
-    rememberSettings: Boolean,
-    onRememberSettingsChange: (Boolean) -> Unit,
-    roleButtonsStacked: Boolean,
-    modifier: Modifier = Modifier
-) {
-    AppCard(
-        modifier = modifier,
-        contentPadding = PaddingValues(18.dp)
+private fun JoiningIndicator() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Text(
-                text = "2. Edit my info:",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.secondary,
-                fontWeight = FontWeight.Bold
-            )
+        CircularProgressIndicator(
+            modifier = Modifier.size(22.dp),
+            strokeWidth = 2.dp
+        )
 
-            Text(
-                text = "My name is:",
-                style = MaterialTheme.typography.bodyLarge
-            )
+        Spacer(Modifier.width(10.dp))
 
-            OutlinedTextField(
-                value = displayName,
-                onValueChange = onDisplayNameChange,
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                placeholder = {
-                    Text("Name")
-                }
-            )
-
-            Text(
-                text = "I'm here to:",
-                style = MaterialTheme.typography.bodyLarge
-            )
-
-            if (roleButtonsStacked) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    RoleSelectionButton(
-                        role = UserRole.PARTICIPANT,
-                        label = "Participate",
-                        selected = selectedRole == UserRole.PARTICIPANT,
-                        onClick = { onRoleChange(UserRole.PARTICIPANT) },
-                        modifier = Modifier.fillMaxWidth(),
-                        layout = RoleSelectionButtonLayout.Horizontal,
-                        selectedStyle = RoleSelectionButtonStyle.Soft,
-                        iconSize = 24.dp,
-                        labelFontSize = 16.sp
-                    )
-
-                    RoleSelectionButton(
-                        role = UserRole.FACILITATOR,
-                        label = "Facilitate",
-                        selected = selectedRole == UserRole.FACILITATOR,
-                        onClick = { onRoleChange(UserRole.FACILITATOR) },
-                        modifier = Modifier.fillMaxWidth(),
-                        layout = RoleSelectionButtonLayout.Horizontal,
-                        selectedStyle = RoleSelectionButtonStyle.Soft,
-                        iconSize = 24.dp,
-                        labelFontSize = 16.sp
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    RoleSelectionButton(
-                        role = UserRole.PARTICIPANT,
-                        label = "Participate",
-                        selected = selectedRole == UserRole.PARTICIPANT,
-                        onClick = { onRoleChange(UserRole.PARTICIPANT) },
-                        modifier = Modifier.weight(1f),
-                        layout = RoleSelectionButtonLayout.Horizontal,
-                        selectedStyle = RoleSelectionButtonStyle.Soft,
-                        iconSize = 24.dp,
-                        labelFontSize = 15.sp
-                    )
-
-                    RoleSelectionButton(
-                        role = UserRole.FACILITATOR,
-                        label = "Facilitate",
-                        selected = selectedRole == UserRole.FACILITATOR,
-                        onClick = { onRoleChange(UserRole.FACILITATOR) },
-                        modifier = Modifier.weight(1f),
-                        layout = RoleSelectionButtonLayout.Horizontal,
-                        selectedStyle = RoleSelectionButtonStyle.Soft,
-                        iconSize = 24.dp,
-                        labelFontSize = 15.sp
-                    )
-                }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        onRememberSettingsChange(!rememberSettings)
-                    },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Checkbox(
-                    checked = rememberSettings,
-                    onCheckedChange = onRememberSettingsChange
-                )
-
-                Text(
-                    text = "Remember my settings for this group.",
-                    color = AacTextSecondary,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
-    }
-}
-
-private fun normalizeSessionDigits(raw: String): String {
-    return raw.filter { it.isDigit() }.take(8)
-}
-
-private fun formatSessionCode(digits: String): String {
-    return when {
-        digits.length <= 4 -> digits
-        else -> digits.take(4) + "-" + digits.drop(4)
-    }
-}
-
-private fun mockSessionLookupSucceeds(codeDigits: String): Boolean {
-    return codeDigits.length == 8 && codeDigits != "00000000"
-}
-
-@Preview(showBackground = true, widthDp = 1000, heightDp = 800)
-@Composable
-fun JoinSessionScreenTabletPreview() {
-    GroupAacTheme {
-        JoinSessionScreen(
-            currentUser = UserEntity("1", "Alice", UserRole.PARTICIPANT, 0),
-            onJoin = { _, _, _, _ -> },
-            onBack = {}
+        Text(
+            text = "Connecting to the session…",
+            color = AacTextSecondary
         )
     }
 }
 
-@Preview(showBackground = true, widthDp = 360, heightDp = 800)
 @Composable
-fun JoinSessionScreenPhonePreview() {
+private fun ErrorMessageCard(
+    message: String
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.errorContainer
+    ) {
+        Text(
+            text = message,
+            modifier = Modifier.padding(16.dp),
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            style = MaterialTheme.typography.bodyLarge
+        )
+    }
+}
+
+private fun normalizeSessionDigits(raw: String): String {
+    return raw.filter(Char::isDigit).take(8)
+}
+
+private fun formatSessionCode(digits: String): String {
+    return if (digits.length <= 4) {
+        digits
+    } else {
+        "${digits.take(4)}-${digits.drop(4)}"
+    }
+}
+
+@Preview(
+    showBackground = true,
+    widthDp = 1000,
+    heightDp = 800
+)
+@Composable
+private fun JoinSessionScreenTabletPreview() {
     GroupAacTheme {
         JoinSessionScreen(
-            currentUser = UserEntity("1", "Alice", UserRole.PARTICIPANT, 0),
-            onJoin = { _, _, _, _ -> },
-            onBack = {}
+            currentUser = UserEntity(
+                id = "1",
+                displayName = "Alice",
+                role = UserRole.PARTICIPANT,
+                createdAt = 0
+            ),
+            isJoining = false,
+            errorMessage = null,
+            onJoin = { _, _, _ -> }
+        )
+    }
+}
+
+@Preview(
+    showBackground = true,
+    widthDp = 360,
+    heightDp = 800
+)
+@Composable
+private fun JoinSessionScreenPhonePreview() {
+    GroupAacTheme {
+        JoinSessionScreen(
+            currentUser = UserEntity(
+                id = "1",
+                displayName = "Alice",
+                role = UserRole.PARTICIPANT,
+                createdAt = 0
+            ),
+            isJoining = false,
+            errorMessage = "No session found for this code.",
+            onJoin = { _, _, _ -> }
         )
     }
 }

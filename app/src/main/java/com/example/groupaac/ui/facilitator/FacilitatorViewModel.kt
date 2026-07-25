@@ -13,6 +13,7 @@ import com.example.groupaac.data.repository.SessionRepository
 import com.example.groupaac.data.repository.SettingsRepository
 import com.example.groupaac.data.repository.SignalRepository
 import com.example.groupaac.model.ParticipantOverview
+import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.SessionSummaryUi
 import com.example.groupaac.model.SignalState
 import com.example.groupaac.util.TimeUtils
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class FacilitatorViewModel(
+    private val sessionId: String,
     private val accountRepository: AccountRepository,
     private val settingsRepository: SettingsRepository,
     private val sessionRepository: SessionRepository,
@@ -33,14 +35,16 @@ class FacilitatorViewModel(
     private val facilitatorRepository: FacilitatorRepository
 ) : ViewModel() {
 
-    val uiState = MutableStateFlow(FacilitatorUiState())
+    val uiState = MutableStateFlow(
+        FacilitatorUiState(sessionId = sessionId)
+    )
 
     private var sessionObservationJob: Job? = null
     private var settingsObservationJob: Job? = null
 
     init {
         observeActiveFacilitator()
-        observeLastSession()
+        sessionObservationJob = observeSession(sessionId)
     }
 
     private fun observeActiveFacilitator() {
@@ -75,27 +79,6 @@ class FacilitatorViewModel(
         }
     }
 
-    private fun observeLastSession() {
-        viewModelScope.launch {
-            sessionRepository.lastSessionId.collect { sessionId ->
-                uiState.update {
-                    it.copy(
-                        sessionId = sessionId,
-                        session = null,
-                        messages = emptyList(),
-                        displayedMessage = null
-                    )
-                }
-
-                sessionObservationJob?.cancel()
-
-                if (sessionId != null) {
-                    sessionObservationJob = observeSession(sessionId)
-                }
-            }
-        }
-    }
-
     private fun observeSession(sessionId: String): Job {
         return viewModelScope.launch {
             launch {
@@ -107,9 +90,10 @@ class FacilitatorViewModel(
             launch {
                 combine(
                     facilitatorRepository.observeParticipantStats(sessionId),
-                    signalRepository.observeActiveSignals(sessionId)
-                ) { stats, signals ->
-                    buildOverview(stats, signals) to signals
+                    signalRepository.observeActiveSignals(sessionId),
+                    messageRepository.observeMessagesWithAttachments(sessionId)
+                ) { stats, signals, messages ->
+                    buildOverview(stats, signals, messages) to signals
                 }.collect { (overview, signals) ->
                     uiState.update {
                         it.copy(
@@ -167,7 +151,8 @@ class FacilitatorViewModel(
 
     private fun buildOverview(
         stats: List<ParticipantStatsRow>,
-        signals: List<SignalWithUser>
+        signals: List<SignalWithUser>,
+        messages: List<com.example.groupaac.data.dao.MessageWithSenderAndAttachments>
     ): List<ParticipantOverview> {
         val settings = uiState.value.settings
         val lowParticipationThresholdMinutes =
@@ -182,10 +167,42 @@ class FacilitatorViewModel(
                 .filter { it.userId == row.userId }
                 .minByOrNull { it.type.priority }
 
+            val lastGroupMessageAt = messages
+                .asSequence()
+                .map { it.message }
+                .filter { it.senderUserId == row.userId && it.target == MessageTarget.GROUP }
+                .maxOfOrNull { it.createdAt }
+
+            val lastPrivateMessageAt = messages
+                .asSequence()
+                .map { it.message }
+                .filter {
+                    it.senderUserId == row.userId &&
+                        (it.target == MessageTarget.FACILITATOR || it.target == MessageTarget.PRIVATE)
+                }
+                .maxOfOrNull { it.createdAt }
+
             val lastActivity = listOfNotNull(
-                row.lastMessageAt,
+                lastGroupMessageAt,
+                lastPrivateMessageAt,
                 row.lastSignalAt
             ).maxOrNull()
+
+            val lastActivityLabel = when (lastActivity) {
+                null -> "Last activity: no activity yet"
+                lastGroupMessageAt -> "Last activity: group message"
+                lastPrivateMessageAt -> "Last activity: private message"
+                else -> "Last activity: signal"
+            }
+
+            val elapsedText = when (lastActivity) {
+                null -> "Time: —"
+                else -> {
+                    val elapsed = TimeUtils.elapsedSince(lastActivity)
+                    val agoLabel = if (elapsed == "now") "just now" else "$elapsed ago"
+                    "Time: ${TimeUtils.clockTime(lastActivity)} ($agoLabel)"
+                }
+            }
 
             val isLowParticipation =
                 settings?.facilitatorShowLowParticipationAlerts == true &&
@@ -200,16 +217,8 @@ class FacilitatorViewModel(
                 displayName = row.displayName,
                 activeSignal = signal?.type,
                 signalState = signal?.state,
-                lastActivityLabel = if (lastActivity == null) {
-                    "No activity yet"
-                } else {
-                    "Last activity ${TimeUtils.clockTime(lastActivity)}"
-                },
-                elapsedLabel = if (lastActivity == null) {
-                    "—"
-                } else {
-                    TimeUtils.elapsedSince(lastActivity)
-                },
+                lastActivityLabel = lastActivityLabel,
+                elapsedLabel = elapsedText,
                 messageCount = row.messageCount,
                 supportRequests = row.supportRequests,
                 isLowParticipation = isLowParticipation
@@ -363,6 +372,7 @@ class FacilitatorViewModel(
 }
 
 class FacilitatorViewModelFactory(
+    private val sessionId: String,
     private val accountRepository: AccountRepository,
     private val settingsRepository: SettingsRepository,
     private val sessionRepository: SessionRepository,
@@ -371,15 +381,28 @@ class FacilitatorViewModelFactory(
     private val facilitatorRepository: FacilitatorRepository
 ) : ViewModelProvider.Factory {
 
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return FacilitatorViewModel(
-            accountRepository = accountRepository,
-            settingsRepository = settingsRepository,
-            sessionRepository = sessionRepository,
-            messageRepository = messageRepository,
-            signalRepository = signalRepository,
-            facilitatorRepository = facilitatorRepository
-        ) as T
+    override fun <T : ViewModel> create(
+        modelClass: Class<T>
+    ): T {
+        if (
+            modelClass.isAssignableFrom(
+                FacilitatorViewModel::class.java
+            )
+        ) {
+            @Suppress("UNCHECKED_CAST")
+            return FacilitatorViewModel(
+                sessionId = sessionId,
+                accountRepository = accountRepository,
+                settingsRepository = settingsRepository,
+                sessionRepository = sessionRepository,
+                messageRepository = messageRepository,
+                signalRepository = signalRepository,
+                facilitatorRepository = facilitatorRepository
+            ) as T
+        }
+
+        throw IllegalArgumentException(
+            "Unknown ViewModel class: ${modelClass.name}"
+        )
     }
 }

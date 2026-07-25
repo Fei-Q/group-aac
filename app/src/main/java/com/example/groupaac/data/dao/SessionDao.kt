@@ -20,10 +20,16 @@ data class SessionParticipantRow(
 
 @Dao
 interface SessionDao {
-    @Query("""
+    @Query(
+        """
         SELECT * FROM sessions
-        ORDER BY COALESCE(actualStartedAt, scheduledStartAt, createdAt) DESC
-    """)
+        ORDER BY COALESCE(
+            actualStartedAt,
+            scheduledStartAt,
+            createdAt
+        ) DESC
+        """
+    )
     fun observeSessions(): Flow<List<SessionEntity>>
 
     @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
@@ -32,39 +38,48 @@ interface SessionDao {
     @Query("SELECT * FROM sessions WHERE joinCode = :joinCode LIMIT 1")
     suspend fun getSessionByCode(joinCode: String): SessionEntity?
 
+    @Query("SELECT COUNT(*) FROM sessions WHERE joinCode = :joinCode")
+    suspend fun countSessionsByJoinCode(joinCode: String): Int
+
     @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
     suspend fun getSession(id: String): SessionEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSession(session: SessionEntity)
 
-    @Query("""
+    @Query(
+        """
         UPDATE sessions
         SET actualStartedAt = :startedAt
         WHERE id = :sessionId
           AND actualStartedAt IS NULL
-    """)
+        """
+    )
     suspend fun markSessionStartedIfNeeded(
         sessionId: String,
         startedAt: Long = System.currentTimeMillis()
     )
 
-    @Query("""
+    @Query(
+        """
         UPDATE sessions
         SET actualEndedAt = :endedAt
         WHERE id = :sessionId
-    """)
+        """
+    )
     suspend fun markSessionEnded(
         sessionId: String,
         endedAt: Long = System.currentTimeMillis()
     )
 
-    @Query("""
+    @Query(
+        """
         UPDATE sessions
         SET scheduledStartAt = :scheduledStartAt,
             scheduledDurationMinutes = :scheduledDurationMinutes
         WHERE id = :sessionId
-    """)
+        """
+    )
     suspend fun updateSchedule(
         sessionId: String,
         scheduledStartAt: Long?,
@@ -77,34 +92,78 @@ interface SessionDao {
     @Query("SELECT userId FROM session_members WHERE sessionId = :sessionId")
     fun observeMemberIds(sessionId: String): Flow<List<String>>
 
-    @Query("""
+    @Query(
+        """
         SELECT session_members.sessionId,
                session_members.userId,
-               COALESCE(users.displayName, session_members.displayName) AS displayName,
+               COALESCE(
+                   users.displayName,
+                   session_members.displayName
+               ) AS displayName,
                session_members.role,
                session_members.joinedAt
         FROM session_members
-        LEFT JOIN users ON users.id = session_members.userId
+        LEFT JOIN users
+            ON users.id = session_members.userId
         WHERE session_members.sessionId = :sessionId
         ORDER BY session_members.joinedAt ASC
-    """)
-    fun observeMembers(sessionId: String): Flow<List<SessionParticipantRow>>
+        """
+    )
+    fun observeMembers(
+        sessionId: String
+    ): Flow<List<SessionParticipantRow>>
 
-    @Query("""
+    @Query(
+        """
         SELECT session_members.sessionId,
                session_members.userId,
-               COALESCE(users.displayName, session_members.displayName) AS displayName,
+               COALESCE(
+                   users.displayName,
+                   session_members.displayName
+               ) AS displayName,
                session_members.role,
                session_members.joinedAt
         FROM session_members
-        LEFT JOIN users ON users.id = session_members.userId
-        WHERE session_members.sessionId = :sessionId AND session_members.userId = :userId
+        LEFT JOIN users
+            ON users.id = session_members.userId
+        WHERE session_members.sessionId = :sessionId
+          AND session_members.userId = :userId
         LIMIT 1
-    """)
-    suspend fun getMember(sessionId: String, userId: String): SessionParticipantRow?
+        """
+    )
+    fun observeMember(
+        sessionId: String,
+        userId: String
+    ): Flow<SessionParticipantRow?>
+
+    @Query(
+        """
+        SELECT session_members.sessionId,
+               session_members.userId,
+               COALESCE(
+                   users.displayName,
+                   session_members.displayName
+               ) AS displayName,
+               session_members.role,
+               session_members.joinedAt
+        FROM session_members
+        LEFT JOIN users
+            ON users.id = session_members.userId
+        WHERE session_members.sessionId = :sessionId
+          AND session_members.userId = :userId
+        LIMIT 1
+        """
+    )
+    suspend fun getMember(
+        sessionId: String,
+        userId: String
+    ): SessionParticipantRow?
 
     @Transaction
-    suspend fun createOrJoinSession(session: SessionEntity, member: SessionMemberEntity) {
+    suspend fun createOrJoinSession(
+        session: SessionEntity,
+        member: SessionMemberEntity
+    ) {
         upsertSession(session)
         upsertMember(member)
     }

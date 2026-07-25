@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.repository.DebugRepository
 import com.example.groupaac.model.SignalType
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -18,91 +17,102 @@ data class DebugUiState(
 )
 
 class DebugViewModel(
+    private val sessionId: String,
     private val debugRepository: DebugRepository
 ) : ViewModel() {
-    val uiState = MutableStateFlow(DebugUiState())
-
-    private var sessionObservationJob: Job? = null
+    val uiState = MutableStateFlow(
+        DebugUiState(activeSessionId = sessionId)
+    )
 
     init {
-        observeActiveSession()
+        observeSession()
     }
 
-    private fun observeActiveSession() {
+    private fun observeSession() {
         viewModelScope.launch {
-            debugRepository.activeSessionId.collect { sessionId ->
-                uiState.update { it.copy(activeSessionId = sessionId) }
-
-                sessionObservationJob?.cancel()
-                if (sessionId == null) {
-                    uiState.update { it.copy(activeSession = null) }
-                } else {
-                    sessionObservationJob = viewModelScope.launch {
-                        debugRepository.observeSession(sessionId).collect { session ->
-                            uiState.update { it.copy(activeSession = session) }
-                        }
+            debugRepository.observeSession(sessionId)
+                .collect { session ->
+                    uiState.update {
+                        it.copy(activeSession = session)
                     }
                 }
-            }
         }
     }
 
     fun setupDemoSession() {
         viewModelScope.launch {
-            val sessionId = debugRepository.ensureDemoSession()
-            uiState.update {
-                it.copy(
-                    activeSessionId = sessionId,
-                    statusMessage = "Active session: $sessionId"
-                )
+            runCatching {
+                debugRepository.ensureDemoSession(sessionId)
+            }.onSuccess {
+                uiState.update {
+                    it.copy(
+                        activeSessionId = sessionId,
+                        statusMessage = "Debug session is ready."
+                    )
+                }
+            }.onFailure { error ->
+                uiState.update {
+                    it.copy(
+                        statusMessage = error.message
+                            ?: "Unable to prepare the debug session."
+                    )
+                }
             }
         }
     }
 
     fun addAlice() {
-        runSessionAction("Alice added") { sessionId ->
+        runSessionAction("Alice added") {
             debugRepository.addDebugParticipantAlice(sessionId)
         }
     }
 
     fun addBob() {
-        runSessionAction("Bob added") { sessionId ->
+        runSessionAction("Bob added") {
             debugRepository.addDebugParticipantBob(sessionId)
         }
     }
 
     fun aliceHelp() {
-        runSessionAction("Alice Help signal created") { sessionId ->
-            debugRepository.createDebugSignal(sessionId, DebugRepository.DEBUG_ALICE_ID, SignalType.HELP)
+        runSessionAction("Alice Help signal created") {
+            debugRepository.createDebugSignal(
+                sessionId = sessionId,
+                userId = DebugRepository.DEBUG_ALICE_ID,
+                type = SignalType.HELP
+            )
         }
     }
 
     fun bobWait() {
-        runSessionAction("Bob Wait signal created") { sessionId ->
-            debugRepository.createDebugSignal(sessionId, DebugRepository.DEBUG_BOB_ID, SignalType.WAIT)
+        runSessionAction("Bob Wait signal created") {
+            debugRepository.createDebugSignal(
+                sessionId = sessionId,
+                userId = DebugRepository.DEBUG_BOB_ID,
+                type = SignalType.WAIT
+            )
         }
     }
 
     fun clearSignals() {
-        runSessionAction("Signals cleared") { sessionId ->
+        runSessionAction("Signals cleared") {
             debugRepository.clearDebugSignals(sessionId)
         }
     }
 
     fun seedMessages() {
-        runSessionAction("Sample messages seeded") { sessionId ->
+        runSessionAction("Sample messages seeded") {
             debugRepository.seedDebugMessages(sessionId)
         }
     }
 
     private fun runSessionAction(
         successMessage: String,
-        action: suspend (String) -> Unit
+        action: suspend () -> Unit
     ) {
         viewModelScope.launch {
-            val sessionId = debugRepository.ensureDemoSession()
             runCatching {
-                action(sessionId)
+                debugRepository.ensureDemoSession(sessionId)
+                action()
             }.onSuccess {
                 uiState.update {
                     it.copy(
@@ -110,9 +120,12 @@ class DebugViewModel(
                         statusMessage = successMessage
                     )
                 }
-            }.onFailure { throwable ->
+            }.onFailure { error ->
                 uiState.update {
-                    it.copy(statusMessage = throwable.message ?: "Debug action failed")
+                    it.copy(
+                        statusMessage = error.message
+                            ?: "Debug action failed."
+                    )
                 }
             }
         }
@@ -120,13 +133,34 @@ class DebugViewModel(
 }
 
 class DebugViewModelFactory(
-    private val debugRepository: DebugRepository
+    private val debugRepository: DebugRepository,
+    private val sessionId: String
 ) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(DebugViewModel::class.java)) {
-            return DebugViewModel(debugRepository) as T
+
+    constructor(
+        debugRepository: DebugRepository
+    ) : this(
+        debugRepository = debugRepository,
+        sessionId = DebugRepository.DEBUG_SESSION_ID
+    )
+
+    override fun <T : ViewModel> create(
+        modelClass: Class<T>
+    ): T {
+        if (
+            modelClass.isAssignableFrom(
+                DebugViewModel::class.java
+            )
+        ) {
+            @Suppress("UNCHECKED_CAST")
+            return DebugViewModel(
+                sessionId = sessionId,
+                debugRepository = debugRepository
+            ) as T
         }
-        throw IllegalArgumentException("Unknown ViewModel class")
+
+        throw IllegalArgumentException(
+            "Unknown ViewModel class: ${modelClass.name}"
+        )
     }
 }

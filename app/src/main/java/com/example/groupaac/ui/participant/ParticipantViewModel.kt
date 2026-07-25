@@ -11,7 +11,6 @@ import com.example.groupaac.data.entity.UserSettingsEntity
 import com.example.groupaac.data.repository.AccountRepository
 import com.example.groupaac.data.repository.AttachmentRepository
 import com.example.groupaac.data.repository.MessageRepository
-import com.example.groupaac.data.repository.SessionRepository
 import com.example.groupaac.data.repository.SettingsRepository
 import com.example.groupaac.data.repository.SignalRepository
 import com.example.groupaac.data.repository.StoredAttachmentDraft
@@ -26,14 +25,16 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class ParticipantViewModel(
+    private val sessionId: String,
     private val accountRepository: AccountRepository,
-    private val sessionRepository: SessionRepository,
     private val messageRepository: MessageRepository,
     private val signalRepository: SignalRepository,
     private val settingsRepository: SettingsRepository,
     private val attachmentRepository: AttachmentRepository
 ) : ViewModel() {
-    val uiState = MutableStateFlow(ParticipantUiState())
+    val uiState = MutableStateFlow(
+        ParticipantUiState(sessionId = sessionId)
+    )
 
     private var settingsJob: Job? = null
     private var messagesJob: Job? = null
@@ -72,7 +73,7 @@ class ParticipantViewModel(
 
     init {
         observeActiveUser()
-        observeLastSession()
+        observeMessages(sessionId)
     }
 
     private fun observeActiveUser() {
@@ -109,58 +110,12 @@ class ParticipantViewModel(
                         observeSettings(user.id)
                         rebuildDrafts()
 
-                        val sessionId = uiState.value.sessionId
-                        if (sessionId != null) {
-                            observeCurrentSignal(
-                                sessionId = sessionId,
-                                userId = user.id
-                            )
-                        }
-                    }
-                }
-        }
-    }
-
-    private fun observeLastSession() {
-        viewModelScope.launch {
-            sessionRepository.lastSessionId.collect { sessionId ->
-                clearPendingAttachmentDrafts()
-                latestMessageRows = emptyList()
-
-                uiState.update {
-                    it.copy(
-                        sessionId = sessionId,
-                        shareComposerText = "",
-                        shareAttachmentPreviews = emptyList(),
-                        selectedShareAttachmentId = null,
-                        activeDraftId = null,
-                        drafts = emptyList()
-                    )
-                }
-
-                messagesJob?.cancel()
-                currentSignalJob?.cancel()
-
-                if (sessionId == null) {
-                    uiState.update {
-                        it.copy(
-                            messages = emptyList(),
-                            currentSignal = null
+                        observeCurrentSignal(
+                            sessionId = sessionId,
+                            userId = user.id
                         )
                     }
-                    return@collect
                 }
-
-                observeMessages(sessionId)
-
-                val userId = uiState.value.user?.id
-                if (userId != null) {
-                    observeCurrentSignal(
-                        sessionId = sessionId,
-                        userId = userId
-                    )
-                }
-            }
         }
     }
 
@@ -767,22 +722,35 @@ class ParticipantViewModel(
 }
 
 class ParticipantViewModelFactory(
+    private val sessionId: String,
     private val accountRepository: AccountRepository,
-    private val sessionRepository: SessionRepository,
     private val messageRepository: MessageRepository,
     private val signalRepository: SignalRepository,
     private val settingsRepository: SettingsRepository,
     private val attachmentRepository: AttachmentRepository
 ) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return ParticipantViewModel(
-            accountRepository = accountRepository,
-            sessionRepository = sessionRepository,
-            messageRepository = messageRepository,
-            signalRepository = signalRepository,
-            settingsRepository = settingsRepository,
-            attachmentRepository = attachmentRepository
-        ) as T
+
+    override fun <T : ViewModel> create(
+        modelClass: Class<T>
+    ): T {
+        if (
+            modelClass.isAssignableFrom(
+                ParticipantViewModel::class.java
+            )
+        ) {
+            @Suppress("UNCHECKED_CAST")
+            return ParticipantViewModel(
+                sessionId = sessionId,
+                accountRepository = accountRepository,
+                messageRepository = messageRepository,
+                signalRepository = signalRepository,
+                settingsRepository = settingsRepository,
+                attachmentRepository = attachmentRepository
+            ) as T
+        }
+
+        throw IllegalArgumentException(
+            "Unknown ViewModel class: ${modelClass.name}"
+        )
     }
 }

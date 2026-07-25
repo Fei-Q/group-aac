@@ -1,108 +1,180 @@
 package com.example.groupaac.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.groupaac.LocalAppContainer
-import com.example.groupaac.model.UserRole
+import com.example.groupaac.model.ActiveSession
+import com.example.groupaac.model.SessionConnectionState
 import com.example.groupaac.ui.account.AccountViewModel
 import com.example.groupaac.ui.account.AccountViewModelFactory
 import com.example.groupaac.ui.account.CreateAccountScreen
 import com.example.groupaac.ui.account.LoginScreen
-import com.example.groupaac.ui.facilitator.FacilitatorHomeScreen
-import com.example.groupaac.ui.facilitator.FacilitatorViewModel
-import com.example.groupaac.ui.facilitator.FacilitatorViewModelFactory
-import com.example.groupaac.ui.participant.ParticipantHomeScreen
-import com.example.groupaac.ui.participant.ParticipantViewModel
-import com.example.groupaac.ui.participant.ParticipantViewModelFactory
-import com.example.groupaac.ui.session.JoinSessionScreen
-import com.example.groupaac.ui.session.SessionViewModel
-import com.example.groupaac.ui.session.SessionViewModelFactory
+import com.example.groupaac.ui.navigation.AppShell
+import com.example.groupaac.ui.navigation.FacilitatorInSessionNavGraph
+import com.example.groupaac.ui.navigation.FacilitatorOutsideSessionNavGraph
+import com.example.groupaac.ui.navigation.ParticipantInSessionNavGraph
+import com.example.groupaac.ui.navigation.ParticipantOutsideSessionNavGraph
+import com.example.groupaac.ui.navigation.resolveAppShell
+import com.example.groupaac.ui.session.SessionCoordinatorViewModel
+import com.example.groupaac.ui.session.SessionCoordinatorViewModelFactory
 
-object Routes {
-    const val Login = "login"
-    const val CreateAccount = "create_account"
-    const val JoinSession = "join_session"
-    const val Participant = "participant"
-    const val Facilitator = "facilitator"
+private object AuthRoutes {
+    const val Login = "auth/login"
+    const val CreateAccount = "auth/create_account"
 }
 
 @Composable
-fun AppNavGraph(navController: NavHostController = rememberNavController()) {
+fun AppNavGraph(
+    navController: NavHostController = rememberNavController()
+) {
     val container = LocalAppContainer.current
-    val accountViewModel: AccountViewModel = viewModel(factory = AccountViewModelFactory(container.accountRepository))
-    val accountState by accountViewModel.uiState.collectAsState()
 
-    NavHost(navController = navController, startDestination = Routes.Login) {
-        composable(Routes.Login) {
-            LoginScreen(
-                uiState = accountState,
-                onUserSelected = { user ->
-                    accountViewModel.switchUser(user.id)
-                    navController.navigate(Routes.JoinSession)
-                },
-                onCreateAccount = { navController.navigate(Routes.CreateAccount) }
+    val accountViewModel: AccountViewModel = viewModel(
+        factory = AccountViewModelFactory(
+            container.accountRepository
+        )
+    )
+    val accountState by accountViewModel.uiState
+        .collectAsStateWithLifecycle()
+
+    val sessionCoordinatorViewModel: SessionCoordinatorViewModel =
+        viewModel(
+            factory = SessionCoordinatorViewModelFactory(
+                accountRepository = container.accountRepository,
+                sessionRepository = container.sessionRepository
             )
+        )
+    val sessionState by sessionCoordinatorViewModel.uiState
+        .collectAsStateWithLifecycle()
+
+    val activeUser = accountState.activeUser
+
+    when {
+        accountState.isLoading -> {
+            FullScreenLoadingIndicator()
         }
-        composable(Routes.CreateAccount) {
-            CreateAccountScreen(
-                onBack = { navController.popBackStack() },
-                onCreate = { name, role ->
-                    accountViewModel.createUser(name, role)
-                    navController.navigate(Routes.JoinSession) {
-                        popUpTo(Routes.Login) { inclusive = false }
-                    }
-                }
-            )
-        }
-        composable(Routes.JoinSession) {
-            val sessionViewModel: SessionViewModel = viewModel(
-                factory = SessionViewModelFactory(container.sessionRepository, container.accountRepository)
-            )
-            val sessionState by sessionViewModel.uiState.collectAsState()
-            JoinSessionScreen(
-                currentUser = accountState.activeUser,
-                onJoin = { code, displayName, role, rememberSettings ->
-                    sessionViewModel.join(code, displayName, role, rememberSettings) { resultRole ->
-                        when (resultRole) {
-                            UserRole.PARTICIPANT -> navController.navigate(Routes.Participant)
-                            UserRole.FACILITATOR -> navController.navigate(Routes.Facilitator)
+
+        activeUser == null -> {
+            NavHost(
+                navController = navController,
+                startDestination = AuthRoutes.Login
+            ) {
+                composable(AuthRoutes.Login) {
+                    LoginScreen(
+                        uiState = accountState,
+                        onUserSelected = { user ->
+                            accountViewModel.switchUser(user.id)
+                        },
+                        onCreateAccount = {
+                            navController.navigate(
+                                AuthRoutes.CreateAccount
+                            )
                         }
-                    }
-                },
-                onBack = { navController.popBackStack() }
-            )
+                    )
+                }
+
+                composable(AuthRoutes.CreateAccount) {
+                    CreateAccountScreen(
+                        onBack = {
+                            navController.popBackStack()
+                        },
+                        onCreate = { name, role ->
+                            accountViewModel.createUser(name, role)
+                        }
+                    )
+                }
+            }
         }
-        composable(Routes.Participant) {
-            val participantViewModel: ParticipantViewModel = viewModel(
-                factory = ParticipantViewModelFactory(
-                    container.accountRepository,
-                    container.sessionRepository,
-                    container.messageRepository,
-                    container.signalRepository,
-                    container.settingsRepository,
-                    container.attachmentRepository
+
+        else -> {
+            when (
+                resolveAppShell(
+                    role = activeUser.role,
+                    state = sessionState.connectionState
                 )
-            )
-            ParticipantHomeScreen(viewModel = participantViewModel)
+            ) {
+                AppShell.Restoring -> {
+                    FullScreenLoadingIndicator()
+                }
+
+                AppShell.ParticipantOutsideSession -> {
+                    ParticipantOutsideSessionNavGraph(
+                        currentUser = activeUser,
+                        sessionUiState = sessionState,
+                        onJoinSession =
+                            sessionCoordinatorViewModel::joinSession
+                    )
+                }
+
+                AppShell.ParticipantInSession -> {
+                    ParticipantInSessionNavGraph(
+                        activeSession =
+                            sessionState.connectionState
+                                .requireActiveSession(),
+                        connectionState =
+                            sessionState.connectionState,
+                        onLeaveSession =
+                            sessionCoordinatorViewModel::leaveSession
+                    )
+                }
+
+                AppShell.FacilitatorOutsideSession -> {
+                    FacilitatorOutsideSessionNavGraph(
+                        currentUser = activeUser,
+                        sessionUiState = sessionState,
+                        onCreateSession =
+                            sessionCoordinatorViewModel::createSession,
+                        onJoinSession =
+                            sessionCoordinatorViewModel::joinSession
+                    )
+                }
+
+                AppShell.FacilitatorInSession -> {
+                    FacilitatorInSessionNavGraph(
+                        activeSession =
+                            sessionState.connectionState
+                                .requireActiveSession(),
+                        connectionState =
+                            sessionState.connectionState,
+                        onLeaveSession =
+                            sessionCoordinatorViewModel::leaveSession,
+                        onEndSession =
+                            sessionCoordinatorViewModel::endSession
+                    )
+                }
+            }
         }
-        composable(Routes.Facilitator) {
-            val facilitatorViewModel: FacilitatorViewModel = viewModel(
-                factory = FacilitatorViewModelFactory(
-                    accountRepository = container.accountRepository,
-                    settingsRepository = container.settingsRepository,
-                    sessionRepository = container.sessionRepository,
-                    messageRepository = container.messageRepository,
-                    signalRepository = container.signalRepository,
-                    facilitatorRepository = container.facilitatorRepository
-                )
-            )
-            FacilitatorHomeScreen(viewModel = facilitatorViewModel)
-        }
+    }
+}
+
+@Composable
+private fun FullScreenLoadingIndicator() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator()
+    }
+}
+
+private fun SessionConnectionState.requireActiveSession(): ActiveSession {
+    return when (this) {
+        is SessionConnectionState.Connected -> session
+        is SessionConnectionState.Reconnecting -> session
+        is SessionConnectionState.Leaving -> session
+        else -> error(
+            "Connection state does not contain an active session."
+        )
     }
 }

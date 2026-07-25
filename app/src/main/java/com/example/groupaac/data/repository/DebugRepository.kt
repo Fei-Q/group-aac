@@ -10,7 +10,6 @@ import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.StatusSignalEntity
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
-import com.example.groupaac.data.prefs.AppPreferences
 import com.example.groupaac.model.MessageStatus
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.SignalState
@@ -18,57 +17,57 @@ import com.example.groupaac.model.SignalType
 import com.example.groupaac.model.UserRole
 import com.example.groupaac.util.TimeUtils
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 
 /**
- * TEMP DEBUG HARNESS / remove before production.
- *
- * Keeps local Room seed data easy to create during prototype testing without needing
- * multiple devices or repeated sign-ins.
+ * Temporary local debug harness. It seeds the session supplied by the caller and
+ * never changes the real active-session preference.
  */
 class DebugRepository(
     private val sessionDao: SessionDao,
     private val userDao: UserDao,
     private val signalDao: StatusSignalDao,
-    private val messageDao: MessageDao,
-    private val preferences: AppPreferences
+    private val messageDao: MessageDao
 ) {
-    val activeSessionId: Flow<String?> = preferences.lastSessionId
+    fun observeSession(
+        sessionId: String
+    ): Flow<SessionEntity?> = sessionDao.observeSession(sessionId)
 
-    fun observeSession(sessionId: String): Flow<SessionEntity?> = sessionDao.observeSession(sessionId)
-
-    suspend fun ensureDemoSession(): String {
-        val currentSessionId = preferences.lastSessionId.first()
-        if (currentSessionId != null) {
-            return currentSessionId
+    suspend fun ensureDemoSession(
+        sessionId: String = DEBUG_SESSION_ID
+    ): String {
+        val existing = sessionDao.getSession(sessionId)
+        if (existing != null) {
+            return existing.id
         }
 
         val now = TimeUtils.now()
-        val existing = sessionDao.getSession(DEBUG_SESSION_ID)
-        val session = (existing ?: SessionEntity(
-            id = DEBUG_SESSION_ID,
-            name = DEBUG_SESSION_NAME,
-            joinCode = DEBUG_SESSION_CODE,
-            createdAt = now,
-            actualStartedAt = now
-        )).copy(
-            name = DEBUG_SESSION_NAME,
-            joinCode = DEBUG_SESSION_CODE,
-            actualStartedAt = existing?.actualStartedAt ?: now,
-            actualEndedAt = null
+        sessionDao.upsertSession(
+            SessionEntity(
+                id = sessionId,
+                name = DEBUG_SESSION_NAME,
+                joinCode = DEBUG_SESSION_CODE,
+                createdAt = now,
+                actualStartedAt = now
+            )
         )
 
-        sessionDao.upsertSession(session)
-        preferences.setLastSession(session.id)
-        return session.id
+        return sessionId
     }
 
     suspend fun addDebugParticipantAlice(sessionId: String) {
-        ensureDebugParticipant(sessionId, DEBUG_ALICE_ID, DEBUG_ALICE_NAME)
+        ensureDebugParticipant(
+            sessionId,
+            DEBUG_ALICE_ID,
+            DEBUG_ALICE_NAME
+        )
     }
 
     suspend fun addDebugParticipantBob(sessionId: String) {
-        ensureDebugParticipant(sessionId, DEBUG_BOB_ID, DEBUG_BOB_NAME)
+        ensureDebugParticipant(
+            sessionId,
+            DEBUG_BOB_ID,
+            DEBUG_BOB_NAME
+        )
     }
 
     suspend fun createDebugSignal(
@@ -106,13 +105,18 @@ class DebugRepository(
     }
 
     suspend fun seedDebugMessages(sessionId: String) {
-        ensureDebugParticipant(sessionId, DEBUG_ALICE_ID, DEBUG_ALICE_NAME)
-        ensureDebugParticipant(sessionId, DEBUG_BOB_ID, DEBUG_BOB_NAME)
+        ensureDebugParticipant(
+            sessionId,
+            DEBUG_ALICE_ID,
+            DEBUG_ALICE_NAME
+        )
+        ensureDebugParticipant(
+            sessionId,
+            DEBUG_BOB_ID,
+            DEBUG_BOB_NAME
+        )
 
         val now = TimeUtils.now()
-
-        // TEMP DEBUG HARNESS: text-only seeded messages are enough for layout/status testing.
-        // Attachment metadata can be added later once prototype file flows are finalized.
         val messages = listOf(
             MessageEntity(
                 id = DEBUG_MESSAGE_ONE_ID,
@@ -144,7 +148,9 @@ class DebugRepository(
             )
         )
 
-        messages.forEach { messageDao.upsertMessage(it) }
+        for (message in messages) {
+            messageDao.upsertMessage(message)
+        }
     }
 
     private suspend fun ensureDebugParticipant(
@@ -152,6 +158,8 @@ class DebugRepository(
         userId: String,
         displayName: String
     ) {
+        ensureDemoSession(sessionId)
+
         val now = TimeUtils.now()
         val existingUser = userDao.getUser(userId)
         val existingMember = sessionDao.getMember(sessionId, userId)
@@ -184,41 +192,53 @@ class DebugRepository(
         )
     }
 
-    private fun debugDisplayNameFor(userId: String): String = when (userId) {
-        DEBUG_ALICE_ID -> DEBUG_ALICE_NAME
-        DEBUG_BOB_ID -> DEBUG_BOB_NAME
-        else -> userId
+    private fun debugDisplayNameFor(userId: String): String {
+        return when (userId) {
+            DEBUG_ALICE_ID -> DEBUG_ALICE_NAME
+            DEBUG_BOB_ID -> DEBUG_BOB_NAME
+            else -> userId
+        }
     }
 
-    private fun debugSignalIdFor(userId: String, type: SignalType): String = when (userId) {
-        DEBUG_ALICE_ID -> when (type) {
-            SignalType.HELP -> DEBUG_ALICE_HELP_SIGNAL_ID
-            else -> "debug-alice-${type.name.lowercase()}"
-        }
+    private fun debugSignalIdFor(
+        userId: String,
+        type: SignalType
+    ): String {
+        return when (userId) {
+            DEBUG_ALICE_ID -> when (type) {
+                SignalType.HELP -> DEBUG_ALICE_HELP_SIGNAL_ID
+                else -> "debug-alice-${type.name.lowercase()}"
+            }
 
-        DEBUG_BOB_ID -> when (type) {
-            SignalType.WAIT -> DEBUG_BOB_WAIT_SIGNAL_ID
-            else -> "debug-bob-${type.name.lowercase()}"
-        }
+            DEBUG_BOB_ID -> when (type) {
+                SignalType.WAIT -> DEBUG_BOB_WAIT_SIGNAL_ID
+                else -> "debug-bob-${type.name.lowercase()}"
+            }
 
-        else -> "debug-${userId}-${type.name.lowercase()}"
+            else -> "debug-$userId-${type.name.lowercase()}"
+        }
     }
 
     companion object {
         const val DEBUG_SESSION_ID = "debug-session"
         private const val DEBUG_SESSION_NAME = "Debug Session"
-        private const val DEBUG_SESSION_CODE = "DEBUG-0001"
+        private const val DEBUG_SESSION_CODE = "9999-0001"
 
         const val DEBUG_ALICE_ID = "debug-alice"
         const val DEBUG_BOB_ID = "debug-bob"
         private const val DEBUG_ALICE_NAME = "Alice"
         private const val DEBUG_BOB_NAME = "Bob"
 
-        private const val DEBUG_ALICE_HELP_SIGNAL_ID = "debug-alice-help"
-        private const val DEBUG_BOB_WAIT_SIGNAL_ID = "debug-bob-wait"
+        private const val DEBUG_ALICE_HELP_SIGNAL_ID =
+            "debug-alice-help"
+        private const val DEBUG_BOB_WAIT_SIGNAL_ID =
+            "debug-bob-wait"
 
-        private const val DEBUG_MESSAGE_ONE_ID = "debug-message-1"
-        private const val DEBUG_MESSAGE_TWO_ID = "debug-message-2"
-        private const val DEBUG_MESSAGE_THREE_ID = "debug-message-3"
+        private const val DEBUG_MESSAGE_ONE_ID =
+            "debug-message-1"
+        private const val DEBUG_MESSAGE_TWO_ID =
+            "debug-message-2"
+        private const val DEBUG_MESSAGE_THREE_ID =
+            "debug-message-3"
     }
 }

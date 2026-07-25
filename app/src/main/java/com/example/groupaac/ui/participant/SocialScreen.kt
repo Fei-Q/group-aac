@@ -28,26 +28,41 @@ import com.example.groupaac.ui.theme.GroupAacTheme
 
 @Composable
 fun SocialScreen(
-    uiState: ParticipantUiState,
+    user: UserEntity?,
     modifier: Modifier = Modifier
 ) {
     when (rememberAppWindowSize()) {
         AppWindowSize.Phone -> SocialScreenPhone(
-            uiState = uiState,
+            user = user,
             modifier = modifier
         )
 
         AppWindowSize.Tablet,
         AppWindowSize.Desktop -> SocialScreenTablet(
-            uiState = uiState,
+            user = user,
             modifier = modifier
         )
     }
 }
 
+/**
+ * Temporary compatibility overload for the obsolete ParticipantHomeScreen.
+ * Remove it after that old host screen is deleted.
+ */
+@Composable
+fun SocialScreen(
+    uiState: ParticipantUiState,
+    modifier: Modifier = Modifier
+) {
+    SocialScreen(
+        user = uiState.user,
+        modifier = modifier
+    )
+}
+
 @Composable
 private fun SocialScreenPhone(
-    uiState: ParticipantUiState,
+    user: UserEntity?,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -58,7 +73,7 @@ private fun SocialScreenPhone(
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        SocialHeader(uiState)
+        SocialHeader(user)
 
         SocialListCard(
             title = "Groups",
@@ -81,7 +96,7 @@ private fun SocialScreenPhone(
 
 @Composable
 private fun SocialScreenTablet(
-    uiState: ParticipantUiState,
+    user: UserEntity?,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -91,7 +106,7 @@ private fun SocialScreenTablet(
             .padding(28.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp)
     ) {
-        SocialHeader(uiState)
+        SocialHeader(user)
 
         Row(
             modifier = Modifier.fillMaxSize(),
@@ -130,9 +145,7 @@ private fun SocialScreenTablet(
 }
 
 @Composable
-private fun SocialHeader(
-    uiState: ParticipantUiState
-) {
+private fun SocialHeader(user: UserEntity?) {
     Column(
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -143,8 +156,11 @@ private fun SocialHeader(
         )
 
         Text(
-            "My saved groups and friends.",
-//            "Saved groups and familiar contacts for repeated communication."
+            text = if (user == null) {
+                "My saved groups and friends."
+            } else {
+                "${user.displayName}'s saved groups and friends."
+            },
             color = AacTextSecondary
         )
     }
@@ -206,43 +222,33 @@ private fun SocialRow(
     }
 }
 
-private fun previewSocialUiState(): ParticipantUiState {
-    return ParticipantUiState(
-        user = UserEntity(
-            id = "u1",
-            displayName = "Alice",
-            role = UserRole.PARTICIPANT,
-            createdAt = 0
-        )
-    )
-}
+private fun previewUser() = UserEntity(
+    id = "u1",
+    displayName = "Alice",
+    role = UserRole.PARTICIPANT,
+    createdAt = 0
+)
 
 @Preview(showBackground = true, widthDp = 360, heightDp = 800)
 @Composable
-fun SocialScreenPhonePreview() {
+private fun SocialScreenPhonePreview() {
     GroupAacTheme {
-        SocialScreen(
-            uiState = previewSocialUiState()
-        )
+        SocialScreen(user = previewUser())
     }
 }
 
 @Preview(showBackground = true, widthDp = 800, heightDp = 1280)
 @Composable
-fun SocialScreenTabletPortraitPreview() {
+private fun SocialScreenTabletPortraitPreview() {
     GroupAacTheme {
-        SocialScreen(
-            uiState = previewSocialUiState()
-        )
+        SocialScreen(user = previewUser())
     }
 }
 
 @Preview(showBackground = true, widthDp = 1280, heightDp = 800)
 @Composable
-fun SocialScreenTabletLandscapePreview() {
+private fun SocialScreenTabletLandscapePreview() {
     GroupAacTheme {
-        SocialScreen(
-            uiState = previewSocialUiState()
-        )
+        SocialScreen(user = previewUser())
     }
 }
