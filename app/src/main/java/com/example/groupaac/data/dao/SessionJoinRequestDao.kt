@@ -34,6 +34,24 @@ interface SessionJoinRequestDao {
 
     @Query(
         """
+        SELECT * FROM session_join_requests
+        WHERE sessionId = :sessionId
+          AND userId = :userId
+          AND requestedRole = :requestedRole
+          AND status = :pendingStatus
+        ORDER BY requestedAt DESC
+        LIMIT 1
+        """
+    )
+    suspend fun getPendingRequest(
+        sessionId: String,
+        userId: String,
+        requestedRole: com.example.groupaac.model.SessionRole,
+        pendingStatus: JoinRequestStatus = JoinRequestStatus.PENDING
+    ): SessionJoinRequestEntity?
+
+    @Query(
+        """
         UPDATE session_join_requests
         SET status = :approvedStatus,
             decidedAt = :decidedAt,

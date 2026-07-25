@@ -28,6 +28,7 @@ import com.example.groupaac.ui.common.FacilitatorOutsideNavItem
 import com.example.groupaac.ui.facilitator.FacilitatorSettingsScreen
 import com.example.groupaac.ui.profile.ProfileViewModel
 import com.example.groupaac.ui.profile.ProfileViewModelFactory
+import com.example.groupaac.ui.session.AwaitingApprovalScreen
 import com.example.groupaac.ui.session.FacilitatorSessionsScreen
 import com.example.groupaac.ui.session.SessionCoordinatorUiState
 
@@ -45,6 +46,7 @@ fun FacilitatorOutsideSessionNavGraph(
         sessionRole: SessionRole,
         rememberProfile: Boolean
     ) -> Unit,
+    onCancelFacilitatorRequest: () -> Unit,
     onClearLocalHistory: () -> Unit = {},
     onExportSummary: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -96,22 +98,37 @@ fun FacilitatorOutsideSessionNavGraph(
                 .padding(contentPadding)
         ) {
             composable(FacilitatorOutsideRoutes.Sessions) {
-                FacilitatorSessionsScreen(
-                    currentUser = profileUiState.user ?: currentUser,
-                    isWorking = sessionUiState.connectionState
-                            is SessionConnectionState.Joining,
-                    errorMessage = sessionUiState.errorMessage,
-                    onCreateSession = onCreateSession,
-                    onJoinSession = { code, displayName ->
-                        onJoinSession(
-                            code,
-                            displayName,
-                            SessionRole.FACILITATOR,
-                            false
+                when (
+                    val state = sessionUiState.connectionState
+                ) {
+                    is SessionConnectionState.AwaitingApproval -> {
+                        AwaitingApprovalScreen(
+                            sessionName = state.sessionName,
+                            onCancelRequest =
+                                onCancelFacilitatorRequest,
+                            modifier = Modifier.fillMaxSize()
                         )
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                    }
+
+                    else -> {
+                        FacilitatorSessionsScreen(
+                            currentUser = profileUiState.user ?: currentUser,
+                            isWorking = sessionUiState.connectionState
+                                    is SessionConnectionState.Joining,
+                            errorMessage = sessionUiState.errorMessage,
+                            onCreateSession = onCreateSession,
+                            onJoinSession = { code, displayName ->
+                                onJoinSession(
+                                    code,
+                                    displayName,
+                                    SessionRole.FACILITATOR,
+                                    false
+                                )
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
             }
 
             composable(FacilitatorOutsideRoutes.Settings) {

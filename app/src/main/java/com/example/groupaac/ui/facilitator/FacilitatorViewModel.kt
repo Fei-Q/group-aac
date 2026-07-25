@@ -58,7 +58,13 @@ class FacilitatorViewModel(
                     }
                 }
                 .collect { user ->
-                    uiState.update { it.copy(facilitator = user) }
+                    uiState.update { state ->
+                        state.copy(
+                            facilitator = user,
+                            isHost =
+                                state.session?.hostUserId == user?.id
+                        )
+                    }
 
                     settingsObservationJob?.cancel()
                     if (user != null) {
@@ -83,8 +89,24 @@ class FacilitatorViewModel(
         return viewModelScope.launch {
             launch {
                 sessionRepository.observeSession(sessionId).collect { session ->
-                    uiState.update { it.copy(session = session) }
+                    uiState.update { state ->
+                        state.copy(
+                            session = session,
+                            isHost =
+                                session?.hostUserId ==
+                                    state.facilitator?.id
+                        )
+                    }
                 }
+            }
+
+            launch {
+                sessionRepository.observePendingJoinRequests(sessionId)
+                    .collect { requests ->
+                        uiState.update {
+                            it.copy(pendingJoinRequests = requests)
+                        }
+                    }
             }
 
             launch {
@@ -281,6 +303,26 @@ class FacilitatorViewModel(
                 participantUserId = participantUserId,
                 facilitatorUserId = facilitator.id,
                 label = label
+            )
+        }
+    }
+
+    fun approveJoinRequest(requestId: String) {
+        val facilitator = uiState.value.facilitator ?: return
+        viewModelScope.launch {
+            sessionRepository.approveJoinRequest(
+                requestId = requestId,
+                decidedByUserId = facilitator.id
+            )
+        }
+    }
+
+    fun declineJoinRequest(requestId: String) {
+        val facilitator = uiState.value.facilitator ?: return
+        viewModelScope.launch {
+            sessionRepository.declineJoinRequest(
+                requestId = requestId,
+                decidedByUserId = facilitator.id
             )
         }
     }

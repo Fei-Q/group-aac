@@ -427,6 +427,14 @@ private fun connectionPresentation(
             )
         }
 
+        is SessionConnectionState.AwaitingApproval -> {
+            ConnectionPresentation(
+                label = "Awaiting approval",
+                backgroundColor = AacYellow.copy(alpha = 0.2f),
+                contentColor = Color(0xFF6D4C00)
+            )
+        }
+
         is SessionConnectionState.Connected -> {
             ConnectionPresentation(
                 label = "Connected",

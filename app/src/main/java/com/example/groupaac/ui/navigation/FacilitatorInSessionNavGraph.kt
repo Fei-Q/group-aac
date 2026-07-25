@@ -102,6 +102,10 @@ fun FacilitatorInSessionNavGraph(
                     uiState = uiState,
                     onSelect =
                         facilitatorViewModel::selectParticipant,
+                    onApproveJoinRequest =
+                        facilitatorViewModel::approveJoinRequest,
+                    onDeclineJoinRequest =
+                        facilitatorViewModel::declineJoinRequest,
                     onSnooze =
                         facilitatorViewModel::toggleSnoozeParticipant,
                     onQuickLog =

@@ -21,6 +21,7 @@ fun resolveAppShell(
             AppShell.Restoring
 
         SessionConnectionState.NotInSession,
+        is SessionConnectionState.AwaitingApproval,
         is SessionConnectionState.Joining -> {
             when (homeExperience) {
                 HomeExperience.SIMPLE ->

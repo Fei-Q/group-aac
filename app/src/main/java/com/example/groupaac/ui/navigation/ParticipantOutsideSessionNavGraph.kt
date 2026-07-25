@@ -29,6 +29,7 @@ import com.example.groupaac.ui.participant.ParticipantSettingsScreen
 import com.example.groupaac.ui.participant.SocialScreen
 import com.example.groupaac.ui.profile.ProfileViewModel
 import com.example.groupaac.ui.profile.ProfileViewModelFactory
+import com.example.groupaac.ui.session.AwaitingApprovalScreen
 import com.example.groupaac.ui.session.JoinSessionScreen
 import com.example.groupaac.ui.session.SessionCoordinatorUiState
 
@@ -42,6 +43,7 @@ fun ParticipantOutsideSessionNavGraph(
         sessionRole: SessionRole,
         rememberProfile: Boolean
     ) -> Unit,
+    onCancelFacilitatorRequest: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val container = LocalAppContainer.current
@@ -92,14 +94,29 @@ fun ParticipantOutsideSessionNavGraph(
                 .padding(contentPadding)
         ) {
             composable(ParticipantOutsideRoutes.Join) {
-                JoinSessionScreen(
-                    currentUser = currentUser,
-                    isJoining = sessionUiState.connectionState
-                            is SessionConnectionState.Joining,
-                    errorMessage = sessionUiState.errorMessage,
-                    onJoin = onJoinSession,
-                    modifier = Modifier.fillMaxSize()
-                )
+                when (
+                    val state = sessionUiState.connectionState
+                ) {
+                    is SessionConnectionState.AwaitingApproval -> {
+                        AwaitingApprovalScreen(
+                            sessionName = state.sessionName,
+                            onCancelRequest =
+                                onCancelFacilitatorRequest,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    else -> {
+                        JoinSessionScreen(
+                            currentUser = currentUser,
+                            isJoining = sessionUiState.connectionState
+                                    is SessionConnectionState.Joining,
+                            errorMessage = sessionUiState.errorMessage,
+                            onJoin = onJoinSession,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
             }
 
             composable(ParticipantOutsideRoutes.Social) {

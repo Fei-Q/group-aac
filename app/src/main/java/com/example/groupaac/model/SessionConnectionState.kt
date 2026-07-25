@@ -9,6 +9,13 @@ sealed interface SessionConnectionState {
         val requestedCode: String?
     ) : SessionConnectionState
 
+    data class AwaitingApproval(
+        val requestId: String,
+        val sessionId: String,
+        val sessionName: String,
+        val requestedAt: Long
+    ) : SessionConnectionState
+
     data class Connected(
         val session: ActiveSession
     ) : SessionConnectionState

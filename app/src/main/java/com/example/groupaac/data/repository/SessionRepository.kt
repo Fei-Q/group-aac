@@ -12,6 +12,7 @@ import com.example.groupaac.data.pi.PiJoinRequest
 import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.model.ActiveSession
 import com.example.groupaac.model.JoinRequestStatus
+import com.example.groupaac.model.JoinSessionResult
 import com.example.groupaac.model.SessionRole
 import com.example.groupaac.util.IdUtils
 import com.example.groupaac.util.TimeUtils
@@ -30,6 +31,10 @@ class SessionRepository(
     fun observeSession(
         sessionId: String
     ): Flow<SessionEntity?> = sessionDao.observeSession(sessionId)
+
+    suspend fun getSession(
+        sessionId: String
+    ): SessionEntity? = sessionDao.getSession(sessionId)
 
     fun observeMembers(
         sessionId: String
@@ -100,6 +105,7 @@ class SessionRepository(
             joinCode = generateUniqueJoinCode(),
             hostUserId = ownerUserId,
             createdAt = now,
+            // This code path is used by the current "Create Now" flow.
             actualStartedAt = now
         )
         val member = SessionMemberEntity(
@@ -144,13 +150,16 @@ class SessionRepository(
         joinCode: String,
         userId: String,
         displayName: String,
-        role: SessionRole = SessionRole.PARTICIPANT
-    ): ActiveSession {
+        requestedRole: SessionRole = SessionRole.PARTICIPANT
+    ): JoinSessionResult {
         val user = userDao.getUser(userId)
             ?: error("User not found.")
         val cleanCode = normalizeJoinCode(joinCode)
         val session = sessionDao.getSessionByCode(cleanCode)
             ?: error("No session found for this code.")
+        require(requestedRole != SessionRole.HOST) {
+            "Host access cannot be requested from the join screen."
+        }
 
         check(session.actualEndedAt == null) {
             "This session has already ended."
@@ -160,38 +169,67 @@ class SessionRepository(
         val cleanDisplayName = displayName
             .trim()
             .ifBlank { user.displayName }
-        val member = SessionMemberEntity(
-            sessionId = session.id,
-            userId = userId,
-            displayName = cleanDisplayName,
-            role = role,
-            joinedAt = now
-        )
 
-        sessionDao.upsertMember(member)
+        return when (requestedRole) {
+            SessionRole.PARTICIPANT -> {
+                val member = SessionMemberEntity(
+                    sessionId = session.id,
+                    userId = userId,
+                    displayName = cleanDisplayName,
+                    role = SessionRole.PARTICIPANT,
+                    joinedAt = now
+                )
 
-        activeSessionStore.setActiveSession(
-            userId = userId,
-            sessionId = session.id
-        )
+                sessionDao.upsertMember(member)
 
-        piClient.joinSession(
-            PiJoinRequest(
-                sessionCode = cleanCode,
-                userId = userId,
-                displayName = cleanDisplayName,
-                role = role
+                activeSessionStore.setActiveSession(
+                    userId = userId,
+                    sessionId = session.id
+                )
+
+                piClient.joinSession(
+                    PiJoinRequest(
+                        sessionCode = cleanCode,
+                        userId = userId,
+                        displayName = cleanDisplayName,
+                        role = SessionRole.PARTICIPANT
+                    )
+                )
+
+                JoinSessionResult.Joined(
+                    activeSession = ActiveSession(
+                        sessionId = session.id,
+                        joinCode = session.joinCode,
+                        sessionName = session.name,
+                        userId = userId,
+                        role = SessionRole.PARTICIPANT,
+                        joinedAt = now
+                    )
+                )
+            }
+
+            SessionRole.FACILITATOR -> {
+                val pendingRequest =
+                    sessionJoinRequestDao.getPendingRequest(
+                        sessionId = session.id,
+                        userId = userId,
+                        requestedRole = SessionRole.FACILITATOR
+                    ) ?: createJoinRequest(
+                        sessionId = session.id,
+                        userId = userId,
+                        displayName = cleanDisplayName,
+                        requestedRole = SessionRole.FACILITATOR
+                    )
+
+                JoinSessionResult.AwaitingApproval(
+                    request = pendingRequest
+                )
+            }
+
+            SessionRole.HOST -> error(
+                "Host access cannot be requested from the join screen."
             )
-        )
-
-        return ActiveSession(
-            sessionId = session.id,
-            joinCode = session.joinCode,
-            sessionName = session.name,
-            userId = userId,
-            role = role,
-            joinedAt = now
-        )
+        }
     }
 
     suspend fun leaveSession(userId: String) {
@@ -247,6 +285,11 @@ class SessionRepository(
     ): Boolean {
         val request = sessionJoinRequestDao.getRequestById(requestId)
             ?: return false
+        val session = sessionDao.getSession(request.sessionId)
+            ?: return false
+        check(session.hostUserId == decidedByUserId) {
+            "Only the session host may approve facilitator requests."
+        }
         val updated = sessionJoinRequestDao.approveRequest(
             requestId = requestId,
             decidedByUserId = decidedByUserId,
@@ -276,6 +319,13 @@ class SessionRepository(
         requestId: String,
         decidedByUserId: String
     ): Boolean {
+        val request = sessionJoinRequestDao.getRequestById(requestId)
+            ?: return false
+        val session = sessionDao.getSession(request.sessionId)
+            ?: return false
+        check(session.hostUserId == decidedByUserId) {
+            "Only the session host may decline facilitator requests."
+        }
         return sessionJoinRequestDao.declineRequest(
             requestId = requestId,
             decidedByUserId = decidedByUserId,
@@ -288,6 +338,50 @@ class SessionRepository(
             requestId = requestId,
             decidedAt = TimeUtils.now()
         ) > 0
+    }
+
+    suspend fun activateApprovedFacilitatorRequest(
+        requestId: String,
+        userId: String
+    ): ActiveSession? {
+        val request = sessionJoinRequestDao.getRequestById(requestId)
+            ?: return null
+        if (
+            request.userId != userId ||
+            request.status != JoinRequestStatus.APPROVED
+        ) {
+            return null
+        }
+
+        val session = sessionDao.getSession(request.sessionId)
+            ?: return null
+        val member = sessionDao.getMember(
+            sessionId = request.sessionId,
+            userId = userId
+        ) ?: return null
+
+        activeSessionStore.setActiveSession(
+            userId = userId,
+            sessionId = session.id
+        )
+
+        piClient.joinSession(
+            PiJoinRequest(
+                sessionCode = session.joinCode,
+                userId = userId,
+                displayName = member.displayName,
+                role = member.role
+            )
+        )
+
+        return ActiveSession(
+            sessionId = session.id,
+            joinCode = session.joinCode,
+            sessionName = session.name,
+            userId = userId,
+            role = member.role,
+            joinedAt = member.joinedAt
+        )
     }
 
     suspend fun endSession(sessionId: String) {

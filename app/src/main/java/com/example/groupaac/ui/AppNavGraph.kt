@@ -116,7 +116,9 @@ fun AppNavGraph(
                         currentUser = activeUser,
                         sessionUiState = sessionState,
                         onJoinSession =
-                            sessionCoordinatorViewModel::joinSession
+                            sessionCoordinatorViewModel::joinSession,
+                        onCancelFacilitatorRequest =
+                            sessionCoordinatorViewModel::cancelFacilitatorRequest
                     )
                 }
 
@@ -139,7 +141,9 @@ fun AppNavGraph(
                         onCreateSession =
                             sessionCoordinatorViewModel::createSession,
                         onJoinSession =
-                            sessionCoordinatorViewModel::joinSession
+                            sessionCoordinatorViewModel::joinSession,
+                        onCancelFacilitatorRequest =
+                            sessionCoordinatorViewModel::cancelFacilitatorRequest
                     )
                 }
 
