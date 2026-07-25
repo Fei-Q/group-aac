@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.groupaac.data.entity.UserSettingsEntity
+import com.example.groupaac.model.HomeExperience
 import com.example.groupaac.ui.common.SecondaryButton
 import com.example.groupaac.ui.common.SettingsNumberRow
 import com.example.groupaac.ui.common.SettingsSection
@@ -34,6 +35,27 @@ fun FacilitatorSettingsScreen(
                 text = "Settings",
                 style = MaterialTheme.typography.headlineMedium
             )
+        }
+
+        item {
+            SettingsSection(title = "Home") {
+                SettingsSwitchRow(
+                    title = "Show session management tools",
+                    subtitle = "Adds options to create, schedule, and manage sessions.",
+                    checked = settings.homeExperience == HomeExperience.ADVANCED,
+                    onCheckedChange = { enabled ->
+                        onSettingsChange(
+                            settings.copy(
+                                homeExperience = if (enabled) {
+                                    HomeExperience.ADVANCED
+                                } else {
+                                    HomeExperience.SIMPLE
+                                }
+                            )
+                        )
+                    }
+                )
+            }
         }
 
         item {

@@ -72,6 +72,7 @@ fun JoinSessionScreen(
         rememberProfile: Boolean
     ) -> Unit,
     modifier: Modifier = Modifier,
+    onBack: (() -> Unit)? = null,
     onScanQrCode: (() -> Unit)? = null
 ) {
     val isTablet = LocalConfiguration.current.screenWidthDp >= 700
@@ -157,6 +158,7 @@ fun JoinSessionScreen(
             errorMessage = localValidationError ?: errorMessage,
             onJoin = ::submitJoin,
             onScanQrCode = onScanQrCode,
+            onBack = onBack,
             modifier = modifier
         )
     } else {
@@ -182,6 +184,7 @@ fun JoinSessionScreen(
             errorMessage = localValidationError ?: errorMessage,
             onJoin = ::submitJoin,
             onScanQrCode = onScanQrCode,
+            onBack = onBack,
             modifier = modifier
         )
     }
@@ -202,6 +205,7 @@ private fun PhoneJoinSession(
     errorMessage: String?,
     onJoin: () -> Unit,
     onScanQrCode: (() -> Unit)?,
+    onBack: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -213,7 +217,7 @@ private fun PhoneJoinSession(
         verticalArrangement = Arrangement.spacedBy(18.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        JoinScreenHeader()
+        JoinScreenHeader(onBack = onBack)
 
         FindSessionCard(
             codeDigits = codeDigits,
@@ -267,6 +271,7 @@ private fun TabletJoinSession(
     errorMessage: String?,
     onJoin: () -> Unit,
     onScanQrCode: (() -> Unit)?,
+    onBack: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -278,7 +283,7 @@ private fun TabletJoinSession(
         verticalArrangement = Arrangement.spacedBy(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        JoinScreenHeader()
+        JoinScreenHeader(onBack = onBack)
 
         Row(
             modifier = Modifier
@@ -335,24 +340,39 @@ private fun TabletJoinSession(
 }
 
 @Composable
-private fun JoinScreenHeader() {
+private fun JoinScreenHeader(
+    onBack: (() -> Unit)?
+) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(
-            text = "Join a Session",
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.secondary,
-            fontWeight = FontWeight.Bold
-        )
+        if (onBack != null) {
+            Text(
+                text = "Back",
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable { onBack() }
+            )
+        }
 
-        Text(
-            text = "Enter the code shared by your facilitator.",
-            color = AacTextSecondary,
-            textAlign = TextAlign.Center
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "Join a Session",
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.secondary,
+                fontWeight = FontWeight.Bold
+            )
+
+            Text(
+                text = "Enter the code shared by your facilitator.",
+                color = AacTextSecondary,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 

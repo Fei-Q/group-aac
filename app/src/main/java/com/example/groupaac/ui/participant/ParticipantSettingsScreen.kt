@@ -20,9 +20,12 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
+import com.example.groupaac.model.HomeExperience
 import com.example.groupaac.model.UserRole
 import com.example.groupaac.ui.common.AppCard
 import com.example.groupaac.ui.common.AppWindowSize
+import com.example.groupaac.ui.common.SettingsSection
+import com.example.groupaac.ui.common.SettingsSwitchRow
 import com.example.groupaac.ui.common.rememberAppWindowSize
 import com.example.groupaac.ui.theme.AacBackground
 import com.example.groupaac.ui.theme.AacTextSecondary
@@ -90,6 +93,10 @@ private fun ParticipantSettingsScreenPhone(
     ) {
         SettingsHeader()
         ProfileCard(user)
+        HomeExperienceSettingsCard(
+            settings = settings,
+            onUpdateSettings = onUpdateSettings
+        )
         AccessibilitySettingsCard(
             settings = settings,
             onUpdateSettings = onUpdateSettings
@@ -131,12 +138,48 @@ private fun ParticipantSettingsScreenTablet(
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
             ) {
+                HomeExperienceSettingsCard(
+                    settings = settings,
+                    onUpdateSettings = onUpdateSettings
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+            ) {
                 AccessibilitySettingsCard(
                     settings = settings,
                     onUpdateSettings = onUpdateSettings
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun HomeExperienceSettingsCard(
+    settings: UserSettingsEntity,
+    onUpdateSettings: (UserSettingsEntity) -> Unit
+) {
+    SettingsSection(title = "Home") {
+        SettingsSwitchRow(
+            title = "Show session management tools",
+            subtitle = "Adds options to create, schedule, and manage sessions.",
+            checked = settings.homeExperience == HomeExperience.ADVANCED,
+            onCheckedChange = { enabled ->
+                onUpdateSettings(
+                    settings.copy(
+                        homeExperience = if (enabled) {
+                            HomeExperience.ADVANCED
+                        } else {
+                            HomeExperience.SIMPLE
+                        }
+                    )
+                )
+            }
+        )
     }
 }
 

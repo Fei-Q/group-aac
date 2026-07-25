@@ -6,9 +6,9 @@ import com.example.groupaac.model.SessionConnectionState
 
 enum class AppShell {
     Restoring,
-    ParticipantOutsideSession,
+    SimpleOutsideSession,
+    AdvancedOutsideSession,
     ParticipantInSession,
-    FacilitatorOutsideSession,
     FacilitatorInSession
 }
 
@@ -25,10 +25,10 @@ fun resolveAppShell(
         is SessionConnectionState.Joining -> {
             when (homeExperience) {
                 HomeExperience.SIMPLE ->
-                    AppShell.ParticipantOutsideSession
+                    AppShell.SimpleOutsideSession
 
                 HomeExperience.ADVANCED ->
-                    AppShell.FacilitatorOutsideSession
+                    AppShell.AdvancedOutsideSession
             }
         }
 
@@ -67,23 +67,19 @@ fun resolveAppShell(
     }
 }
 
-object ParticipantOutsideRoutes {
-    const val Join = "participant_outside/join"
-    const val Social = "participant_outside/social"
-    const val Settings = "participant_outside/settings"
-    const val Debug = "participant_outside/debug"
+object OutsideRoutes {
+    const val Home = "outside/home"
+    const val Join = "outside/join"
+    const val Sessions = "outside/sessions"
+    const val Groups = "outside/groups"
+    const val Tools = "outside/tools"
+    const val Settings = "outside/settings"
 }
 
 object ParticipantInsideRoutes {
     const val Share = "participant_inside/share"
     const val Signal = "participant_inside/signal"
     const val Debug = "participant_inside/debug"
-}
-
-object FacilitatorOutsideRoutes {
-    const val Sessions = "facilitator_outside/sessions"
-    const val Settings = "facilitator_outside/settings"
-    const val Debug = "facilitator_outside/debug"
 }
 
 object FacilitatorInsideRoutes {

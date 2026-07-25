@@ -22,9 +22,8 @@ import com.example.groupaac.ui.account.CreateAccountScreen
 import com.example.groupaac.ui.account.LoginScreen
 import com.example.groupaac.ui.navigation.AppShell
 import com.example.groupaac.ui.navigation.FacilitatorInSessionNavGraph
-import com.example.groupaac.ui.navigation.FacilitatorOutsideSessionNavGraph
+import com.example.groupaac.ui.navigation.OutsideSessionNavGraph
 import com.example.groupaac.ui.navigation.ParticipantInSessionNavGraph
-import com.example.groupaac.ui.navigation.ParticipantOutsideSessionNavGraph
 import com.example.groupaac.ui.navigation.resolveAppShell
 import com.example.groupaac.ui.session.SessionCoordinatorViewModel
 import com.example.groupaac.ui.session.SessionCoordinatorViewModelFactory
@@ -111,10 +110,15 @@ fun AppNavGraph(
                     FullScreenLoadingIndicator()
                 }
 
-                AppShell.ParticipantOutsideSession -> {
-                    ParticipantOutsideSessionNavGraph(
+                AppShell.SimpleOutsideSession,
+                AppShell.AdvancedOutsideSession -> {
+                    OutsideSessionNavGraph(
                         currentUser = activeUser,
+                        homeExperience =
+                            accountState.activeHomeExperience,
                         sessionUiState = sessionState,
+                        onCreateSession =
+                            sessionCoordinatorViewModel::createSession,
                         onJoinSession =
                             sessionCoordinatorViewModel::joinSession,
                         onCancelFacilitatorRequest =
@@ -131,19 +135,6 @@ fun AppNavGraph(
                             sessionState.connectionState,
                         onLeaveSession =
                             sessionCoordinatorViewModel::leaveSession
-                    )
-                }
-
-                AppShell.FacilitatorOutsideSession -> {
-                    FacilitatorOutsideSessionNavGraph(
-                        currentUser = activeUser,
-                        sessionUiState = sessionState,
-                        onCreateSession =
-                            sessionCoordinatorViewModel::createSession,
-                        onJoinSession =
-                            sessionCoordinatorViewModel::joinSession,
-                        onCancelFacilitatorRequest =
-                            sessionCoordinatorViewModel::cancelFacilitatorRequest
                     )
                 }
 

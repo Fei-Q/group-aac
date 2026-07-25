@@ -32,6 +32,9 @@ class SessionRepository(
         sessionId: String
     ): Flow<SessionEntity?> = sessionDao.observeSession(sessionId)
 
+    fun observeSessions(): Flow<List<SessionEntity>> =
+        sessionDao.observeSessions()
+
     suspend fun getSession(
         sessionId: String
     ): SessionEntity? = sessionDao.getSession(sessionId)
