@@ -21,6 +21,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.groupaac.LocalAppContainer
 import com.example.groupaac.data.entity.UserEntity
+import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SessionConnectionState
 import com.example.groupaac.ui.common.AppBottomNavBar
 import com.example.groupaac.ui.common.FacilitatorOutsideNavItem
@@ -41,6 +42,7 @@ fun FacilitatorOutsideSessionNavGraph(
     onJoinSession: (
         code: String,
         displayName: String,
+        sessionRole: SessionRole,
         rememberProfile: Boolean
     ) -> Unit,
     onClearLocalHistory: () -> Unit = {},
@@ -104,6 +106,7 @@ fun FacilitatorOutsideSessionNavGraph(
                         onJoinSession(
                             code,
                             displayName,
+                            SessionRole.FACILITATOR,
                             false
                         )
                     },

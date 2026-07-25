@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.groupaac.data.repository.AccountRepository
-import com.example.groupaac.model.UserRole
+import com.example.groupaac.model.HomeExperience
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -18,13 +18,33 @@ class AccountViewModel(
 ) : ViewModel() {
     val uiState = combine(
         repository.users,
-        repository.activeUserId.flatMapLatest { id -> if (id == null) flowOf(null) else repository.observeUser(id) }
-    ) { users, active ->
-        AccountUiState(users = users, activeUser = active, isLoading = false)
+        repository.activeUserId.flatMapLatest { id ->
+            if (id == null) {
+                flowOf(null)
+            } else {
+                repository.observeUser(id)
+            }
+        },
+        repository.activeUserId.flatMapLatest { id ->
+            if (id == null) {
+                flowOf(HomeExperience.SIMPLE)
+            } else {
+                repository.observeHomeExperience(id)
+            }
+        }
+    ) { users, active, homeExperience ->
+        AccountUiState(
+            users = users,
+            activeUser = active,
+            activeHomeExperience = homeExperience,
+            isLoading = false
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AccountUiState())
 
-    fun createUser(displayName: String, role: UserRole) {
-        viewModelScope.launch { repository.createLocalUser(displayName, role) }
+    fun createUser(displayName: String, homeExperience: HomeExperience) {
+        viewModelScope.launch {
+            repository.createLocalUser(displayName, homeExperience)
+        }
     }
 
     fun switchUser(userId: String) {

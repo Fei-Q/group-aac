@@ -1,7 +1,8 @@
 package com.example.groupaac.ui.navigation
 
+import com.example.groupaac.model.HomeExperience
+import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SessionConnectionState
-import com.example.groupaac.model.UserRole
 
 enum class AppShell {
     Restoring,
@@ -12,7 +13,7 @@ enum class AppShell {
 }
 
 fun resolveAppShell(
-    role: UserRole,
+    homeExperience: HomeExperience,
     state: SessionConnectionState
 ): AppShell {
     return when (state) {
@@ -21,23 +22,44 @@ fun resolveAppShell(
 
         SessionConnectionState.NotInSession,
         is SessionConnectionState.Joining -> {
-            when (role) {
-                UserRole.PARTICIPANT ->
+            when (homeExperience) {
+                HomeExperience.SIMPLE ->
                     AppShell.ParticipantOutsideSession
 
-                UserRole.FACILITATOR ->
+                HomeExperience.ADVANCED ->
                     AppShell.FacilitatorOutsideSession
             }
         }
 
-        is SessionConnectionState.Connected,
-        is SessionConnectionState.Reconnecting,
-        is SessionConnectionState.Leaving -> {
-            when (role) {
-                UserRole.PARTICIPANT ->
+        is SessionConnectionState.Connected -> {
+            when (state.session.role) {
+                SessionRole.PARTICIPANT ->
                     AppShell.ParticipantInSession
 
-                UserRole.FACILITATOR ->
+                SessionRole.FACILITATOR,
+                SessionRole.HOST ->
+                    AppShell.FacilitatorInSession
+            }
+        }
+
+        is SessionConnectionState.Reconnecting -> {
+            when (state.session.role) {
+                SessionRole.PARTICIPANT ->
+                    AppShell.ParticipantInSession
+
+                SessionRole.FACILITATOR,
+                SessionRole.HOST ->
+                    AppShell.FacilitatorInSession
+            }
+        }
+
+        is SessionConnectionState.Leaving -> {
+            when (state.session.role) {
+                SessionRole.PARTICIPANT ->
+                    AppShell.ParticipantInSession
+
+                SessionRole.FACILITATOR,
+                SessionRole.HOST ->
                     AppShell.FacilitatorInSession
             }
         }

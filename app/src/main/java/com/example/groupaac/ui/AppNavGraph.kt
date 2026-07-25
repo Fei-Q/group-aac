@@ -89,8 +89,11 @@ fun AppNavGraph(
                         onBack = {
                             navController.popBackStack()
                         },
-                        onCreate = { name, role ->
-                            accountViewModel.createUser(name, role)
+                        onCreate = { name, homeExperience ->
+                            accountViewModel.createUser(
+                                name,
+                                homeExperience
+                            )
                         }
                     )
                 }
@@ -100,7 +103,7 @@ fun AppNavGraph(
         else -> {
             when (
                 resolveAppShell(
-                    role = activeUser.role,
+                    homeExperience = accountState.activeHomeExperience,
                     state = sessionState.connectionState
                 )
             ) {

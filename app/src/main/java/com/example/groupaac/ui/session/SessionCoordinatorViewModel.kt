@@ -101,6 +101,7 @@ class SessionCoordinatorViewModel(
     fun joinSession(
         code: String,
         displayName: String,
+        sessionRole: SessionRole,
         rememberProfile: Boolean
     ) {
         val user = _uiState.value.activeUser ?: return
@@ -114,10 +115,9 @@ class SessionCoordinatorViewModel(
 
             runCatching {
                 if (rememberProfile) {
-                    accountRepository.updateUser(
+                    accountRepository.updateDisplayName(
                         userId = user.id,
-                        displayName = displayName,
-                        role = user.role
+                        displayName = displayName
                     )
                 }
 
@@ -125,7 +125,7 @@ class SessionCoordinatorViewModel(
                     joinCode = code,
                     userId = user.id,
                     displayName = displayName,
-                    role = SessionRole.PARTICIPANT
+                    role = sessionRole
                 )
             }.onSuccess { activeSession ->
                 _uiState.value = _uiState.value.copy(
