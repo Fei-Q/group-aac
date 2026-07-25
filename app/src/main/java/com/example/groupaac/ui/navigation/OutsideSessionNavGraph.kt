@@ -16,18 +16,34 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TimeInput
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -35,9 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -55,10 +69,11 @@ import com.example.groupaac.data.entity.UserSettingsEntity
 import com.example.groupaac.model.HomeExperience
 import com.example.groupaac.model.SessionConnectionState
 import com.example.groupaac.model.SessionRole
-import com.example.groupaac.model.UserRole
 import com.example.groupaac.ui.common.AdvancedOutsideNavItem
 import com.example.groupaac.ui.common.AppBottomNavBar
 import com.example.groupaac.ui.common.AppCard
+import com.example.groupaac.ui.common.CompactActionButton
+import com.example.groupaac.ui.common.PrimaryButton
 import com.example.groupaac.ui.common.SecondaryButton
 import com.example.groupaac.ui.common.SimpleOutsideNavItem
 import com.example.groupaac.ui.facilitator.FacilitatorSettingsScreen
@@ -72,15 +87,23 @@ import com.example.groupaac.ui.session.SessionCoordinatorUiState
 import com.example.groupaac.ui.theme.AacBackground
 import com.example.groupaac.ui.theme.AacTextSecondary
 import com.example.groupaac.util.TimeUtils
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 
+private val ScheduleDurationOptions = listOf(30, 45, 60, 90, 120)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OutsideSessionNavGraph(
     currentUser: UserEntity,
     homeExperience: HomeExperience,
     sessionUiState: SessionCoordinatorUiState,
-    onCreateSession: (
+    onCreateSessionNow: (
         sessionName: String,
         displayName: String
     ) -> Unit,
@@ -97,6 +120,7 @@ fun OutsideSessionNavGraph(
 ) {
     val container = LocalAppContainer.current
     val navController = rememberNavController()
+    val coroutineScope = rememberCoroutineScope()
 
     val profileViewModel: ProfileViewModel = viewModel(
         key = "outside-profile-${currentUser.id}",
@@ -107,16 +131,45 @@ fun OutsideSessionNavGraph(
         )
     )
 
-    val profileUiState by profileViewModel.uiState
-        .collectAsStateWithLifecycle()
-    val sessions by container.sessionRepository.observeSessions()
-        .collectAsStateWithLifecycle(initialValue = emptyList())
+    val profileUiState by profileViewModel.uiState.collectAsStateWithLifecycle()
+    val settings = profileUiState.settings ?: UserSettingsEntity(userId = currentUser.id)
+    val userForActions = profileUiState.user ?: currentUser
+
+    val upcomingSessionsFlow = remember(homeExperience, currentUser.id) {
+        if (homeExperience == HomeExperience.ADVANCED) {
+            container.sessionRepository.observeUpcomingHostedSessions(currentUser.id)
+        } else {
+            flowOf(emptyList())
+        }
+    }
+    val liveSessionsFlow = remember(homeExperience, currentUser.id) {
+        if (homeExperience == HomeExperience.ADVANCED) {
+            container.sessionRepository.observeLiveHostedSessions(currentUser.id)
+        } else {
+            flowOf(emptyList())
+        }
+    }
+    val pastSessionsFlow = remember(homeExperience, currentUser.id) {
+        if (homeExperience == HomeExperience.ADVANCED) {
+            container.sessionRepository.observePastHostedSessions(currentUser.id)
+        } else {
+            flowOf(emptyList())
+        }
+    }
+
+    val upcomingSessions by upcomingSessionsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val liveSessions by liveSessionsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val pastSessions by pastSessionsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
-    val settings = profileUiState.settings ?: UserSettingsEntity(
-        userId = currentUser.id
-    )
+
+    var managementError by rememberSaveable {
+        mutableStateOf<String?>(null)
+    }
+    var editingSessionId by rememberSaveable {
+        mutableStateOf<String?>(null)
+    }
 
     val simpleNavItems = remember {
         listOf(
@@ -146,9 +199,7 @@ fun OutsideSessionNavGraph(
                         items = simpleNavItems,
                         currentRoute = currentRoute ?: OutsideRoutes.Home,
                         onSelected = { item ->
-                            navController.navigateToOutsideDestination(
-                                item.route
-                            )
+                            navController.navigateToOutsideDestination(item.route)
                         }
                     )
                 }
@@ -158,9 +209,7 @@ fun OutsideSessionNavGraph(
                         items = advancedNavItems,
                         currentRoute = currentRoute ?: OutsideRoutes.Home,
                         onSelected = { item ->
-                            navController.navigateToOutsideDestination(
-                                item.route
-                            )
+                            navController.navigateToOutsideDestination(item.route)
                         }
                     )
                 }
@@ -175,13 +224,9 @@ fun OutsideSessionNavGraph(
                 .padding(contentPadding)
         ) {
             composable(OutsideRoutes.Home) {
-                if (
-                    sessionUiState.connectionState
-                        is SessionConnectionState.AwaitingApproval
-                ) {
+                if (sessionUiState.connectionState is SessionConnectionState.AwaitingApproval) {
                     val awaiting =
-                        sessionUiState.connectionState
-                            as SessionConnectionState.AwaitingApproval
+                        sessionUiState.connectionState as SessionConnectionState.AwaitingApproval
                     AwaitingApprovalScreen(
                         sessionName = awaiting.sessionName,
                         onCancelRequest = onCancelFacilitatorRequest,
@@ -191,9 +236,9 @@ fun OutsideSessionNavGraph(
                     when (homeExperience) {
                         HomeExperience.SIMPLE -> {
                             JoinSessionScreen(
-                                currentUser = profileUiState.user ?: currentUser,
+                                currentUser = userForActions,
                                 isJoining = sessionUiState.connectionState
-                                        is SessionConnectionState.Joining,
+                                    is SessionConnectionState.Joining,
                                 errorMessage = sessionUiState.errorMessage,
                                 onJoin = onJoinSession,
                                 modifier = Modifier.fillMaxSize()
@@ -202,26 +247,23 @@ fun OutsideSessionNavGraph(
 
                         HomeExperience.ADVANCED -> {
                             AdvancedHomeScreen(
-                                settings = settings,
-                                sessions = sessions,
+                                upcomingSessions = upcomingSessions.take(3),
+                                managementError = managementError,
                                 onCreateNow = {
-                                    onCreateSession(
+                                    onCreateSessionNow(
                                         settings.defaultSessionName,
-                                        (profileUiState.user ?: currentUser).displayName
+                                        userForActions.displayName
                                     )
                                 },
                                 onJoinSession = {
                                     navController.navigate(OutsideRoutes.Join)
                                 },
                                 onManageSessions = {
-                                    navController.navigateToOutsideDestination(
-                                        OutsideRoutes.Sessions
-                                    )
+                                    navController.navigateToOutsideDestination(OutsideRoutes.Sessions)
                                 },
                                 onScheduleSession = {
-                                    navController.navigateToOutsideDestination(
-                                        OutsideRoutes.Sessions
-                                    )
+                                    editingSessionId = null
+                                    navController.navigate(OutsideRoutes.Schedule)
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -231,13 +273,9 @@ fun OutsideSessionNavGraph(
             }
 
             composable(OutsideRoutes.Join) {
-                if (
-                    sessionUiState.connectionState
-                        is SessionConnectionState.AwaitingApproval
-                ) {
+                if (sessionUiState.connectionState is SessionConnectionState.AwaitingApproval) {
                     val awaiting =
-                        sessionUiState.connectionState
-                            as SessionConnectionState.AwaitingApproval
+                        sessionUiState.connectionState as SessionConnectionState.AwaitingApproval
                     AwaitingApprovalScreen(
                         sessionName = awaiting.sessionName,
                         onCancelRequest = onCancelFacilitatorRequest,
@@ -245,9 +283,9 @@ fun OutsideSessionNavGraph(
                     )
                 } else {
                     JoinSessionScreen(
-                        currentUser = profileUiState.user ?: currentUser,
+                        currentUser = userForActions,
                         isJoining = sessionUiState.connectionState
-                                is SessionConnectionState.Joining,
+                            is SessionConnectionState.Joining,
                         errorMessage = sessionUiState.errorMessage,
                         onJoin = onJoinSession,
                         modifier = Modifier.fillMaxSize(),
@@ -260,14 +298,117 @@ fun OutsideSessionNavGraph(
 
             composable(OutsideRoutes.Sessions) {
                 SessionsBrowserScreen(
-                    sessions = sessions,
+                    upcomingSessions = upcomingSessions,
+                    liveSessions = liveSessions,
+                    pastSessions = pastSessions,
+                    errorMessage = managementError,
+                    onScheduleSession = {
+                        editingSessionId = null
+                        navController.navigate(OutsideRoutes.Schedule)
+                    },
+                    onStartSession = { session ->
+                        coroutineScope.launch {
+                            managementError = null
+                            runCatching {
+                                container.sessionRepository.startScheduledSession(
+                                    sessionId = session.id,
+                                    ownerUserId = currentUser.id
+                                )
+                            }.onFailure { error ->
+                                managementError =
+                                    error.message ?: "Unable to start session."
+                            }
+                        }
+                    },
+                    onEditSession = { session ->
+                        editingSessionId = session.id
+                        navController.navigate(OutsideRoutes.Schedule)
+                    },
+                    onCancelSession = { session ->
+                        coroutineScope.launch {
+                            managementError = null
+                            runCatching {
+                                container.sessionRepository.cancelScheduledSession(
+                                    sessionId = session.id,
+                                    ownerUserId = currentUser.id
+                                )
+                            }.onFailure { error ->
+                                managementError =
+                                    error.message ?: "Unable to cancel session."
+                            }
+                        }
+                    },
+                    onOpenSession = { session ->
+                        coroutineScope.launch {
+                            managementError = null
+                            runCatching {
+                                container.sessionRepository.openHostedSession(
+                                    sessionId = session.id,
+                                    ownerUserId = currentUser.id
+                                )
+                            }.onFailure { error ->
+                                managementError =
+                                    error.message ?: "Unable to open session."
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            composable(OutsideRoutes.Schedule) {
+                ScheduleSessionScreen(
+                    initialSession = editingSessionId?.let { sessionId ->
+                        upcomingSessions.firstOrNull { session ->
+                            session.id == sessionId
+                        }
+                    },
+                    defaultSessionName = settings.defaultSessionName,
+                    errorMessage = managementError,
+                    onBack = {
+                        navController.popBackStack()
+                    },
+                    onSubmit = { sessionId, sessionName, scheduledStartAt, durationMinutes, onFinished ->
+                        coroutineScope.launch {
+                            managementError = null
+                            val result = runCatching {
+                                if (sessionId == null) {
+                                    container.sessionRepository.scheduleSession(
+                                        name = sessionName,
+                                        ownerUserId = currentUser.id,
+                                        scheduledStartAt = scheduledStartAt,
+                                        scheduledDurationMinutes = durationMinutes
+                                    )
+                                } else {
+                                    container.sessionRepository.updateScheduledSession(
+                                        sessionId = sessionId,
+                                        ownerUserId = currentUser.id,
+                                        name = sessionName,
+                                        scheduledStartAt = scheduledStartAt,
+                                        scheduledDurationMinutes = durationMinutes
+                                    )
+                                }
+                            }
+
+                            result.onSuccess {
+                                editingSessionId = null
+                                onFinished(null)
+                                navController.popBackStack()
+                            }.onFailure { error ->
+                                val message =
+                                    error.message ?: "Unable to save session."
+                                managementError = message
+                                onFinished(message)
+                            }
+                        }
+                    },
                     modifier = Modifier.fillMaxSize()
                 )
             }
 
             composable(OutsideRoutes.Groups) {
                 SocialScreen(
-                    user = profileUiState.user ?: currentUser,
+                    user = userForActions,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -285,10 +426,9 @@ fun OutsideSessionNavGraph(
                     when (homeExperience) {
                         HomeExperience.SIMPLE -> {
                             ParticipantSettingsScreen(
-                                user = profileUiState.user ?: currentUser,
+                                user = userForActions,
                                 settings = settings,
-                                onUpdateSettings =
-                                    profileViewModel::updateSettings,
+                                onUpdateSettings = profileViewModel::updateSettings,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -296,12 +436,9 @@ fun OutsideSessionNavGraph(
                         HomeExperience.ADVANCED -> {
                             FacilitatorSettingsScreen(
                                 settings = settings,
-                                onSettingsChange =
-                                    profileViewModel::updateSettings,
-                                onClearLocalHistory =
-                                    onClearLocalHistory,
-                                onExportSummary =
-                                    onExportSummary,
+                                onSettingsChange = profileViewModel::updateSettings,
+                                onClearLocalHistory = onClearLocalHistory,
+                                onExportSummary = onExportSummary,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }
@@ -326,8 +463,8 @@ private fun NavHostController.navigateToOutsideDestination(
 
 @Composable
 private fun AdvancedHomeScreen(
-    settings: UserSettingsEntity,
-    sessions: List<SessionEntity>,
+    upcomingSessions: List<SessionEntity>,
+    managementError: String?,
     onCreateNow: () -> Unit,
     onScheduleSession: () -> Unit,
     onJoinSession: () -> Unit,
@@ -336,12 +473,6 @@ private fun AdvancedHomeScreen(
 ) {
     var showCreateDialog by rememberSaveable {
         mutableStateOf(false)
-    }
-    val upcomingSessions = remember(sessions) {
-        sessions
-            .filter { it.isUpcomingTodayOrLater() }
-            .sortedBy { it.scheduledStartAt ?: Long.MAX_VALUE }
-            .take(3)
     }
 
     if (showCreateDialog) {
@@ -366,6 +497,7 @@ private fun AdvancedHomeScreen(
             .padding(24.dp)
     ) {
         val isTablet = maxWidth >= 700.dp
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -385,6 +517,12 @@ private fun AdvancedHomeScreen(
                 color = MaterialTheme.colorScheme.secondary
             )
 
+            managementError
+                ?.takeIf { it.isNotBlank() }
+                ?.let { message ->
+                    ErrorCard(message = message)
+                }
+
             if (isTablet) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -392,7 +530,7 @@ private fun AdvancedHomeScreen(
                 ) {
                     HomeActionCard(
                         title = "Create Session",
-                        subtitle = "Start a new session right away.",
+                        subtitle = "Start a session now.",
                         iconRes = R.drawable.ic_role_facilitator,
                         onClick = {
                             showCreateDialog = true
@@ -424,7 +562,7 @@ private fun AdvancedHomeScreen(
                     ) {
                         HomeActionCard(
                             title = "Create Session",
-                            subtitle = "Start a new session right away.",
+                            subtitle = "Start a session now.",
                             iconRes = R.drawable.ic_role_facilitator,
                             onClick = {
                                 showCreateDialog = true
@@ -484,8 +622,7 @@ private fun HomeActionCard(
     modifier: Modifier = Modifier
 ) {
     AppCard(
-        modifier = modifier
-            .clickable(onClick = onClick)
+        modifier = modifier.clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier
@@ -593,28 +730,25 @@ private enum class SessionsTab(
 
 @Composable
 private fun SessionsBrowserScreen(
-    sessions: List<SessionEntity>,
+    upcomingSessions: List<SessionEntity>,
+    liveSessions: List<SessionEntity>,
+    pastSessions: List<SessionEntity>,
+    errorMessage: String?,
+    onScheduleSession: () -> Unit,
+    onStartSession: (SessionEntity) -> Unit,
+    onEditSession: (SessionEntity) -> Unit,
+    onCancelSession: (SessionEntity) -> Unit,
+    onOpenSession: (SessionEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var selectedTab by rememberSaveable {
         mutableStateOf(SessionsTab.Upcoming)
     }
-    val visibleSessions = remember(sessions, selectedTab) {
-        when (selectedTab) {
-            SessionsTab.Upcoming ->
-                sessions.filter { it.isUpcomingTodayOrLater() }
-                    .sortedBy { it.scheduledStartAt ?: Long.MAX_VALUE }
-            SessionsTab.Live ->
-                sessions.filter { it.isLive() }
-                    .sortedByDescending { it.actualStartedAt ?: it.createdAt }
-            SessionsTab.Past ->
-                sessions.filter { it.isPast() }
-                    .sortedByDescending {
-                        it.actualEndedAt
-                            ?: it.scheduledStartAt
-                            ?: it.createdAt
-                    }
-        }
+
+    val visibleSessions = when (selectedTab) {
+        SessionsTab.Upcoming -> upcomingSessions
+        SessionsTab.Live -> liveSessions
+        SessionsTab.Past -> pastSessions
     }
 
     Column(
@@ -624,11 +758,27 @@ private fun SessionsBrowserScreen(
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(
-            text = "Sessions",
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.secondary
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Sessions",
+                style = MaterialTheme.typography.headlineLarge,
+                color = MaterialTheme.colorScheme.secondary
+            )
+            SecondaryButton(
+                text = "Schedule session",
+                onClick = onScheduleSession
+            )
+        }
+
+        errorMessage
+            ?.takeIf { it.isNotBlank() }
+            ?.let { message ->
+                ErrorCard(message = message)
+            }
 
         TabRow(selectedTabIndex = selectedTab.ordinal) {
             SessionsTab.entries.forEach { tab ->
@@ -649,12 +799,9 @@ private fun SessionsBrowserScreen(
                     AppCard {
                         Text(
                             text = when (selectedTab) {
-                                SessionsTab.Upcoming ->
-                                    "No upcoming sessions."
-                                SessionsTab.Live ->
-                                    "No live sessions."
-                                SessionsTab.Past ->
-                                    "No past sessions."
+                                SessionsTab.Upcoming -> "No upcoming sessions."
+                                SessionsTab.Live -> "No live sessions."
+                                SessionsTab.Past -> "No past sessions."
                             },
                             color = AacTextSecondary
                         )
@@ -667,7 +814,11 @@ private fun SessionsBrowserScreen(
                 ) { session ->
                     SessionListCard(
                         session = session,
-                        tab = selectedTab
+                        tab = selectedTab,
+                        onStartSession = onStartSession,
+                        onEditSession = onEditSession,
+                        onCancelSession = onCancelSession,
+                        onOpenSession = onOpenSession
                     )
                 }
             }
@@ -678,38 +829,428 @@ private fun SessionsBrowserScreen(
 @Composable
 private fun SessionListCard(
     session: SessionEntity,
-    tab: SessionsTab
+    tab: SessionsTab,
+    onStartSession: (SessionEntity) -> Unit,
+    onEditSession: (SessionEntity) -> Unit,
+    onCancelSession: (SessionEntity) -> Unit,
+    onOpenSession: (SessionEntity) -> Unit
 ) {
     AppCard {
         Column(
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = session.name,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Code ${session.joinCode}",
-                color = AacTextSecondary,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                text = when (tab) {
-                    SessionsTab.Upcoming ->
-                        session.scheduledStartAt?.let(::sessionDateTimeLabel)
-                            ?: "Schedule details not set yet."
-                    SessionsTab.Live ->
-                        "Started ${session.actualStartedAt?.let(TimeUtils::clockTime) ?: "now"}"
-                    SessionsTab.Past -> {
-                        val endedAt = session.actualEndedAt
-                            ?: session.scheduledStartAt
-                            ?: session.createdAt
-                        "Ended ${sessionDateTimeLabel(endedAt)}"
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = session.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Code ${session.joinCode}",
+                    color = AacTextSecondary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = when (tab) {
+                        SessionsTab.Upcoming ->
+                            session.scheduledStartAt?.let(::sessionDateTimeLabel)
+                                ?: "Schedule details not set yet."
+
+                        SessionsTab.Live ->
+                            "Started ${session.actualStartedAt?.let(TimeUtils::clockTime) ?: "now"}"
+
+                        SessionsTab.Past -> {
+                            val endedAt = session.actualEndedAt
+                                ?: session.scheduledStartAt
+                                ?: session.createdAt
+                            "Ended ${sessionDateTimeLabel(endedAt)}"
+                        }
+                    },
+                    color = AacTextSecondary
+                )
+                session.scheduledDurationMinutes?.let { durationMinutes ->
+                    Text(
+                        text = "Duration $durationMinutes min",
+                        color = AacTextSecondary
+                    )
+                }
+            }
+
+            when (tab) {
+                SessionsTab.Upcoming -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CompactActionButton(
+                            text = "Start",
+                            onClick = {
+                                onStartSession(session)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        CompactActionButton(
+                            text = "Edit",
+                            onClick = {
+                                onEditSession(session)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        CompactActionButton(
+                            text = "Cancel",
+                            onClick = {
+                                onCancelSession(session)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
                     }
-                },
-                color = AacTextSecondary
-            )
+                }
+
+                SessionsTab.Live -> {
+                    PrimaryButton(
+                        text = "Open",
+                        onClick = {
+                            onOpenSession(session)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                SessionsTab.Past -> {
+                    SecondaryButton(
+                        text = "View summary",
+                        onClick = {},
+                        enabled = false,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        text = "Not available yet.",
+                        color = AacTextSecondary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ScheduleSessionScreen(
+    initialSession: SessionEntity?,
+    defaultSessionName: String,
+    errorMessage: String?,
+    onBack: () -> Unit,
+    onSubmit: (
+        sessionId: String?,
+        sessionName: String,
+        scheduledStartAt: Long,
+        durationMinutes: Int,
+        onFinished: (String?) -> Unit
+    ) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val now = remember {
+        System.currentTimeMillis()
+    }
+    val defaultScheduledAt = remember(initialSession?.id) {
+        initialSession?.scheduledStartAt ?: nextHalfHour(now)
+    }
+    val defaultDuration = remember(initialSession?.id) {
+        initialSession?.scheduledDurationMinutes ?: 60
+    }
+
+    var sessionName by rememberSaveable(initialSession?.id) {
+        mutableStateOf(initialSession?.name ?: defaultSessionName)
+    }
+    var scheduledAt by rememberSaveable(initialSession?.id) {
+        mutableStateOf(defaultScheduledAt)
+    }
+    var durationMinutes by rememberSaveable(initialSession?.id) {
+        mutableStateOf(defaultDuration)
+    }
+    var validationError by rememberSaveable(initialSession?.id) {
+        mutableStateOf<String?>(null)
+    }
+    var isSaving by rememberSaveable {
+        mutableStateOf(false)
+    }
+    var showDatePicker by rememberSaveable {
+        mutableStateOf(false)
+    }
+    var showTimePicker by rememberSaveable {
+        mutableStateOf(false)
+    }
+    var durationExpanded by rememberSaveable {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(initialSession?.id) {
+        if (initialSession != null) {
+            sessionName = initialSession.name
+            scheduledAt = initialSession.scheduledStartAt ?: defaultScheduledAt
+            durationMinutes = initialSession.scheduledDurationMinutes ?: defaultDuration
+            validationError = null
+        }
+    }
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = startOfDayMillis(scheduledAt)
+        )
+        DatePickerDialog(
+            onDismissRequest = {
+                showDatePicker = false
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val selectedDateMillis =
+                            datePickerState.selectedDateMillis
+                                ?: startOfDayMillis(scheduledAt)
+                        scheduledAt = combineDateAndTime(
+                            dateMillis = selectedDateMillis,
+                            hour = scheduledAt.hourOfDay(),
+                            minute = scheduledAt.minuteOfHour()
+                        )
+                        showDatePicker = false
+                    }
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showDatePicker = false
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    if (showTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = scheduledAt.hourOfDay(),
+            initialMinute = scheduledAt.minuteOfHour(),
+            is24Hour = false
+        )
+        AlertDialog(
+            onDismissRequest = {
+                showTimePicker = false
+            },
+            title = {
+                Text("Time")
+            },
+            text = {
+                TimeInput(state = timePickerState)
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scheduledAt = combineDateAndTime(
+                            dateMillis = startOfDayMillis(scheduledAt),
+                            hour = timePickerState.hour,
+                            minute = timePickerState.minute
+                        )
+                        showTimePicker = false
+                    }
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showTimePicker = false
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(AacBackground)
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "Back",
+            color = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.clickable(onClick = onBack)
+        )
+
+        Text(
+            text = "Schedule session",
+            style = MaterialTheme.typography.headlineLarge,
+            color = MaterialTheme.colorScheme.secondary
+        )
+
+        if (initialSession == null && errorMessage != null && errorMessage.contains("edit", ignoreCase = true)) {
+            ErrorCard(message = errorMessage)
+        }
+
+        AppCard {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                OutlinedTextField(
+                    value = sessionName,
+                    onValueChange = {
+                        sessionName = it
+                        validationError = null
+                    },
+                    label = {
+                        Text("Session name")
+                    },
+                    singleLine = true,
+                    enabled = !isSaving,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = TimeUtils.dateLabel(scheduledAt),
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = !isSaving,
+                    label = {
+                        Text("Date")
+                    },
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = false)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showDatePicker = true
+                        }
+                )
+
+                OutlinedTextField(
+                    value = TimeUtils.clockTime(scheduledAt),
+                    onValueChange = {},
+                    readOnly = true,
+                    enabled = !isSaving,
+                    label = {
+                        Text("Time")
+                    },
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = false)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showTimePicker = true
+                        }
+                )
+
+                ExposedDropdownMenuBox(
+                    expanded = durationExpanded,
+                    onExpandedChange = { expanded ->
+                        if (!isSaving) {
+                            durationExpanded = expanded
+                        }
+                    }
+                ) {
+                    OutlinedTextField(
+                        value = "$durationMinutes minutes",
+                        onValueChange = {},
+                        readOnly = true,
+                        enabled = !isSaving,
+                        label = {
+                            Text("Duration")
+                        },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = durationExpanded)
+                        },
+                        modifier = Modifier
+                            .menuAnchor()
+                            .fillMaxWidth()
+                    )
+
+                    ExposedDropdownMenu(
+                        expanded = durationExpanded,
+                        onDismissRequest = {
+                            durationExpanded = false
+                        }
+                    ) {
+                        ScheduleDurationOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text("$option minutes")
+                                },
+                                onClick = {
+                                    durationMinutes = option
+                                    durationExpanded = false
+                                    validationError = null
+                                }
+                            )
+                        }
+                    }
+                }
+
+                (validationError ?: errorMessage)
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { message ->
+                        ErrorCard(message = message)
+                    }
+
+                if (isSaving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    )
+                }
+
+                PrimaryButton(
+                    text = if (isSaving) {
+                        "Scheduling…"
+                    } else {
+                        "Schedule session"
+                    },
+                    enabled = !isSaving,
+                    onClick = {
+                        val cleanSessionName = sessionName.trim()
+                        val minimumStart = System.currentTimeMillis() - 60_000L
+                        validationError = when {
+                            cleanSessionName.isBlank() ->
+                                "Enter a session name."
+
+                            scheduledAt < minimumStart ->
+                                "Choose a future date and time."
+
+                            durationMinutes <= 0 ->
+                                "Choose a duration."
+
+                            else -> null
+                        }
+
+                        if (validationError == null) {
+                            isSaving = true
+                            onSubmit(
+                                initialSession?.id,
+                                cleanSessionName,
+                                scheduledAt,
+                                durationMinutes
+                            ) { submitError ->
+                                isSaving = false
+                                validationError = submitError
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     }
 }
@@ -758,32 +1299,82 @@ private fun ToolsPlaceholderScreen(
     }
 }
 
-private fun SessionEntity.isLive(): Boolean =
-    actualStartedAt != null && actualEndedAt == null
+@Composable
+private fun ErrorCard(
+    message: String
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.errorContainer
+    ) {
+        Text(
+            text = message,
+            modifier = Modifier.padding(16.dp),
+            color = MaterialTheme.colorScheme.onErrorContainer
+        )
+    }
+}
 
-private fun SessionEntity.isPast(now: Long = System.currentTimeMillis()): Boolean =
-    actualEndedAt != null ||
-        (!isLive() &&
-            scheduledStartAt != null &&
-            scheduledStartAt < startOfTodayMillis() &&
-            scheduledStartAt < now)
+private fun sessionDateTimeLabel(timestamp: Long): String {
+    return "${TimeUtils.dateLabel(timestamp)} at ${TimeUtils.clockTime(timestamp)}"
+}
 
-private fun SessionEntity.isUpcomingTodayOrLater(): Boolean =
-    actualStartedAt == null &&
-        actualEndedAt == null &&
-        scheduledStartAt != null &&
-        scheduledStartAt >= startOfTodayMillis()
-
-private fun startOfTodayMillis(): Long {
+private fun nextHalfHour(now: Long): Long {
     val zone = ZoneId.systemDefault()
-    return LocalDate.now(zone)
+    val dateTime = Instant.ofEpochMilli(now)
+        .atZone(zone)
+        .toLocalDateTime()
+    val roundedMinute = if (dateTime.minute < 30) 30 else 0
+    val roundedHour = if (dateTime.minute < 30) dateTime.hour else dateTime.hour + 1
+    val adjusted = LocalDateTime.of(
+        dateTime.toLocalDate(),
+        LocalTime.of(roundedHour % 24, roundedMinute)
+    ).let { candidate ->
+        if (roundedHour >= 24) {
+            candidate.plusDays(1)
+        } else {
+            candidate
+        }
+    }
+    return adjusted.atZone(zone).toInstant().toEpochMilli()
+}
+
+private fun startOfDayMillis(timestamp: Long): Long {
+    val zone = ZoneId.systemDefault()
+    return Instant.ofEpochMilli(timestamp)
+        .atZone(zone)
+        .toLocalDate()
         .atStartOfDay(zone)
         .toInstant()
         .toEpochMilli()
 }
 
-private fun sessionDateTimeLabel(timestamp: Long): String {
-    return "${TimeUtils.dateLabel(timestamp)} at ${TimeUtils.clockTime(timestamp)}"
+private fun combineDateAndTime(
+    dateMillis: Long,
+    hour: Int,
+    minute: Int
+): Long {
+    val zone = ZoneId.systemDefault()
+    val date = Instant.ofEpochMilli(dateMillis)
+        .atZone(zone)
+        .toLocalDate()
+    return LocalDateTime.of(date, LocalTime.of(hour, minute))
+        .atZone(zone)
+        .toInstant()
+        .toEpochMilli()
+}
+
+private fun Long.hourOfDay(): Int {
+    return Instant.ofEpochMilli(this)
+        .atZone(ZoneId.systemDefault())
+        .hour
+}
+
+private fun Long.minuteOfHour(): Int {
+    return Instant.ofEpochMilli(this)
+        .atZone(ZoneId.systemDefault())
+        .minute
 }
 
 @Composable
@@ -802,11 +1393,8 @@ private fun LoadingDestination(
 @Composable
 private fun AdvancedHomeScreenPhonePreview() {
     AdvancedHomeScreen(
-        settings = UserSettingsEntity(
-            userId = "1",
-            homeExperience = HomeExperience.ADVANCED
-        ),
-        sessions = emptyList(),
+        upcomingSessions = emptyList(),
+        managementError = null,
         onCreateNow = {},
         onScheduleSession = {},
         onJoinSession = {},
@@ -818,15 +1406,24 @@ private fun AdvancedHomeScreenPhonePreview() {
 @Composable
 private fun SessionsBrowserScreenPreview() {
     SessionsBrowserScreen(
-        sessions = listOf(
+        upcomingSessions = listOf(
             SessionEntity(
                 id = "a",
                 name = "Tomorrow Planning",
                 joinCode = "1111-2222",
                 hostUserId = "1",
                 createdAt = 0,
-                scheduledStartAt = System.currentTimeMillis() + 86_400_000L
+                scheduledStartAt = System.currentTimeMillis() + 86_400_000L,
+                scheduledDurationMinutes = 60
             )
-        )
+        ),
+        liveSessions = emptyList(),
+        pastSessions = emptyList(),
+        errorMessage = null,
+        onScheduleSession = {},
+        onStartSession = {},
+        onEditSession = {},
+        onCancelSession = {},
+        onOpenSession = {}
     )
 }

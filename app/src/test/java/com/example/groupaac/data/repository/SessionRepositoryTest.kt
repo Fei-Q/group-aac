@@ -29,9 +29,84 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class SessionRepositoryTest {
+    @Test
+    fun createSessionNowCreatesHostMembershipAndActivates() = runTest {
+        val fixture = sessionFixture()
+
+        val activeSession = fixture.repository.createSessionNow(
+            name = "Live Planning",
+            ownerUserId = fixture.host.id,
+            displayName = fixture.host.displayName
+        )
+
+        assertEquals(SessionRole.HOST, activeSession.role)
+        assertEquals(
+            activeSession.sessionId,
+            fixture.activeSessionStore.activeSessions[fixture.host.id]
+        )
+
+        val createdSession = fixture.sessionDao.getSession(activeSession.sessionId)
+        assertNotNull(createdSession)
+        assertNotNull(createdSession?.actualStartedAt)
+        assertEquals(fixture.host.id, createdSession?.hostUserId)
+
+        val hostMember = fixture.sessionDao.getMember(
+            activeSession.sessionId,
+            fixture.host.id
+        )
+        assertNotNull(hostMember)
+        assertEquals(SessionRole.HOST, hostMember?.role)
+    }
+
+    @Test
+    fun scheduleSessionDoesNotActivate() = runTest {
+        val fixture = sessionFixture()
+
+        val scheduledSession = fixture.repository.scheduleSession(
+            name = "Tuesday Support Group",
+            ownerUserId = fixture.host.id,
+            scheduledStartAt = 5_000L,
+            scheduledDurationMinutes = 60
+        )
+
+        assertNull(fixture.activeSessionStore.activeSessions[fixture.host.id])
+        assertNull(scheduledSession.actualStartedAt)
+        assertEquals(5_000L, scheduledSession.scheduledStartAt)
+        assertEquals(60, scheduledSession.scheduledDurationMinutes)
+        assertEquals(fixture.host.id, scheduledSession.hostUserId)
+        assertNotNull(
+            fixture.sessionDao.getMember(
+                scheduledSession.id,
+                fixture.host.id
+            )
+        )
+    }
+
+    @Test
+    fun startScheduledSessionIsHostOnly() = runTest {
+        val fixture = sessionFixture()
+        val scheduledSession = fixture.repository.scheduleSession(
+            name = "Wednesday Check-in",
+            ownerUserId = fixture.host.id,
+            scheduledStartAt = 7_000L,
+            scheduledDurationMinutes = 45
+        )
+
+        try {
+            fixture.repository.startScheduledSession(
+                sessionId = scheduledSession.id,
+                ownerUserId = fixture.participant.id
+            )
+            fail("Expected only the host to be able to start the session.")
+        } catch (_: IllegalStateException) {
+            // Expected path.
+        }
+    }
+
     @Test
     fun participantImmediateJoin() = runTest {
         val fixture = sessionFixture()
@@ -277,6 +352,54 @@ private class FakeSessionDao : SessionDao {
     override fun observeSession(id: String): Flow<SessionEntity?> =
         flowOf(sessions[id])
 
+    override fun observeUpcomingHostedSessions(
+        hostUserId: String,
+        dayStartMillis: Long
+    ): Flow<List<SessionEntity>> = flowOf(
+        sessions.values
+            .filter {
+                it.hostUserId == hostUserId &&
+                    it.actualStartedAt == null &&
+                    it.actualEndedAt == null &&
+                    it.scheduledStartAt != null &&
+                    it.scheduledStartAt >= dayStartMillis
+            }
+            .sortedBy { it.scheduledStartAt }
+    )
+
+    override fun observeLiveHostedSessions(
+        hostUserId: String
+    ): Flow<List<SessionEntity>> = flowOf(
+        sessions.values
+            .filter {
+                it.hostUserId == hostUserId &&
+                    it.actualStartedAt != null &&
+                    it.actualEndedAt == null
+            }
+            .sortedByDescending { it.actualStartedAt }
+    )
+
+    override fun observePastHostedSessions(
+        hostUserId: String,
+        dayStartMillis: Long
+    ): Flow<List<SessionEntity>> = flowOf(
+        sessions.values
+            .filter {
+                it.hostUserId == hostUserId &&
+                    (
+                        it.actualEndedAt != null ||
+                            (
+                                it.actualStartedAt == null &&
+                                    it.scheduledStartAt != null &&
+                                    it.scheduledStartAt < dayStartMillis
+                                )
+                        )
+            }
+            .sortedByDescending {
+                it.actualEndedAt ?: it.scheduledStartAt ?: it.createdAt
+            }
+    )
+
     override suspend fun getSessionByCode(joinCode: String): SessionEntity? =
         sessions.values.firstOrNull { it.joinCode == joinCode }
 
@@ -320,6 +443,29 @@ private class FakeSessionDao : SessionDao {
                 scheduledDurationMinutes = scheduledDurationMinutes
             )
         )
+    }
+
+    override suspend fun deleteMembersForSession(sessionId: String) {
+        val keysToRemove = members.keys
+            .filter { (memberSessionId, _) ->
+                memberSessionId == sessionId
+            }
+        keysToRemove.forEach { key ->
+            members.remove(key)
+        }
+    }
+
+    override suspend fun deleteHostedSession(
+        sessionId: String,
+        hostUserId: String
+    ): Int {
+        val session = sessions[sessionId] ?: return 0
+        if (session.hostUserId != hostUserId) {
+            return 0
+        }
+        sessions.remove(sessionId)
+        sessionsFlow.value = sessions.values.toList()
+        return 1
     }
 
     override suspend fun upsertMember(member: SessionMemberEntity) {
@@ -458,6 +604,15 @@ private class FakeSessionJoinRequestDao : SessionJoinRequestDao {
         decidedAt = decidedAt,
         decidedByUserId = null
     )
+
+    override suspend fun deleteRequestsForSession(sessionId: String) {
+        val idsToRemove = requests.values
+            .filter { it.sessionId == sessionId }
+            .map { it.id }
+        idsToRemove.forEach { requestId ->
+            requests.remove(requestId)
+        }
+    }
 
     private fun updateStatus(
         requestId: String,

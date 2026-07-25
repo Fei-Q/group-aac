@@ -102,4 +102,7 @@ interface SessionJoinRequestDao {
         cancelledStatus: JoinRequestStatus = JoinRequestStatus.CANCELLED,
         pendingStatus: JoinRequestStatus = JoinRequestStatus.PENDING
     ): Int
+
+    @Query("DELETE FROM session_join_requests WHERE sessionId = :sessionId")
+    suspend fun deleteRequestsForSession(sessionId: String)
 }

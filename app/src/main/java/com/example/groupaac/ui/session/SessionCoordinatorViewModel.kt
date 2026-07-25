@@ -281,7 +281,7 @@ class SessionCoordinatorViewModel(
             )
 
             runCatching {
-                sessionRepository.createSession(
+                sessionRepository.createSessionNow(
                     name = name,
                     ownerUserId = user.id,
                     displayName = displayName

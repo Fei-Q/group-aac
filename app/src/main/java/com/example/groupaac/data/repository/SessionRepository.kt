@@ -16,6 +16,8 @@ import com.example.groupaac.model.JoinSessionResult
 import com.example.groupaac.model.SessionRole
 import com.example.groupaac.util.IdUtils
 import com.example.groupaac.util.TimeUtils
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
@@ -32,8 +34,25 @@ class SessionRepository(
         sessionId: String
     ): Flow<SessionEntity?> = sessionDao.observeSession(sessionId)
 
-    fun observeSessions(): Flow<List<SessionEntity>> =
-        sessionDao.observeSessions()
+    fun observeSessions(): Flow<List<SessionEntity>> = sessionDao.observeSessions()
+
+    fun observeUpcomingHostedSessions(
+        hostUserId: String
+    ): Flow<List<SessionEntity>> = sessionDao.observeUpcomingHostedSessions(
+        hostUserId = hostUserId,
+        dayStartMillis = startOfTodayMillis()
+    )
+
+    fun observeLiveHostedSessions(
+        hostUserId: String
+    ): Flow<List<SessionEntity>> = sessionDao.observeLiveHostedSessions(hostUserId)
+
+    fun observePastHostedSessions(
+        hostUserId: String
+    ): Flow<List<SessionEntity>> = sessionDao.observePastHostedSessions(
+        hostUserId = hostUserId,
+        dayStartMillis = startOfTodayMillis()
+    )
 
     suspend fun getSession(
         sessionId: String
@@ -91,7 +110,7 @@ class SessionRepository(
             }
     }
 
-    suspend fun createSession(
+    suspend fun createSessionNow(
         name: String,
         ownerUserId: String,
         displayName: String
@@ -111,11 +130,10 @@ class SessionRepository(
             // This code path is used by the current "Create Now" flow.
             actualStartedAt = now
         )
-        val member = SessionMemberEntity(
+        val member = hostMembership(
             sessionId = session.id,
-            userId = ownerUserId,
+            ownerUserId = ownerUserId,
             displayName = cleanDisplayName,
-            role = SessionRole.HOST,
             joinedAt = now
         )
 
@@ -147,6 +165,149 @@ class SessionRepository(
             role = SessionRole.HOST,
             joinedAt = now
         )
+    }
+
+    suspend fun scheduleSession(
+        name: String,
+        ownerUserId: String,
+        scheduledStartAt: Long,
+        scheduledDurationMinutes: Int
+    ): SessionEntity {
+        val owner = userDao.getUser(ownerUserId)
+            ?: error("User not found.")
+        val now = TimeUtils.now()
+        val session = SessionEntity(
+            id = IdUtils.newId(),
+            name = name.trim().ifBlank { "Group Meeting" },
+            joinCode = generateUniqueJoinCode(),
+            hostUserId = ownerUserId,
+            createdAt = now,
+            scheduledStartAt = scheduledStartAt,
+            scheduledDurationMinutes = scheduledDurationMinutes
+        )
+        val member = hostMembership(
+            sessionId = session.id,
+            ownerUserId = ownerUserId,
+            displayName = owner.displayName,
+            joinedAt = now
+        )
+
+        sessionDao.createOrJoinSession(
+            session = session,
+            member = member
+        )
+
+        return session
+    }
+
+    suspend fun updateScheduledSession(
+        sessionId: String,
+        ownerUserId: String,
+        name: String,
+        scheduledStartAt: Long,
+        scheduledDurationMinutes: Int
+    ): SessionEntity {
+        val session = requireHostedSession(
+            sessionId = sessionId,
+            ownerUserId = ownerUserId
+        )
+        check(session.actualStartedAt == null && session.actualEndedAt == null) {
+            "Only upcoming sessions can be edited."
+        }
+
+        val updated = session.copy(
+            name = name.trim().ifBlank { session.name },
+            scheduledStartAt = scheduledStartAt,
+            scheduledDurationMinutes = scheduledDurationMinutes
+        )
+        sessionDao.upsertSession(updated)
+        return updated
+    }
+
+    suspend fun startScheduledSession(
+        sessionId: String,
+        ownerUserId: String
+    ): ActiveSession {
+        val session = requireHostedSession(
+            sessionId = sessionId,
+            ownerUserId = ownerUserId
+        )
+        check(session.actualEndedAt == null) {
+            "This session has already ended."
+        }
+
+        val owner = userDao.getUser(ownerUserId)
+            ?: error("User not found.")
+        val member = sessionDao.getMember(sessionId, ownerUserId)
+        val joinedAt = member?.joinedAt ?: session.createdAt
+
+        sessionDao.upsertMember(
+            hostMembership(
+                sessionId = sessionId,
+                ownerUserId = ownerUserId,
+                displayName = owner.displayName,
+                joinedAt = joinedAt
+            )
+        )
+        sessionDao.markSessionStartedIfNeeded(sessionId)
+
+        return activateHostedSession(
+            sessionId = sessionId,
+            ownerUserId = ownerUserId,
+            displayName = owner.displayName,
+            joinedAt = joinedAt
+        )
+    }
+
+    suspend fun openHostedSession(
+        sessionId: String,
+        ownerUserId: String
+    ): ActiveSession {
+        val session = requireHostedSession(
+            sessionId = sessionId,
+            ownerUserId = ownerUserId
+        )
+        check(session.actualStartedAt != null && session.actualEndedAt == null) {
+            "Only live sessions can be opened."
+        }
+
+        val owner = userDao.getUser(ownerUserId)
+            ?: error("User not found.")
+        val member = sessionDao.getMember(sessionId, ownerUserId)
+        val joinedAt = member?.joinedAt ?: session.createdAt
+
+        sessionDao.upsertMember(
+            hostMembership(
+                sessionId = sessionId,
+                ownerUserId = ownerUserId,
+                displayName = owner.displayName,
+                joinedAt = joinedAt
+            )
+        )
+
+        return activateHostedSession(
+            sessionId = sessionId,
+            ownerUserId = ownerUserId,
+            displayName = owner.displayName,
+            joinedAt = joinedAt
+        )
+    }
+
+    suspend fun cancelScheduledSession(
+        sessionId: String,
+        ownerUserId: String
+    ): Boolean {
+        val session = requireHostedSession(
+            sessionId = sessionId,
+            ownerUserId = ownerUserId
+        )
+        check(session.actualStartedAt == null && session.actualEndedAt == null) {
+            "Only upcoming sessions can be cancelled."
+        }
+
+        sessionJoinRequestDao.deleteRequestsForSession(sessionId)
+        sessionDao.deleteMembersForSession(sessionId)
+        return sessionDao.deleteHostedSession(sessionId, ownerUserId) > 0
     }
 
     suspend fun joinSession(
@@ -454,5 +615,71 @@ class SessionRepository(
         }
 
         return "${digits.take(4)}-${digits.drop(4)}"
+    }
+
+    private suspend fun requireHostedSession(
+        sessionId: String,
+        ownerUserId: String
+    ): SessionEntity {
+        val session = sessionDao.getSession(sessionId)
+            ?: error("Session not found.")
+        check(session.hostUserId == ownerUserId) {
+            "Only the session host may manage this session."
+        }
+        return session
+    }
+
+    private suspend fun activateHostedSession(
+        sessionId: String,
+        ownerUserId: String,
+        displayName: String,
+        joinedAt: Long
+    ): ActiveSession {
+        val session = sessionDao.getSession(sessionId)
+            ?: error("Session not found.")
+
+        activeSessionStore.setActiveSession(
+            userId = ownerUserId,
+            sessionId = sessionId
+        )
+
+        piClient.joinSession(
+            PiJoinRequest(
+                sessionCode = session.joinCode,
+                userId = ownerUserId,
+                displayName = displayName,
+                role = SessionRole.HOST
+            )
+        )
+
+        return ActiveSession(
+            sessionId = session.id,
+            joinCode = session.joinCode,
+            sessionName = session.name,
+            userId = ownerUserId,
+            role = SessionRole.HOST,
+            joinedAt = joinedAt
+        )
+    }
+
+    private fun hostMembership(
+        sessionId: String,
+        ownerUserId: String,
+        displayName: String,
+        joinedAt: Long
+    ): SessionMemberEntity = SessionMemberEntity(
+        sessionId = sessionId,
+        userId = ownerUserId,
+        displayName = displayName,
+        role = SessionRole.HOST,
+        joinedAt = joinedAt
+    )
+
+    private fun startOfTodayMillis(): Long {
+        val zone = ZoneId.systemDefault()
+        return LocalDate.now(zone)
+            .atStartOfDay(zone)
+            .toInstant()
+            .toEpochMilli()
     }
 }

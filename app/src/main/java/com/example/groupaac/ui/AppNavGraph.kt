@@ -117,7 +117,7 @@ fun AppNavGraph(
                         homeExperience =
                             accountState.activeHomeExperience,
                         sessionUiState = sessionState,
-                        onCreateSession =
+                        onCreateSessionNow =
                             sessionCoordinatorViewModel::createSession,
                         onJoinSession =
                             sessionCoordinatorViewModel::joinSession,

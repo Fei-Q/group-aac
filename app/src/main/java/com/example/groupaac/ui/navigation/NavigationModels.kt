@@ -71,6 +71,7 @@ object OutsideRoutes {
     const val Home = "outside/home"
     const val Join = "outside/join"
     const val Sessions = "outside/sessions"
+    const val Schedule = "outside/sessions/schedule"
     const val Groups = "outside/groups"
     const val Tools = "outside/tools"
     const val Settings = "outside/settings"
