@@ -6,5 +6,8 @@ data class ActiveSession(
     val sessionName: String,
     val userId: String,
     val role: SessionRole,
-    val joinedAt: Long
+    val joinedAt: Long,
+    val scheduledStartAt: Long? = null,
+    val scheduledDurationMinutes: Int? = null,
+    val actualStartedAt: Long? = null
 )

@@ -76,11 +76,10 @@ import com.example.groupaac.ui.common.CompactActionButton
 import com.example.groupaac.ui.common.PrimaryButton
 import com.example.groupaac.ui.common.SecondaryButton
 import com.example.groupaac.ui.common.SimpleOutsideNavItem
-import com.example.groupaac.ui.facilitator.FacilitatorSettingsScreen
-import com.example.groupaac.ui.participant.ParticipantSettingsScreen
 import com.example.groupaac.ui.participant.SocialScreen
 import com.example.groupaac.ui.profile.ProfileViewModel
 import com.example.groupaac.ui.profile.ProfileViewModelFactory
+import com.example.groupaac.ui.settings.UserSettingsScreen
 import com.example.groupaac.ui.session.AwaitingApprovalScreen
 import com.example.groupaac.ui.session.JoinSessionScreen
 import com.example.groupaac.ui.session.SessionCoordinatorUiState
@@ -423,26 +422,14 @@ fun OutsideSessionNavGraph(
                 if (profileUiState.settings == null) {
                     LoadingDestination()
                 } else {
-                    when (homeExperience) {
-                        HomeExperience.SIMPLE -> {
-                            ParticipantSettingsScreen(
-                                user = userForActions,
-                                settings = settings,
-                                onUpdateSettings = profileViewModel::updateSettings,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-
-                        HomeExperience.ADVANCED -> {
-                            FacilitatorSettingsScreen(
-                                settings = settings,
-                                onSettingsChange = profileViewModel::updateSettings,
-                                onClearLocalHistory = onClearLocalHistory,
-                                onExportSummary = onExportSummary,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
+                    UserSettingsScreen(
+                        user = userForActions,
+                        settings = settings,
+                        onUpdateSettings = profileViewModel::updateSettings,
+                        onClearLocalHistory = onClearLocalHistory,
+                        onExportSummary = onExportSummary,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
         }

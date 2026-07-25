@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -38,7 +37,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -84,10 +86,7 @@ fun JoinSessionScreen(
         mutableStateOf(currentUser.displayName)
     }
     var selectedRole by rememberSaveable {
-        mutableStateOf<SessionRole?>(null)
-    }
-    var rememberProfile by rememberSaveable {
-        mutableStateOf(false)
+        mutableStateOf(SessionRole.PARTICIPANT)
     }
     var localValidationError by rememberSaveable {
         mutableStateOf<String?>(null)
@@ -104,7 +103,6 @@ fun JoinSessionScreen(
 
     fun submitJoin() {
         val cleanDisplayName = displayName.trim()
-        val sessionRole = selectedRole
 
         localValidationError = when {
             codeDigits.length != 8 ->
@@ -113,18 +111,15 @@ fun JoinSessionScreen(
             cleanDisplayName.isBlank() ->
                 "Enter your display name."
 
-            sessionRole == null ->
-                "Choose whether you want to participate or facilitate."
-
             else -> null
         }
 
-        if (localValidationError == null && sessionRole != null) {
+        if (localValidationError == null) {
             onJoin(
                 codeDigits,
                 cleanDisplayName,
-                sessionRole,
-                rememberProfile
+                selectedRole,
+                false
             )
         }
     }
@@ -132,7 +127,6 @@ fun JoinSessionScreen(
     val joinEnabled =
         codeDigits.length == 8 &&
             displayName.isNotBlank() &&
-            selectedRole != null &&
             !isJoining
 
     if (isTablet) {
@@ -148,10 +142,6 @@ fun JoinSessionScreen(
             onRoleChange = {
                 selectedRole = it
                 localValidationError = null
-            },
-            rememberProfile = rememberProfile,
-            onRememberProfileChange = {
-                rememberProfile = it
             },
             isJoining = isJoining,
             joinEnabled = joinEnabled,
@@ -175,10 +165,6 @@ fun JoinSessionScreen(
                 selectedRole = it
                 localValidationError = null
             },
-            rememberProfile = rememberProfile,
-            onRememberProfileChange = {
-                rememberProfile = it
-            },
             isJoining = isJoining,
             joinEnabled = joinEnabled,
             errorMessage = localValidationError ?: errorMessage,
@@ -196,10 +182,8 @@ private fun PhoneJoinSession(
     onCodeChange: (String) -> Unit,
     displayName: String,
     onDisplayNameChange: (String) -> Unit,
-    selectedRole: SessionRole?,
+    selectedRole: SessionRole,
     onRoleChange: (SessionRole) -> Unit,
-    rememberProfile: Boolean,
-    onRememberProfileChange: (Boolean) -> Unit,
     isJoining: Boolean,
     joinEnabled: Boolean,
     errorMessage: String?,
@@ -232,8 +216,6 @@ private fun PhoneJoinSession(
             onDisplayNameChange = onDisplayNameChange,
             selectedRole = selectedRole,
             onRoleChange = onRoleChange,
-            rememberProfile = rememberProfile,
-            onRememberProfileChange = onRememberProfileChange,
             enabled = !isJoining,
             roleButtonsStacked = true,
             modifier = Modifier.fillMaxWidth()
@@ -262,10 +244,8 @@ private fun TabletJoinSession(
     onCodeChange: (String) -> Unit,
     displayName: String,
     onDisplayNameChange: (String) -> Unit,
-    selectedRole: SessionRole?,
+    selectedRole: SessionRole,
     onRoleChange: (SessionRole) -> Unit,
-    rememberProfile: Boolean,
-    onRememberProfileChange: (Boolean) -> Unit,
     isJoining: Boolean,
     joinEnabled: Boolean,
     errorMessage: String?,
@@ -329,8 +309,6 @@ private fun TabletJoinSession(
                 onDisplayNameChange = onDisplayNameChange,
                 selectedRole = selectedRole,
                 onRoleChange = onRoleChange,
-                rememberProfile = rememberProfile,
-                onRememberProfileChange = onRememberProfileChange,
                 enabled = !isJoining,
                 roleButtonsStacked = false,
                 modifier = Modifier.weight(1f)
@@ -424,11 +402,6 @@ private fun FindSessionCard(
                 leadingIconRes = R.drawable.ic_scan_qr_code
             )
 
-            Text(
-                text = "The code is checked when you tap Join session.",
-                color = AacTextSecondary,
-                style = MaterialTheme.typography.bodyMedium
-            )
         }
     }
 }
@@ -437,10 +410,8 @@ private fun FindSessionCard(
 private fun ProfileCard(
     displayName: String,
     onDisplayNameChange: (String) -> Unit,
-    selectedRole: SessionRole?,
+    selectedRole: SessionRole,
     onRoleChange: (SessionRole) -> Unit,
-    rememberProfile: Boolean,
-    onRememberProfileChange: (Boolean) -> Unit,
     enabled: Boolean,
     roleButtonsStacked: Boolean,
     modifier: Modifier = Modifier
@@ -531,27 +502,6 @@ private fun ProfileCard(
                     )
                 }
             }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = enabled) {
-                        onRememberProfileChange(!rememberProfile)
-                    },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Checkbox(
-                    checked = rememberProfile,
-                    onCheckedChange = onRememberProfileChange,
-                    enabled = enabled
-                )
-
-                Text(
-                    text = "Remember my settings for this group.",
-                    color = AacTextSecondary,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
         }
     }
 }
@@ -573,7 +523,9 @@ private fun SessionRoleSelectionButton(
     }
 
     Box(
-        modifier = modifier
+        modifier = modifier.semantics(mergeDescendants = true) {
+            this.selected = selected
+        }.testTag("join_role_${role.name.lowercase()}") 
     ) {
         RoleSelectionButton(
             role = mappedRole,

@@ -102,7 +102,11 @@ class SessionRepository(
                                 sessionName = session.name,
                                 userId = member.userId,
                                 role = member.role,
-                                joinedAt = member.joinedAt
+                                joinedAt = member.joinedAt,
+                                scheduledStartAt = session.scheduledStartAt,
+                                scheduledDurationMinutes =
+                                    session.scheduledDurationMinutes,
+                                actualStartedAt = session.actualStartedAt
                             )
                         }
                     }
@@ -163,7 +167,10 @@ class SessionRepository(
             sessionName = session.name,
             userId = ownerUserId,
             role = SessionRole.HOST,
-            joinedAt = now
+            joinedAt = now,
+            scheduledStartAt = session.scheduledStartAt,
+            scheduledDurationMinutes = session.scheduledDurationMinutes,
+            actualStartedAt = session.actualStartedAt
         )
     }
 
@@ -367,7 +374,11 @@ class SessionRepository(
                         sessionName = session.name,
                         userId = userId,
                         role = SessionRole.PARTICIPANT,
-                        joinedAt = now
+                        joinedAt = now,
+                        scheduledStartAt = session.scheduledStartAt,
+                        scheduledDurationMinutes =
+                            session.scheduledDurationMinutes,
+                        actualStartedAt = session.actualStartedAt
                     )
                 )
             }
@@ -544,7 +555,10 @@ class SessionRepository(
             sessionName = session.name,
             userId = userId,
             role = member.role,
-            joinedAt = member.joinedAt
+            joinedAt = member.joinedAt,
+            scheduledStartAt = session.scheduledStartAt,
+            scheduledDurationMinutes = session.scheduledDurationMinutes,
+            actualStartedAt = session.actualStartedAt
         )
     }
 
@@ -658,7 +672,10 @@ class SessionRepository(
             sessionName = session.name,
             userId = ownerUserId,
             role = SessionRole.HOST,
-            joinedAt = joinedAt
+            joinedAt = joinedAt,
+            scheduledStartAt = session.scheduledStartAt,
+            scheduledDurationMinutes = session.scheduledDurationMinutes,
+            actualStartedAt = session.actualStartedAt
         )
     }
 
