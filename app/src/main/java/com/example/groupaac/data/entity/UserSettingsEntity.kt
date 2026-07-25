@@ -4,6 +4,7 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.example.groupaac.model.CalendarViewMode
 import com.example.groupaac.model.FacilitatorDefaultTab
 import com.example.groupaac.model.HomeExperience
 import com.example.groupaac.model.ParticipantDefaultTab
@@ -32,6 +33,7 @@ data class UserSettingsEntity(
     val defaultRole: UserRole = UserRole.PARTICIPANT,
     val defaultSessionName: String = "Group AAC Session",
     val homeExperience: HomeExperience = HomeExperience.SIMPLE,
+    val calendarViewMode: CalendarViewMode = CalendarViewMode.WEEK,
 
     // Common accessibility settings
     val textScale: Float = 1.0f,

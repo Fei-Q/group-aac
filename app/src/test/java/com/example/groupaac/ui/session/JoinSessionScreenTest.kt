@@ -47,5 +47,10 @@ class JoinSessionScreenTest {
                 "Remember my settings for this group."
             ).fetchSemanticsNodes().size
         )
+        assertEquals(
+            0,
+            composeRule.onAllNodesWithText("Calendar")
+                .fetchSemanticsNodes().size
+        )
     }
 }

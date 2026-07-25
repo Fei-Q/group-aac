@@ -6,8 +6,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
+import com.example.groupaac.model.CalendarViewMode
 import com.example.groupaac.model.HomeExperience
 import com.example.groupaac.model.UserRole
 import org.junit.Assert.assertEquals
@@ -115,6 +118,42 @@ class UserSettingsScreenTest {
             composeRule.onAllNodesWithText("Save session history")
                 .fetchSemanticsNodes().isNotEmpty()
         )
+    }
+
+    @Test
+    fun calendarViewModeDefaultsToWeekAndCanSwitchToMonth() {
+        assertEquals(
+            CalendarViewMode.WEEK,
+            UserSettingsEntity(userId = "user-1").calendarViewMode
+        )
+
+        var updatedMode: CalendarViewMode? = null
+
+        composeRule.setContent {
+            UserSettingsScreen(
+                user = sampleUser(),
+                settings = UserSettingsEntity(
+                    userId = "user-1",
+                    homeExperience = HomeExperience.ADVANCED
+                ),
+                onUpdateSettings = {
+                    updatedMode = it.calendarViewMode
+                },
+                onClearLocalHistory = {},
+                onExportSummary = {}
+            )
+        }
+
+        composeRule.onNodeWithTag("calendar_mode_month")
+            .performScrollTo()
+            .performClick()
+
+        composeRule.runOnIdle {
+            assertEquals(
+                CalendarViewMode.MONTH,
+                updatedMode
+            )
+        }
     }
 
     private fun sampleUser() = UserEntity(

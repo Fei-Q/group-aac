@@ -37,7 +37,7 @@ import com.example.groupaac.data.entity.UserSettingsEntity
         FacilitatorNoteEntity::class,
         QuickLogEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(com.example.groupaac.data.TypeConverters::class)
@@ -95,12 +95,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    ALTER TABLE user_settings
+                    ADD COLUMN calendarViewMode TEXT NOT NULL DEFAULT 'WEEK'
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun create(context: Context): AppDatabase = Room.databaseBuilder(
             context.applicationContext,
             AppDatabase::class.java,
             "group_aac.db"
         )
             .addMigrations(MIGRATION_3_4)
+            .addMigrations(MIGRATION_4_5)
             .build()
     }
 }

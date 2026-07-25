@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,8 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -49,7 +46,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -62,7 +58,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.groupaac.LocalAppContainer
-import com.example.groupaac.R
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
@@ -76,6 +71,7 @@ import com.example.groupaac.ui.common.CompactActionButton
 import com.example.groupaac.ui.common.PrimaryButton
 import com.example.groupaac.ui.common.SecondaryButton
 import com.example.groupaac.ui.common.SimpleOutsideNavItem
+import com.example.groupaac.ui.home.AdvancedHomeScreen
 import com.example.groupaac.ui.participant.SocialScreen
 import com.example.groupaac.ui.profile.ProfileViewModel
 import com.example.groupaac.ui.profile.ProfileViewModelFactory
@@ -246,9 +242,11 @@ fun OutsideSessionNavGraph(
 
                         HomeExperience.ADVANCED -> {
                             AdvancedHomeScreen(
-                                upcomingSessions = upcomingSessions.take(3),
+                                liveSessions = liveSessions,
+                                upcomingSessions = upcomingSessions,
+                                calendarViewMode = settings.calendarViewMode,
                                 managementError = managementError,
-                                onCreateNow = {
+                                onCreateSession = {
                                     onCreateSessionNow(
                                         settings.defaultSessionName,
                                         userForActions.displayName
@@ -260,9 +258,33 @@ fun OutsideSessionNavGraph(
                                 onManageSessions = {
                                     navController.navigateToOutsideDestination(OutsideRoutes.Sessions)
                                 },
-                                onScheduleSession = {
-                                    editingSessionId = null
-                                    navController.navigate(OutsideRoutes.Schedule)
+                                onOpenLiveSession = { session ->
+                                    coroutineScope.launch {
+                                        managementError = null
+                                        runCatching {
+                                            container.sessionRepository.openHostedSession(
+                                                sessionId = session.id,
+                                                ownerUserId = currentUser.id
+                                            )
+                                        }.onFailure { error ->
+                                            managementError =
+                                                error.message ?: "Unable to open session."
+                                        }
+                                    }
+                                },
+                                onStartScheduledSession = { session ->
+                                    coroutineScope.launch {
+                                        managementError = null
+                                        runCatching {
+                                            container.sessionRepository.startScheduledSession(
+                                                sessionId = session.id,
+                                                ownerUserId = currentUser.id
+                                            )
+                                        }.onFailure { error ->
+                                            managementError =
+                                                error.message ?: "Unable to start session."
+                                        }
+                                    }
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -445,265 +467,6 @@ private fun NavHostController.navigateToOutsideDestination(
         }
         launchSingleTop = true
         restoreState = true
-    }
-}
-
-@Composable
-private fun AdvancedHomeScreen(
-    upcomingSessions: List<SessionEntity>,
-    managementError: String?,
-    onCreateNow: () -> Unit,
-    onScheduleSession: () -> Unit,
-    onJoinSession: () -> Unit,
-    onManageSessions: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var showCreateDialog by rememberSaveable {
-        mutableStateOf(false)
-    }
-
-    if (showCreateDialog) {
-        CreateSessionChoiceDialog(
-            onCreateNow = {
-                showCreateDialog = false
-                onCreateNow()
-            },
-            onSchedule = {
-                showCreateDialog = false
-                onScheduleSession()
-            },
-            onDismiss = {
-                showCreateDialog = false
-            }
-        )
-    }
-
-    BoxWithConstraints(
-        modifier = modifier
-            .background(AacBackground)
-            .padding(24.dp)
-    ) {
-        val isTablet = maxWidth >= 700.dp
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (isTablet) {
-                        Modifier.widthIn(max = 1080.dp)
-                    } else {
-                        Modifier
-                    }
-                )
-                .align(Alignment.TopCenter),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
-            Text(
-                text = "Home",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.secondary
-            )
-
-            managementError
-                ?.takeIf { it.isNotBlank() }
-                ?.let { message ->
-                    ErrorCard(message = message)
-                }
-
-            if (isTablet) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    HomeActionCard(
-                        title = "Create Session",
-                        subtitle = "Start a session now.",
-                        iconRes = R.drawable.ic_role_facilitator,
-                        onClick = {
-                            showCreateDialog = true
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                    HomeActionCard(
-                        title = "Join Session",
-                        subtitle = "Enter a session code to connect.",
-                        iconRes = R.drawable.ic_enter_code,
-                        onClick = onJoinSession,
-                        modifier = Modifier.weight(1f)
-                    )
-                    HomeActionCard(
-                        title = "Manage Sessions",
-                        subtitle = "Review upcoming, live, and past sessions.",
-                        iconRes = R.drawable.ic_nav_session_log,
-                        onClick = onManageSessions,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            } else {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        HomeActionCard(
-                            title = "Create Session",
-                            subtitle = "Start a session now.",
-                            iconRes = R.drawable.ic_role_facilitator,
-                            onClick = {
-                                showCreateDialog = true
-                            },
-                            modifier = Modifier.weight(1f)
-                        )
-                        HomeActionCard(
-                            title = "Join Session",
-                            subtitle = "Enter a session code to connect.",
-                            iconRes = R.drawable.ic_enter_code,
-                            onClick = onJoinSession,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    HomeActionCard(
-                        title = "Manage Sessions",
-                        subtitle = "Review upcoming, live, and past sessions.",
-                        iconRes = R.drawable.ic_nav_session_log,
-                        onClick = onManageSessions,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
-
-            AppCard {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Text(
-                        text = "Upcoming sessions",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-
-                    if (upcomingSessions.isEmpty()) {
-                        Text(
-                            text = "No upcoming sessions.",
-                            color = AacTextSecondary
-                        )
-                    } else {
-                        upcomingSessions.forEach { session ->
-                            SessionSummaryRow(session = session)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HomeActionCard(
-    title: String,
-    subtitle: String,
-    iconRes: Int,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    AppCard(
-        modifier = modifier.clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 104.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            androidx.compose.material3.Icon(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.secondary
-            )
-            Column(
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = subtitle,
-                    color = AacTextSecondary,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CreateSessionChoiceDialog(
-    onCreateNow: () -> Unit,
-    onSchedule: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text("Create Session")
-        },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                DialogOptionCard(
-                    title = "Now",
-                    description = "Start a session now.",
-                    onClick = onCreateNow
-                )
-                DialogOptionCard(
-                    title = "Schedule",
-                    description = "Plan a session for later.",
-                    onClick = onSchedule
-                )
-            }
-        },
-        confirmButton = {
-            SecondaryButton(
-                text = "Cancel",
-                onClick = onDismiss
-            )
-        }
-    )
-}
-
-@Composable
-private fun DialogOptionCard(
-    title: String,
-    description: String,
-    onClick: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = description,
-                color = AacTextSecondary
-            )
-        }
     }
 }
 
@@ -1374,19 +1137,6 @@ private fun LoadingDestination(
     ) {
         CircularProgressIndicator()
     }
-}
-
-@Preview(showBackground = true, widthDp = 390, heightDp = 844)
-@Composable
-private fun AdvancedHomeScreenPhonePreview() {
-    AdvancedHomeScreen(
-        upcomingSessions = emptyList(),
-        managementError = null,
-        onCreateNow = {},
-        onScheduleSession = {},
-        onJoinSession = {},
-        onManageSessions = {}
-    )
 }
 
 @Preview(showBackground = true, widthDp = 1024, heightDp = 800)

@@ -1,6 +1,7 @@
 package com.example.groupaac.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,8 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -26,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -33,6 +37,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
+import com.example.groupaac.model.CalendarViewMode
 import com.example.groupaac.model.HomeExperience
 import com.example.groupaac.model.UserRole
 import com.example.groupaac.ui.common.AppCard
@@ -321,6 +326,20 @@ private fun AdvancedSettingsSection(
 
         if (settings.homeExperience == HomeExperience.ADVANCED) {
             SettingsDivider()
+            SubsectionHeading("Calendar view")
+            Text(
+                text = "Choose how the calendar appears on Home.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            CalendarViewModeSelector(
+                selectedMode = settings.calendarViewMode,
+                onModeSelected = { mode ->
+                    onUpdateSettings(settings.copy(calendarViewMode = mode))
+                }
+            )
+
+            SettingsDivider()
             SubsectionHeading("Facilitator alerts")
             SettingsSwitchRow(
                 title = "Low participation alerts",
@@ -427,6 +446,83 @@ private fun SubsectionHeading(
         color = MaterialTheme.colorScheme.secondary,
         fontWeight = FontWeight.Bold
     )
+}
+
+@Composable
+private fun CalendarViewModeSelector(
+    selectedMode: CalendarViewMode,
+    onModeSelected: (CalendarViewMode) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        CalendarModeOption(
+            title = "Week",
+            selected = selectedMode == CalendarViewMode.WEEK,
+            testTag = "calendar_mode_week",
+            modifier = Modifier.weight(1f),
+            onClick = {
+                onModeSelected(CalendarViewMode.WEEK)
+            }
+        )
+        CalendarModeOption(
+            title = "Month",
+            selected = selectedMode == CalendarViewMode.MONTH,
+            testTag = "calendar_mode_month",
+            modifier = Modifier.weight(1f),
+            onClick = {
+                onModeSelected(CalendarViewMode.MONTH)
+            }
+        )
+    }
+}
+
+@Composable
+private fun CalendarModeOption(
+    title: String,
+    selected: Boolean,
+    testTag: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = onClick
+            )
+            .testTag(testTag),
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        border = androidx.compose.foundation.BorderStroke(
+            width = if (selected) 2.dp else 1.dp,
+            color = if (selected) {
+                MaterialTheme.colorScheme.secondary
+            } else {
+                MaterialTheme.colorScheme.outline
+            }
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+            )
+        }
+    }
 }
 
 @Preview(showBackground = true, widthDp = 390, heightDp = 900)
