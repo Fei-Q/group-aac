@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.groupaac.model.ActiveSession
+import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SessionConnectionState
 import com.example.groupaac.ui.common.AppWindowSize
 import com.example.groupaac.ui.common.rememberAppWindowSize
@@ -38,6 +40,11 @@ import com.example.groupaac.ui.theme.AacGreen
 import com.example.groupaac.ui.theme.AacRed
 import com.example.groupaac.ui.theme.AacTextSecondary
 import com.example.groupaac.ui.theme.AacYellow
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.util.Locale
 
 private enum class PendingSessionAction {
     Leave,
@@ -78,48 +85,58 @@ fun ActiveSessionHeader(
         tonalElevation = 2.dp,
         shadowElevation = 1.dp
     ) {
-        when (rememberAppWindowSize()) {
-            AppWindowSize.Phone -> {
-                PhoneSessionHeader(
-                    activeSession = activeSession,
-                    connectionPresentation =
-                        connectionPresentation,
-                    isFacilitator = isFacilitator,
-                    leaveEnabled = !isLeaving,
-                    endEnabled = canEndSession,
-                    showEndAction =
-                        isFacilitator && onEndSession != null,
-                    onLeaveClick = {
-                        pendingAction =
-                            PendingSessionAction.Leave
-                    },
-                    onEndClick = {
-                        pendingAction =
-                            PendingSessionAction.End
-                    }
-                )
-            }
+        if (!isFacilitator && activeSession.role == SessionRole.PARTICIPANT) {
+            ParticipantSessionHeader(
+                activeSession = activeSession,
+                connectionState = connectionState,
+                onLeaveClick = {
+                    pendingAction = PendingSessionAction.Leave
+                }
+            )
+        } else {
+            when (rememberAppWindowSize()) {
+                AppWindowSize.Phone -> {
+                    PhoneSessionHeader(
+                        activeSession = activeSession,
+                        connectionPresentation =
+                            connectionPresentation,
+                        isFacilitator = isFacilitator,
+                        leaveEnabled = !isLeaving,
+                        endEnabled = canEndSession,
+                        showEndAction =
+                            isFacilitator && onEndSession != null,
+                        onLeaveClick = {
+                            pendingAction =
+                                PendingSessionAction.Leave
+                        },
+                        onEndClick = {
+                            pendingAction =
+                                PendingSessionAction.End
+                        }
+                    )
+                }
 
-            AppWindowSize.Tablet,
-            AppWindowSize.Desktop -> {
-                WideSessionHeader(
-                    activeSession = activeSession,
-                    connectionPresentation =
-                        connectionPresentation,
-                    isFacilitator = isFacilitator,
-                    leaveEnabled = !isLeaving,
-                    endEnabled = canEndSession,
-                    showEndAction =
-                        isFacilitator && onEndSession != null,
-                    onLeaveClick = {
-                        pendingAction =
-                            PendingSessionAction.Leave
-                    },
-                    onEndClick = {
-                        pendingAction =
-                            PendingSessionAction.End
-                    }
-                )
+                AppWindowSize.Tablet,
+                AppWindowSize.Desktop -> {
+                    WideSessionHeader(
+                        activeSession = activeSession,
+                        connectionPresentation =
+                            connectionPresentation,
+                        isFacilitator = isFacilitator,
+                        leaveEnabled = !isLeaving,
+                        endEnabled = canEndSession,
+                        showEndAction =
+                            isFacilitator && onEndSession != null,
+                        onLeaveClick = {
+                            pendingAction =
+                                PendingSessionAction.Leave
+                        },
+                        onEndClick = {
+                            pendingAction =
+                                PendingSessionAction.End
+                        }
+                    )
+                }
             }
         }
     }
@@ -202,6 +219,69 @@ fun ActiveSessionHeader(
         }
 
         null -> Unit
+    }
+}
+
+@Composable
+private fun ParticipantSessionHeader(
+    activeSession: ActiveSession,
+    connectionState: SessionConnectionState,
+    onLeaveClick: () -> Unit
+) {
+    val isLeaving = connectionState is SessionConnectionState.Leaving
+    val isReconnecting = connectionState is SessionConnectionState.Reconnecting
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = 16.dp,
+                vertical = 12.dp
+            ),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = activeSession.sessionName,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = participantSubtitle(activeSession),
+                style = MaterialTheme.typography.bodySmall,
+                color = AacTextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            if (isReconnecting) {
+                Text(
+                    text = "Reconnecting…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF6D4C00)
+                )
+            }
+        }
+
+        OutlinedButton(
+            onClick = onLeaveClick,
+            enabled = !isLeaving,
+            shape = RoundedCornerShape(999.dp),
+            contentPadding = PaddingValues(
+                horizontal = 18.dp,
+                vertical = 8.dp
+            ),
+            modifier = Modifier.heightIn(min = 48.dp)
+        ) {
+            Text(if (isLeaving) "Leaving…" else "Leave")
+        }
     }
 }
 
@@ -378,6 +458,30 @@ private fun SessionInformation(
     }
 }
 
+private fun participantSubtitle(
+    activeSession: ActiveSession
+): String {
+    val timestamp = activeSession.scheduledStartAt
+        ?: activeSession.actualStartedAt
+        ?: activeSession.joinedAt
+    val durationMinutes = activeSession.scheduledDurationMinutes ?: 60
+    return "${sessionDateTimeLabel(timestamp)} • $durationMinutes min"
+}
+
+private fun sessionDateTimeLabel(timestamp: Long): String {
+    val zoneId = ZoneId.systemDefault()
+    val locale = Locale.getDefault()
+    val zonedDateTime = Instant.ofEpochMilli(timestamp).atZone(zoneId)
+    val dateFormatter = DateTimeFormatter.ofPattern(
+        "EEE, MMM d",
+        locale
+    )
+    val timeFormatter = DateTimeFormatter
+        .ofLocalizedTime(FormatStyle.SHORT)
+        .withLocale(locale)
+    return "${zonedDateTime.format(dateFormatter)} • ${zonedDateTime.format(timeFormatter)}"
+}
+
 @Composable
 private fun ConnectionStatusPill(
     presentation: ConnectionPresentation
@@ -422,6 +526,14 @@ private fun connectionPresentation(
         is SessionConnectionState.Joining -> {
             ConnectionPresentation(
                 label = "Joining…",
+                backgroundColor = AacYellow.copy(alpha = 0.2f),
+                contentColor = Color(0xFF6D4C00)
+            )
+        }
+
+        is SessionConnectionState.AwaitingApproval -> {
+            ConnectionPresentation(
+                label = "Awaiting approval",
                 backgroundColor = AacYellow.copy(alpha = 0.2f),
                 contentColor = Color(0xFF6D4C00)
             )

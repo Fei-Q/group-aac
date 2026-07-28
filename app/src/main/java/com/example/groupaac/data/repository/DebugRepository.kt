@@ -12,6 +12,7 @@ import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
 import com.example.groupaac.model.MessageStatus
 import com.example.groupaac.model.MessageTarget
+import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SignalState
 import com.example.groupaac.model.SignalType
 import com.example.groupaac.model.UserRole
@@ -186,7 +187,7 @@ class DebugRepository(
                 sessionId = sessionId,
                 userId = userId,
                 displayName = displayName,
-                role = UserRole.PARTICIPANT,
+                role = SessionRole.PARTICIPANT,
                 joinedAt = existingMember?.joinedAt ?: now
             )
         )

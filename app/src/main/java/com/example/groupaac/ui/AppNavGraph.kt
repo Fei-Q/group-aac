@@ -22,9 +22,8 @@ import com.example.groupaac.ui.account.CreateAccountScreen
 import com.example.groupaac.ui.account.LoginScreen
 import com.example.groupaac.ui.navigation.AppShell
 import com.example.groupaac.ui.navigation.FacilitatorInSessionNavGraph
-import com.example.groupaac.ui.navigation.FacilitatorOutsideSessionNavGraph
+import com.example.groupaac.ui.navigation.OutsideSessionNavGraph
 import com.example.groupaac.ui.navigation.ParticipantInSessionNavGraph
-import com.example.groupaac.ui.navigation.ParticipantOutsideSessionNavGraph
 import com.example.groupaac.ui.navigation.resolveAppShell
 import com.example.groupaac.ui.session.SessionCoordinatorViewModel
 import com.example.groupaac.ui.session.SessionCoordinatorViewModelFactory
@@ -89,8 +88,11 @@ fun AppNavGraph(
                         onBack = {
                             navController.popBackStack()
                         },
-                        onCreate = { name, role ->
-                            accountViewModel.createUser(name, role)
+                        onCreate = { name, homeExperience ->
+                            accountViewModel.createUser(
+                                name,
+                                homeExperience
+                            )
                         }
                     )
                 }
@@ -100,7 +102,7 @@ fun AppNavGraph(
         else -> {
             when (
                 resolveAppShell(
-                    role = activeUser.role,
+                    homeExperience = accountState.activeHomeExperience,
                     state = sessionState.connectionState
                 )
             ) {
@@ -108,12 +110,19 @@ fun AppNavGraph(
                     FullScreenLoadingIndicator()
                 }
 
-                AppShell.ParticipantOutsideSession -> {
-                    ParticipantOutsideSessionNavGraph(
+                AppShell.SimpleOutsideSession,
+                AppShell.AdvancedOutsideSession -> {
+                    OutsideSessionNavGraph(
                         currentUser = activeUser,
+                        homeExperience =
+                            accountState.activeHomeExperience,
                         sessionUiState = sessionState,
+                        onCreateSessionNow =
+                            sessionCoordinatorViewModel::createSession,
                         onJoinSession =
-                            sessionCoordinatorViewModel::joinSession
+                            sessionCoordinatorViewModel::joinSession,
+                        onCancelFacilitatorRequest =
+                            sessionCoordinatorViewModel::cancelFacilitatorRequest
                     )
                 }
 
@@ -126,17 +135,6 @@ fun AppNavGraph(
                             sessionState.connectionState,
                         onLeaveSession =
                             sessionCoordinatorViewModel::leaveSession
-                    )
-                }
-
-                AppShell.FacilitatorOutsideSession -> {
-                    FacilitatorOutsideSessionNavGraph(
-                        currentUser = activeUser,
-                        sessionUiState = sessionState,
-                        onCreateSession =
-                            sessionCoordinatorViewModel::createSession,
-                        onJoinSession =
-                            sessionCoordinatorViewModel::joinSession
                     )
                 }
 

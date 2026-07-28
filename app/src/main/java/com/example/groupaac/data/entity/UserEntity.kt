@@ -8,6 +8,7 @@ import com.example.groupaac.model.UserRole
 data class UserEntity(
     @PrimaryKey val id: String,
     val displayName: String,
+    @Deprecated("Account-level roles are retained only for Room compatibility.")
     val role: UserRole,
     val createdAt: Long,
     val lastLoginAt: Long? = null

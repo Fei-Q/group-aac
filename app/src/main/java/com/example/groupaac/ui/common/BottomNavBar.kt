@@ -12,9 +12,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.example.groupaac.R
 import com.example.groupaac.ui.navigation.FacilitatorInsideRoutes
-import com.example.groupaac.ui.navigation.FacilitatorOutsideRoutes
+import com.example.groupaac.ui.navigation.OutsideRoutes
 import com.example.groupaac.ui.navigation.ParticipantInsideRoutes
-import com.example.groupaac.ui.navigation.ParticipantOutsideRoutes
 
 interface BottomNavItem {
     val route: String
@@ -24,33 +23,63 @@ interface BottomNavItem {
     val iconRes: Int
 }
 
-sealed class ParticipantOutsideNavItem(
+sealed class SimpleOutsideNavItem(
     override val route: String,
     override val label: String,
     @DrawableRes override val iconRes: Int
 ) : BottomNavItem {
-    data object Join : ParticipantOutsideNavItem(
-        route = ParticipantOutsideRoutes.Join,
-        label = "Join",
+    data object Home : SimpleOutsideNavItem(
+        route = OutsideRoutes.Home,
+        label = "Home",
         iconRes = R.drawable.ic_enter_code
     )
 
-    data object Social : ParticipantOutsideNavItem(
-        route = ParticipantOutsideRoutes.Social,
-        label = "Social",
+    data object Groups : SimpleOutsideNavItem(
+        route = OutsideRoutes.Groups,
+        label = "Groups",
         iconRes = R.drawable.ic_group
     )
 
-    data object Settings : ParticipantOutsideNavItem(
-        route = ParticipantOutsideRoutes.Settings,
+    data object Settings : SimpleOutsideNavItem(
+        route = OutsideRoutes.Settings,
         label = "Settings",
         iconRes = R.drawable.ic_nav_settings
     )
+}
 
-    data object Debug : ParticipantOutsideNavItem(
-        route = ParticipantOutsideRoutes.Debug,
-        label = "Debug",
+sealed class AdvancedOutsideNavItem(
+    override val route: String,
+    override val label: String,
+    @DrawableRes override val iconRes: Int
+) : BottomNavItem {
+    data object Home : AdvancedOutsideNavItem(
+        route = OutsideRoutes.Home,
+        label = "Home",
+        iconRes = R.drawable.ic_enter_code
+    )
+
+    data object Sessions : AdvancedOutsideNavItem(
+        route = OutsideRoutes.Sessions,
+        label = "Sessions",
+        iconRes = R.drawable.ic_nav_session_log
+    )
+
+    data object Groups : AdvancedOutsideNavItem(
+        route = OutsideRoutes.Groups,
+        label = "Groups",
+        iconRes = R.drawable.ic_group
+    )
+
+    data object Tools : AdvancedOutsideNavItem(
+        route = OutsideRoutes.Tools,
+        label = "Tools",
         iconRes = R.drawable.ic_action_edit
+    )
+
+    data object Settings : AdvancedOutsideNavItem(
+        route = OutsideRoutes.Settings,
+        label = "Settings",
+        iconRes = R.drawable.ic_nav_settings
     )
 }
 
@@ -73,30 +102,6 @@ sealed class ParticipantInsideNavItem(
 
     data object Debug : ParticipantInsideNavItem(
         route = ParticipantInsideRoutes.Debug,
-        label = "Debug",
-        iconRes = R.drawable.ic_action_edit
-    )
-}
-
-sealed class FacilitatorOutsideNavItem(
-    override val route: String,
-    override val label: String,
-    @DrawableRes override val iconRes: Int
-) : BottomNavItem {
-    data object Sessions : FacilitatorOutsideNavItem(
-        route = FacilitatorOutsideRoutes.Sessions,
-        label = "Sessions",
-        iconRes = R.drawable.ic_nav_session_log
-    )
-
-    data object Settings : FacilitatorOutsideNavItem(
-        route = FacilitatorOutsideRoutes.Settings,
-        label = "Settings",
-        iconRes = R.drawable.ic_nav_settings
-    )
-
-    data object Debug : FacilitatorOutsideNavItem(
-        route = FacilitatorOutsideRoutes.Debug,
         label = "Debug",
         iconRes = R.drawable.ic_action_edit
     )
@@ -156,7 +161,7 @@ sealed class ParticipantNavItem(
 
     data object Social : ParticipantNavItem(
         "legacy/participant/social",
-        "Social",
+        "Groups",
         R.drawable.ic_group
     )
 

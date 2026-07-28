@@ -1,18 +1,19 @@
 package com.example.groupaac.ui.navigation
 
+import com.example.groupaac.model.HomeExperience
+import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SessionConnectionState
-import com.example.groupaac.model.UserRole
 
 enum class AppShell {
     Restoring,
-    ParticipantOutsideSession,
+    SimpleOutsideSession,
+    AdvancedOutsideSession,
     ParticipantInSession,
-    FacilitatorOutsideSession,
     FacilitatorInSession
 }
 
 fun resolveAppShell(
-    role: UserRole,
+    homeExperience: HomeExperience,
     state: SessionConnectionState
 ): AppShell {
     return when (state) {
@@ -20,47 +21,66 @@ fun resolveAppShell(
             AppShell.Restoring
 
         SessionConnectionState.NotInSession,
+        is SessionConnectionState.AwaitingApproval,
         is SessionConnectionState.Joining -> {
-            when (role) {
-                UserRole.PARTICIPANT ->
-                    AppShell.ParticipantOutsideSession
+            when (homeExperience) {
+                HomeExperience.SIMPLE ->
+                    AppShell.SimpleOutsideSession
 
-                UserRole.FACILITATOR ->
-                    AppShell.FacilitatorOutsideSession
+                HomeExperience.ADVANCED ->
+                    AppShell.AdvancedOutsideSession
             }
         }
 
-        is SessionConnectionState.Connected,
-        is SessionConnectionState.Reconnecting,
-        is SessionConnectionState.Leaving -> {
-            when (role) {
-                UserRole.PARTICIPANT ->
+        is SessionConnectionState.Connected -> {
+            when (state.session.role) {
+                SessionRole.PARTICIPANT ->
                     AppShell.ParticipantInSession
 
-                UserRole.FACILITATOR ->
+                SessionRole.FACILITATOR,
+                SessionRole.HOST ->
+                    AppShell.FacilitatorInSession
+            }
+        }
+
+        is SessionConnectionState.Reconnecting -> {
+            when (state.session.role) {
+                SessionRole.PARTICIPANT ->
+                    AppShell.ParticipantInSession
+
+                SessionRole.FACILITATOR,
+                SessionRole.HOST ->
+                    AppShell.FacilitatorInSession
+            }
+        }
+
+        is SessionConnectionState.Leaving -> {
+            when (state.session.role) {
+                SessionRole.PARTICIPANT ->
+                    AppShell.ParticipantInSession
+
+                SessionRole.FACILITATOR,
+                SessionRole.HOST ->
                     AppShell.FacilitatorInSession
             }
         }
     }
 }
 
-object ParticipantOutsideRoutes {
-    const val Join = "participant_outside/join"
-    const val Social = "participant_outside/social"
-    const val Settings = "participant_outside/settings"
-    const val Debug = "participant_outside/debug"
+object OutsideRoutes {
+    const val Home = "outside/home"
+    const val Join = "outside/join"
+    const val Sessions = "outside/sessions"
+    const val Schedule = "outside/sessions/schedule"
+    const val Groups = "outside/groups"
+    const val Tools = "outside/tools"
+    const val Settings = "outside/settings"
 }
 
 object ParticipantInsideRoutes {
     const val Share = "participant_inside/share"
     const val Signal = "participant_inside/signal"
     const val Debug = "participant_inside/debug"
-}
-
-object FacilitatorOutsideRoutes {
-    const val Sessions = "facilitator_outside/sessions"
-    const val Settings = "facilitator_outside/settings"
-    const val Debug = "facilitator_outside/debug"
 }
 
 object FacilitatorInsideRoutes {

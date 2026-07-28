@@ -1,13 +1,13 @@
 package com.example.groupaac.data.pi
 
 import com.example.groupaac.model.SignalType
-import com.example.groupaac.model.UserRole
+import com.example.groupaac.model.SessionRole
 
 data class PiJoinRequest(
     val sessionCode: String,
     val userId: String,
     val displayName: String,
-    val role: UserRole
+    val role: SessionRole
 )
 
 data class PiMessagePayload(

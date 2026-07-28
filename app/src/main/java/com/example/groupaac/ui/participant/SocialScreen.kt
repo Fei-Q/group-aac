@@ -150,16 +150,16 @@ private fun SocialHeader(user: UserEntity?) {
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Text(
-            text = "Social",
+            text = "Groups",
             style = MaterialTheme.typography.headlineLarge,
             color = MaterialTheme.colorScheme.secondary
         )
 
         Text(
             text = if (user == null) {
-                "My saved groups and friends."
+                "My saved groups and contacts."
             } else {
-                "${user.displayName}'s saved groups and friends."
+                "${user.displayName}'s saved groups and contacts."
             },
             color = AacTextSecondary
         )

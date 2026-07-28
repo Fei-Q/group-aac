@@ -7,14 +7,14 @@ import androidx.room.Query
 import androidx.room.Transaction
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
-import com.example.groupaac.model.UserRole
+import com.example.groupaac.model.SessionRole
 import kotlinx.coroutines.flow.Flow
 
 data class SessionParticipantRow(
     val sessionId: String,
     val userId: String,
     val displayName: String,
-    val role: UserRole,
+    val role: SessionRole,
     val joinedAt: Long
 )
 
@@ -34,6 +34,59 @@ interface SessionDao {
 
     @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
     fun observeSession(id: String): Flow<SessionEntity?>
+
+    @Query(
+        """
+        SELECT * FROM sessions
+        WHERE hostUserId = :hostUserId
+          AND actualStartedAt IS NULL
+          AND actualEndedAt IS NULL
+          AND scheduledStartAt IS NOT NULL
+          AND scheduledStartAt >= :dayStartMillis
+        ORDER BY scheduledStartAt ASC
+        """
+    )
+    fun observeUpcomingHostedSessions(
+        hostUserId: String,
+        dayStartMillis: Long
+    ): Flow<List<SessionEntity>>
+
+    @Query(
+        """
+        SELECT * FROM sessions
+        WHERE hostUserId = :hostUserId
+          AND actualStartedAt IS NOT NULL
+          AND actualEndedAt IS NULL
+        ORDER BY actualStartedAt DESC
+        """
+    )
+    fun observeLiveHostedSessions(
+        hostUserId: String
+    ): Flow<List<SessionEntity>>
+
+    @Query(
+        """
+        SELECT * FROM sessions
+        WHERE hostUserId = :hostUserId
+          AND (
+              actualEndedAt IS NOT NULL
+              OR (
+                  actualStartedAt IS NULL
+                  AND scheduledStartAt IS NOT NULL
+                  AND scheduledStartAt < :dayStartMillis
+              )
+          )
+        ORDER BY COALESCE(
+            actualEndedAt,
+            scheduledStartAt,
+            createdAt
+        ) DESC
+        """
+    )
+    fun observePastHostedSessions(
+        hostUserId: String,
+        dayStartMillis: Long
+    ): Flow<List<SessionEntity>>
 
     @Query("SELECT * FROM sessions WHERE joinCode = :joinCode LIMIT 1")
     suspend fun getSessionByCode(joinCode: String): SessionEntity?
@@ -85,6 +138,21 @@ interface SessionDao {
         scheduledStartAt: Long?,
         scheduledDurationMinutes: Int?
     )
+
+    @Query("DELETE FROM session_members WHERE sessionId = :sessionId")
+    suspend fun deleteMembersForSession(sessionId: String)
+
+    @Query(
+        """
+        DELETE FROM sessions
+        WHERE id = :sessionId
+          AND hostUserId = :hostUserId
+        """
+    )
+    suspend fun deleteHostedSession(
+        sessionId: String,
+        hostUserId: String
+    ): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMember(member: SessionMemberEntity)

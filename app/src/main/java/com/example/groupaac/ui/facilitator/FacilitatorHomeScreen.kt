@@ -93,6 +93,8 @@ fun FacilitatorHomeScreenContent(
             FacilitatorNavItem.Participants -> ParticipantsScreen(
                 uiState = uiState,
                 onSelect = onSelectParticipant,
+                onApproveJoinRequest = {},
+                onDeclineJoinRequest = {},
                 onSnooze = onSnoozeParticipant,
                 onQuickLog = onQuickLog,
                 onAddNote = onAddNote,
