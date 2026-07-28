@@ -411,8 +411,61 @@ Starting commit: `5d504c5 Implement live PubNub transport`
 
 - This stage does not yet enforce full role authorization; it only rejects obvious session/channel mismatches as requested.
 - A live two-client PubNub exchange smoke test was not run in this environment during this stage, so runtime verification here is build plus unit-test based.
+
+## Live Realtime Next Steps - Stage 8
+
+Status: complete
+
+Date: Tuesday, July 28, 2026
+Branch: `feature/pubnub-live-integration`
+Starting commit: `89f1dc9 Complete realtime session events`
+
+### Implemented
+
+- Copied the account-level monitor default into new sessions at creation time in [`SessionRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt):
+  - `monitorRequireManualApproval = false` -> `DisplayMode.AUTO_LATEST`
+  - `monitorRequireManualApproval = true` -> `DisplayMode.APPROVAL_REQUIRED`
+- Added explicit display command origin tracking with [`DisplayCommandOrigin`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/model/DisplayCommandOrigin.kt):
+  - `AUTO_LATEST`
+  - `MANUAL_SHOW`
+  - `MANUAL_RESTORE`
+- Extended [`DisplayStateEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/DisplayStateEntity.kt), [`TypeConverters`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/TypeConverters.kt), and the realtime payloads in [`RealtimePayloads`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/RealtimePayloads.kt) to persist:
+  - command origin
+  - last issued display command event ID
+  - last acknowledged display command timetoken separately from optimistic local updates
+- Corrected display command semantics in [`MessageRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/MessageRepository.kt):
+  - auto-latest replacement is rejected while pinned
+  - manual Show and Restore are allowed while pinned
+  - manual replacement preserves pin on the newly selected content
+  - Unpin keeps the current content visible
+  - Clear clears both content and pin
+  - pin/unpin/clear now publish the live session display mode instead of hardcoded `AUTO_LATEST`
+- Separated optimistic local display updates from PubNub acknowledgement ordering in [`RealtimeReliabilityStore`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/reliability/RealtimeReliabilityStore.kt) so Android no longer compares `System.currentTimeMillis()` values against PubNub timetokens.
+- Tightened acknowledgement application in [`DefaultSessionRealtimeSync`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSync.kt):
+  - freshness is checked before mutating message display flags
+  - `display_state`, message flags, processed-event recording, and cursor updates remain in the same transaction path
+  - stale acknowledgements now have no side effects on message display state
+- Implemented `display.mode_changed` publishing on the display command channel and preserved `session.settings_changed` for the session record update.
+- Updated the Pi handoff contract and fixtures:
   - [`docs/pi-display-protocol-contract.md`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/docs/pi-display-protocol-contract.md)
   - [`docs/pi-display-protocol-fixtures.json`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/docs/pi-display-protocol-fixtures.json)
+  - Added coverage for manual origin, restore, unpin, clear, failures, state reconciliation, approval-required mode, and pinned automatic rejection.
+
+### Verification
+
+- `./gradlew :app:compileDebugKotlin`
+  - Failed first because the updated display acknowledgement branch was missing a `DisplayStateEntity` import.
+  - Passed on Tuesday, July 28, 2026, after that import repair.
+- `./gradlew :app:testDebugUnitTest`
+  - Failed first because the Stage 8 display-sync signature changes required updates to the session coordinator unit-test stub.
+  - Passed on Tuesday, July 28, 2026, after updating the test doubles and adding Stage 8 display behavior coverage.
+- `./gradlew :app:assembleDebug`
+  - Passed on Tuesday, July 28, 2026.
+
+### Notes
+
+- The account preference now seeds the session default only at creation time; changing the account setting later does not retroactively mutate the live session mode.
+- A dedicated in-session UI control for toggling `DisplayMode` is still separate from the account settings screen and remains future UX work.
 
 ### Unresolved issues
 

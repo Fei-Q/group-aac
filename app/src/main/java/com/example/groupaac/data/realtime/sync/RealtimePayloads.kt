@@ -7,6 +7,7 @@ import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.StatusSignalEntity
 import com.example.groupaac.model.JoinRequestStatus
+import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageDisplayStatus
 import com.example.groupaac.model.MessageStatus
@@ -148,7 +149,8 @@ data class DisplayMessagePayload(
     val sessionId: String,
     val message: MessagePayload,
     val displayMode: String,
-    val isPinned: Boolean
+    val isPinned: Boolean,
+    val commandOrigin: String? = null
 )
 
 @Serializable
@@ -156,7 +158,8 @@ data class DisplayStatePayload(
     val sessionId: String,
     val currentMessageId: String? = null,
     val isPinned: Boolean,
-    val displayMode: String
+    val displayMode: String,
+    val commandOrigin: String? = null
 )
 
 fun SessionEntity.toRealtimePayload(): SessionPayload = SessionPayload(
@@ -321,3 +324,6 @@ fun StatusSignalEntity.toStatePayload(
 
 fun DisplayStatePayload.mode(): DisplayMode =
     DisplayMode.fromName(displayMode)
+
+fun DisplayStatePayload.origin(): DisplayCommandOrigin? =
+    DisplayCommandOrigin.fromName(commandOrigin)

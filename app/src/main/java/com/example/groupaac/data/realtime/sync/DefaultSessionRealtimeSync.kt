@@ -6,6 +6,7 @@ import com.example.groupaac.data.dao.SessionDao
 import com.example.groupaac.data.dao.SessionJoinRequestDao
 import com.example.groupaac.data.dao.StatusSignalDao
 import com.example.groupaac.data.entity.AttachmentEntity
+import com.example.groupaac.data.entity.DisplayStateEntity
 import com.example.groupaac.data.entity.MessageEntity
 import com.example.groupaac.data.entity.SignalSnoozeEntity
 import com.example.groupaac.data.entity.StatusSignalEntity
@@ -16,6 +17,7 @@ import com.example.groupaac.data.realtime.protocol.RealtimeChannels
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEventTypes
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
+import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.OutboxDomainType
@@ -70,6 +72,7 @@ class DefaultSessionRealtimeSync(
             RealtimeEventTypes.AAC_SIGNAL_CLEARED,
             RealtimeEventTypes.DISPLAY_SHOW_MESSAGE,
             RealtimeEventTypes.DISPLAY_RESTORE_MESSAGE,
+            RealtimeEventTypes.DISPLAY_MODE_CHANGED,
             RealtimeEventTypes.DISPLAY_CLEAR,
             RealtimeEventTypes.DISPLAY_PIN_MESSAGE,
             RealtimeEventTypes.DISPLAY_UNPIN_MESSAGE
@@ -115,7 +118,6 @@ class DefaultSessionRealtimeSync(
             RealtimeEventTypes.DISPLAY_SHOW_ATTACHMENT,
             RealtimeEventTypes.DISPLAY_SHOW_ANNOUNCEMENT,
             RealtimeEventTypes.DISPLAY_PLAY_SOUND,
-            RealtimeEventTypes.DISPLAY_MODE_CHANGED,
             RealtimeEventTypes.DISPLAY_SET_PARTICIPANT_LIST,
             RealtimeEventTypes.DISPLAY_SET_THEME,
             RealtimeEventTypes.DISPLAY_CONNECTED,
@@ -587,13 +589,16 @@ class DefaultSessionRealtimeSync(
         message: MessageEntity,
         senderName: String,
         actorUserId: String,
-        restore: Boolean
+        restore: Boolean,
+        isPinned: Boolean,
+        origin: DisplayCommandOrigin
     ) {
         val payload = DisplayMessagePayload(
             sessionId = session.id,
             message = message.toRealtimePayload(senderName),
             displayMode = session.displayMode.name,
-            isPinned = false
+            isPinned = isPinned,
+            commandOrigin = origin.name
         )
         publish(
             domainType = OutboxDomainType.DISPLAY,
@@ -621,7 +626,9 @@ class DefaultSessionRealtimeSync(
         sessionId: String,
         messageId: String,
         actorUserId: String,
-        pinned: Boolean
+        pinned: Boolean,
+        displayMode: DisplayMode,
+        origin: DisplayCommandOrigin?
     ) {
         publish(
             domainType = OutboxDomainType.DISPLAY,
@@ -642,7 +649,8 @@ class DefaultSessionRealtimeSync(
                             sessionId = sessionId,
                             currentMessageId = messageId,
                             isPinned = pinned,
-                            displayMode = DisplayMode.AUTO_LATEST.name
+                            displayMode = displayMode.name,
+                            commandOrigin = origin?.name
                         )
                     )
                 )
@@ -652,7 +660,9 @@ class DefaultSessionRealtimeSync(
 
     override suspend fun publishDisplayClear(
         sessionId: String,
-        actorUserId: String
+        actorUserId: String,
+        displayMode: DisplayMode,
+        origin: DisplayCommandOrigin?
     ) {
         publish(
             domainType = OutboxDomainType.DISPLAY,
@@ -669,7 +679,40 @@ class DefaultSessionRealtimeSync(
                             sessionId = sessionId,
                             currentMessageId = null,
                             isPinned = false,
-                            displayMode = DisplayMode.AUTO_LATEST.name
+                            displayMode = displayMode.name,
+                            commandOrigin = origin?.name
+                        )
+                    )
+                )
+            )
+        )
+    }
+
+    override suspend fun publishDisplayModeChanged(
+        sessionId: String,
+        actorUserId: String,
+        displayMode: DisplayMode,
+        currentMessageId: String?,
+        isPinned: Boolean,
+        origin: DisplayCommandOrigin?
+    ) {
+        publish(
+            domainType = OutboxDomainType.DISPLAY,
+            domainId = sessionId,
+            channel = RealtimeChannels.display(sessionId),
+            event = event(
+                type = RealtimeEventTypes.DISPLAY_MODE_CHANGED,
+                sessionId = sessionId,
+                actorUserId = actorUserId,
+                payload = payload(
+                    "displayState" to json.encodeToJsonElement(
+                        DisplayStatePayload.serializer(),
+                        DisplayStatePayload(
+                            sessionId = sessionId,
+                            currentMessageId = currentMessageId,
+                            isPinned = isPinned,
+                            displayMode = displayMode.name,
+                            commandOrigin = origin?.name
                         )
                     )
                 )
@@ -869,16 +912,38 @@ class DefaultSessionRealtimeSync(
                         received.event.payload,
                         "displayState"
                     ) ?: return@inTransaction false
+                    val current = reliabilityDao.getDisplayState(state.sessionId)
+                    if (
+                        !reliabilityStore.isDisplayAcknowledgementFresh(
+                            current = current,
+                            inReplyToEventId = received.event.inReplyToEventId,
+                            timetoken = received.timetoken
+                        )
+                    ) {
+                        return@inTransaction false
+                    }
                     messageDao.clearDisplayedMessages(state.sessionId)
                     state.currentMessageId?.let { messageDao.markDisplayed(it) }
-                    reliabilityStore.applyDisplayStateIfNewer(
-                        sessionId = state.sessionId,
-                        eventId = received.event.inReplyToEventId ?: received.event.eventId,
-                        currentMessageId = state.currentMessageId,
-                        isPinned = state.isPinned,
-                        displayMode = state.mode(),
-                        commandTimetoken = received.timetoken,
-                        now = System.currentTimeMillis()
+                    reliabilityDao.upsertDisplayState(
+                        DisplayStateEntity(
+                            sessionId = state.sessionId,
+                            currentMessageId = state.currentMessageId,
+                            isPinned = state.isPinned,
+                            displayMode = state.mode(),
+                            commandOrigin = state.origin(),
+                            lastIssuedCommandEventId = if (
+                                current?.lastIssuedCommandEventId ==
+                                    received.event.inReplyToEventId
+                            ) {
+                                null
+                            } else {
+                                current?.lastIssuedCommandEventId
+                            },
+                            lastAppliedCommandTimetoken = received.timetoken,
+                            lastAppliedCommandEventId = received.event.inReplyToEventId
+                                ?: received.event.eventId,
+                            updatedAt = System.currentTimeMillis()
+                        )
                     )
                 }
 

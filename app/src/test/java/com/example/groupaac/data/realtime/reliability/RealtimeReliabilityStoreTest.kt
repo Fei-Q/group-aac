@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.groupaac.data.AppDatabase
 import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
+import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.OutboxDomainType
 import kotlinx.coroutines.test.runTest
@@ -68,34 +69,54 @@ class RealtimeReliabilityStoreTest {
     }
 
     @Test
-    fun staleDisplayCommandsAreRejected() = runTest {
-        assertTrue(
-            store.applyDisplayStateIfNewer(
-                sessionId = "session123",
-                eventId = "evt-1",
-                currentMessageId = "msg-1",
-                isPinned = false,
-                displayMode = DisplayMode.AUTO_LATEST,
-                commandTimetoken = 100L,
-                now = 1_000L
+    fun localDisplayUpdatesDoNotCompareNowWithPubNubTimetoken() = runTest {
+        store.updateLocalDisplayState(
+            sessionId = "session123",
+            eventId = "cmd-acknowledged",
+            currentMessageId = "msg-1",
+            isPinned = false,
+            displayMode = DisplayMode.AUTO_LATEST,
+            commandOrigin = DisplayCommandOrigin.AUTO_LATEST,
+            now = 1_000L
+        )
+        database.reliabilityDao().upsertDisplayState(
+            database.reliabilityDao().getDisplayState("session123")!!.copy(
+                lastAppliedCommandTimetoken = 999_999_999_999L
             )
+        )
+        store.updateLocalDisplayState(
+            sessionId = "session123",
+            eventId = "cmd-local-newer",
+            currentMessageId = "msg-2",
+            isPinned = true,
+            displayMode = DisplayMode.APPROVAL_REQUIRED,
+            commandOrigin = DisplayCommandOrigin.MANUAL_SHOW,
+            now = 1_001L
+        )
+        assertEquals(
+            "msg-2",
+            database.reliabilityDao().getDisplayState("session123")?.currentMessageId
+        )
+    }
+
+    @Test
+    fun staleDisplayAcknowledgementsAreRejected() = runTest {
+        store.updateLocalDisplayState(
+            sessionId = "session123",
+            eventId = "cmd-latest",
+            currentMessageId = "msg-1",
+            isPinned = false,
+            displayMode = DisplayMode.AUTO_LATEST,
+            commandOrigin = DisplayCommandOrigin.AUTO_LATEST,
+            now = 1_000L
         )
 
         assertFalse(
-            store.applyDisplayStateIfNewer(
-                sessionId = "session123",
-                eventId = "evt-older",
-                currentMessageId = "msg-older",
-                isPinned = true,
-                displayMode = DisplayMode.APPROVAL_REQUIRED,
-                commandTimetoken = 100L,
-                now = 1_001L
+            store.isDisplayAcknowledgementFresh(
+                current = database.reliabilityDao().getDisplayState("session123"),
+                inReplyToEventId = "cmd-older",
+                timetoken = 10_000L
             )
-        )
-
-        assertEquals(
-            "msg-1",
-            database.reliabilityDao().getDisplayState("session123")?.currentMessageId
         )
     }
 

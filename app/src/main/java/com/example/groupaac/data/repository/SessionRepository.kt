@@ -23,6 +23,7 @@ import com.example.groupaac.data.sessiondirectory.SessionDirectory
 import com.example.groupaac.data.sessiondirectory.UpdateRemoteSessionRequest
 import com.example.groupaac.data.sessiondirectory.UpdateRemoteSessionResult
 import com.example.groupaac.model.ActiveSession
+import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.JoinSessionResult
 import com.example.groupaac.model.SessionRole
@@ -153,7 +154,9 @@ class SessionRepository(
                 )
             )
         ) {
-            is CreateRemoteSessionResult.Created -> result.session.toSessionEntity()
+            is CreateRemoteSessionResult.Created -> result.session.toSessionEntity().copy(
+                displayMode = defaultDisplayModeForUser(ownerUserId)
+            )
             is CreateRemoteSessionResult.Failure -> error(result.message)
         }
         val now = session.actualStartedAt ?: TimeUtils.now()
@@ -211,7 +214,9 @@ class SessionRepository(
                 )
             )
         ) {
-            is CreateRemoteSessionResult.Created -> result.session.toSessionEntity()
+            is CreateRemoteSessionResult.Created -> result.session.toSessionEntity().copy(
+                displayMode = defaultDisplayModeForUser(ownerUserId)
+            )
             is CreateRemoteSessionResult.Failure -> error(result.message)
         }
         val now = TimeUtils.now()
@@ -806,6 +811,41 @@ class SessionRepository(
         }
     }
 
+    suspend fun updateSessionDisplayMode(
+        sessionId: String,
+        actorUserId: String,
+        displayMode: DisplayMode
+    ): SessionEntity {
+        val session = sessionDao.getSession(sessionId)
+            ?: error("Session not found.")
+        val member = sessionDao.getMember(sessionId, actorUserId)
+            ?: error("Only session members may update this session.")
+        check(member.role != SessionRole.PARTICIPANT) {
+            "Only facilitators or the host may update display mode."
+        }
+        val updated = session.copy(
+            displayMode = displayMode,
+            updatedAt = TimeUtils.now()
+        )
+        transactionRunner.inTransaction {
+            sessionDao.upsertSession(updated)
+            sessionRealtimeSync.publishSessionSettingsChanged(
+                updated,
+                actorUserId
+            )
+            sessionRealtimeSync.publishDisplayModeChanged(
+                sessionId = sessionId,
+                actorUserId = actorUserId,
+                displayMode = displayMode,
+                currentMessageId = null,
+                isPinned = false,
+                origin = null
+            )
+        }
+        outboxDispatcher.requestImmediateDispatch()
+        return updated
+    }
+
     suspend fun seedDemoParticipants(sessionId: String) {
         val now = TimeUtils.now()
         val demoMembers = listOf(
@@ -936,5 +976,16 @@ class SessionRepository(
             actualEndedAt = actualEndedAt,
             updatedAt = TimeUtils.now()
         )
+    }
+
+    private suspend fun defaultDisplayModeForUser(
+        userId: String
+    ): DisplayMode {
+        val settings = userDao.getSettings(userId)
+        return if (settings?.monitorRequireManualApproval == true) {
+            DisplayMode.APPROVAL_REQUIRED
+        } else {
+            DisplayMode.AUTO_LATEST
+        }
     }
 }

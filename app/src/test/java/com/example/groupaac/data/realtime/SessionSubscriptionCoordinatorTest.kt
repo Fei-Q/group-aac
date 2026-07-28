@@ -11,6 +11,8 @@ import com.example.groupaac.data.realtime.protocol.RealtimeChannels
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.model.ActiveSession
+import com.example.groupaac.model.DisplayCommandOrigin
+import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.SessionRole
 import kotlinx.coroutines.CoroutineScope
@@ -579,19 +581,34 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync {
         message: MessageEntity,
         senderName: String,
         actorUserId: String,
-        restore: Boolean
+        restore: Boolean,
+        isPinned: Boolean,
+        origin: DisplayCommandOrigin
     ) = Unit
 
     override suspend fun publishDisplayPinState(
         sessionId: String,
         messageId: String,
         actorUserId: String,
-        pinned: Boolean
+        pinned: Boolean,
+        displayMode: DisplayMode,
+        origin: DisplayCommandOrigin?
     ) = Unit
 
     override suspend fun publishDisplayClear(
         sessionId: String,
-        actorUserId: String
+        actorUserId: String,
+        displayMode: DisplayMode,
+        origin: DisplayCommandOrigin?
+    ) = Unit
+
+    override suspend fun publishDisplayModeChanged(
+        sessionId: String,
+        actorUserId: String,
+        displayMode: DisplayMode,
+        currentMessageId: String?,
+        isPinned: Boolean,
+        origin: DisplayCommandOrigin?
     ) = Unit
 
     override suspend fun applyIncoming(received: ReceivedRealtimeEvent): Boolean {

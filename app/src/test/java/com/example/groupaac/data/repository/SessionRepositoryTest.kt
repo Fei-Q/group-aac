@@ -16,6 +16,8 @@ import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
 import com.example.groupaac.data.sessiondirectory.RemoteSessionRecord
 import com.example.groupaac.data.sessiondirectory.RemoteSessionStatus
+import com.example.groupaac.model.DisplayCommandOrigin
+import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.JoinSessionResult
 import com.example.groupaac.model.SessionRole
@@ -422,8 +424,68 @@ class SessionRepositoryTest {
         }
     }
 
+    @Test
+    fun createSessionUsesAutoLatestWhenAccountDoesNotRequireManualApproval() = runTest {
+        val fixture = sessionFixture(
+            hostSettings = UserSettingsEntity(
+                userId = "host_1",
+                monitorRequireManualApproval = false
+            )
+        )
+
+        val active = fixture.repository.createSessionNow(
+            name = "Auto Session",
+            ownerUserId = fixture.host.uid,
+            displayName = fixture.host.displayName
+        )
+
+        assertEquals(
+            DisplayMode.AUTO_LATEST,
+            fixture.sessionDao.getSession(active.sessionId)?.displayMode
+        )
+    }
+
+    @Test
+    fun createSessionUsesApprovalRequiredWhenAccountRequiresManualApproval() = runTest {
+        val fixture = sessionFixture(
+            hostSettings = UserSettingsEntity(
+                userId = "host_1",
+                monitorRequireManualApproval = true
+            )
+        )
+
+        val active = fixture.repository.createSessionNow(
+            name = "Approval Session",
+            ownerUserId = fixture.host.uid,
+            displayName = fixture.host.displayName
+        )
+
+        assertEquals(
+            DisplayMode.APPROVAL_REQUIRED,
+            fixture.sessionDao.getSession(active.sessionId)?.displayMode
+        )
+    }
+
+    @Test
+    fun liveSessionModeUpdatePersistsAndPublishesBothEvents() = runTest {
+        val sync = RecordingSessionRealtimeSync()
+        val fixture = sessionFixture(sessionRealtimeSync = sync)
+
+        fixture.repository.updateSessionDisplayMode(
+            sessionId = fixture.session.id,
+            actorUserId = fixture.host.uid,
+            displayMode = DisplayMode.APPROVAL_REQUIRED
+        )
+
+        val updated = fixture.sessionDao.getSession(fixture.session.id)
+        assertEquals(DisplayMode.APPROVAL_REQUIRED, updated?.displayMode)
+        assertEquals(DisplayMode.APPROVAL_REQUIRED, sync.sessionSettingsChanged?.displayMode)
+        assertEquals(DisplayMode.APPROVAL_REQUIRED, sync.displayModeChanged?.first)
+    }
+
     private fun sessionFixture(
         seedLocalSession: Boolean = true,
+        hostSettings: UserSettingsEntity = UserSettingsEntity(userId = "host_1"),
         sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
     ): SessionFixture {
         val sessionDao = FakeSessionDao()
@@ -448,6 +510,11 @@ class SessionRepositoryTest {
             createdAt = 3L
         )
         userDao.seed(host, participant, facilitator)
+        userDao.seedSettings(
+            hostSettings,
+            UserSettingsEntity(userId = participant.uid),
+            UserSettingsEntity(userId = facilitator.uid)
+        )
 
         val session = SessionEntity(
             id = "session-1",
@@ -563,6 +630,8 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync by NoOpSessionR
     var memberJoined: Pair<SessionEntity, SessionMemberEntity>? = null
     var memberLeft: Pair<SessionEntity, SessionMemberEntity>? = null
     var facilitatorDeclined: Pair<SessionJoinRequestEntity, SessionEntity>? = null
+    var sessionSettingsChanged: SessionEntity? = null
+    var displayModeChanged: Triple<DisplayMode, String?, DisplayCommandOrigin?>? = null
 
     override suspend fun publishFacilitatorApproved(
         request: SessionJoinRequestEntity,
@@ -586,6 +655,24 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync by NoOpSessionR
         actorUserId: String
     ) {
         memberLeft = session to member
+    }
+
+    override suspend fun publishSessionSettingsChanged(
+        session: SessionEntity,
+        actorUserId: String
+    ) {
+        sessionSettingsChanged = session
+    }
+
+    override suspend fun publishDisplayModeChanged(
+        sessionId: String,
+        actorUserId: String,
+        displayMode: DisplayMode,
+        currentMessageId: String?,
+        isPinned: Boolean,
+        origin: DisplayCommandOrigin?
+    ) {
+        displayModeChanged = Triple(displayMode, currentMessageId, origin)
     }
 
     override suspend fun publishFacilitatorDeclined(
@@ -706,6 +793,20 @@ private class FakeSessionDao : SessionDao {
             session.copy(
                 scheduledStartAt = scheduledStartAt,
                 scheduledDurationMinutes = scheduledDurationMinutes
+            )
+        )
+    }
+
+    override suspend fun updateDisplayMode(
+        sessionId: String,
+        displayMode: DisplayMode,
+        updatedAt: Long
+    ) {
+        val session = sessions[sessionId] ?: return
+        seedSession(
+            session.copy(
+                displayMode = displayMode,
+                updatedAt = updatedAt
             )
         )
     }
@@ -929,6 +1030,10 @@ private class FakeUserDao : UserDao {
         seededUsers.forEach { user ->
             users[user.uid] = user
         }
+    }
+
+    fun seedSettings(vararg seededSettings: UserSettingsEntity) {
+        seededSettings.forEach { settings[it.userId] = it }
     }
 
     override fun observeUsers(): Flow<List<UserEntity>> =

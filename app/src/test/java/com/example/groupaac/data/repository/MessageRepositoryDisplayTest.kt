@@ -11,7 +11,9 @@ import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.realtime.reliability.NoOpOutboxDispatcher
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
+import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.data.repository.ImmediateTransactionRunner
+import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.SessionRole
@@ -31,6 +33,7 @@ import org.robolectric.RobolectricTestRunner
 class MessageRepositoryDisplayTest {
     private lateinit var database: AppDatabase
     private lateinit var repository: MessageRepository
+    private lateinit var sync: RecordingDisplayRealtimeSync
 
     @Before
     fun setUp() = runTest {
@@ -74,6 +77,7 @@ class MessageRepositoryDisplayTest {
             )
         )
 
+        sync = RecordingDisplayRealtimeSync()
         repository = MessageRepository(
             transactionRunner = ImmediateTransactionRunner,
             messageDao = database.messageDao(),
@@ -85,7 +89,7 @@ class MessageRepositoryDisplayTest {
                 reliabilityDao = database.reliabilityDao()
             ),
             outboxDispatcher = NoOpOutboxDispatcher,
-            sessionRealtimeSync = NoOpSessionRealtimeSync
+            sessionRealtimeSync = sync
         )
     }
 
@@ -138,5 +142,152 @@ class MessageRepositoryDisplayTest {
         assertEquals(null, displayState?.currentMessageId)
         assertEquals(false, displayState?.isPinned)
         assertTrue(database.messageDao().getMessage(messageId) != null)
+    }
+
+    @Test
+    fun pinnedAutomaticReplacementIsRejected() = runTest {
+        val first = repository.sendText(
+            sessionId = "session1",
+            senderUserId = "participant1",
+            target = MessageTarget.GROUP,
+            text = "First"
+        )
+        repository.pinDisplayedMessage("session1")
+
+        repository.sendText(
+            sessionId = "session1",
+            senderUserId = "participant1",
+            target = MessageTarget.GROUP,
+            text = "Second"
+        )
+
+        val displayState = repository.observeDisplayState("session1").first()
+        assertEquals(first, displayState?.currentMessageId)
+        assertEquals(true, displayState?.isPinned)
+    }
+
+    @Test
+    fun pinnedManualReplacementPreservesPinAndOrigin() = runTest {
+        repository.sendText(
+            sessionId = "session1",
+            senderUserId = "participant1",
+            target = MessageTarget.GROUP,
+            text = "First"
+        )
+        val second = repository.sendText(
+            sessionId = "session1",
+            senderUserId = "participant1",
+            target = MessageTarget.GROUP,
+            text = "Second"
+        )
+        repository.pinDisplayedMessage("session1")
+
+        repository.displayMessage("session1", second)
+
+        val displayState = repository.observeDisplayState("session1").first()
+        assertEquals(second, displayState?.currentMessageId)
+        assertEquals(true, displayState?.isPinned)
+        assertEquals(DisplayCommandOrigin.MANUAL_SHOW, displayState?.commandOrigin)
+    }
+
+    @Test
+    fun unpinKeepsCurrentContentVisible() = runTest {
+        val messageId = repository.sendText(
+            sessionId = "session1",
+            senderUserId = "participant1",
+            target = MessageTarget.GROUP,
+            text = "Visible"
+        )
+        repository.pinDisplayedMessage("session1")
+
+        repository.unpinDisplayedMessage("session1")
+
+        val displayState = repository.observeDisplayState("session1").first()
+        val displayedMessage = repository.observeDisplayedMessage("session1").first()
+        assertEquals(messageId, displayState?.currentMessageId)
+        assertEquals(false, displayState?.isPinned)
+        assertEquals(messageId, displayedMessage?.id)
+    }
+
+    @Test
+    fun publishedDisplayCommandsCarryCurrentDisplayMode() = runTest {
+        database.sessionDao().upsertSession(
+            SessionEntity(
+                id = "session1",
+                name = "Group",
+                joinCode = "1234-5678",
+                hostUserId = "host1",
+                displayMode = DisplayMode.APPROVAL_REQUIRED,
+                createdAt = 1L
+            )
+        )
+        val messageId = repository.sendText(
+            sessionId = "session1",
+            senderUserId = "participant1",
+            target = MessageTarget.GROUP,
+            text = "Mode test"
+        )
+        repository.displayMessage("session1", messageId)
+        repository.pinDisplayedMessage("session1")
+        repository.unpinDisplayedMessage("session1")
+        repository.clearDisplay("session1")
+
+        assertTrue(sync.showCalls.all { it.displayMode == DisplayMode.APPROVAL_REQUIRED })
+        assertTrue(sync.pinCalls.all { it.displayMode == DisplayMode.APPROVAL_REQUIRED })
+        assertEquals(DisplayMode.APPROVAL_REQUIRED, sync.clearMode)
+    }
+}
+
+private class RecordingDisplayRealtimeSync : SessionRealtimeSync by NoOpSessionRealtimeSync {
+    data class ShowCall(
+        val displayMode: DisplayMode,
+        val isPinned: Boolean,
+        val origin: DisplayCommandOrigin
+    )
+
+    data class PinCall(
+        val displayMode: DisplayMode,
+        val pinned: Boolean,
+        val origin: DisplayCommandOrigin?
+    )
+
+    val showCalls = mutableListOf<ShowCall>()
+    val pinCalls = mutableListOf<PinCall>()
+    var clearMode: DisplayMode? = null
+
+    override suspend fun publishDisplayShowMessage(
+        session: SessionEntity,
+        message: MessageEntity,
+        senderName: String,
+        actorUserId: String,
+        restore: Boolean,
+        isPinned: Boolean,
+        origin: DisplayCommandOrigin
+    ) {
+        showCalls += ShowCall(
+            displayMode = session.displayMode,
+            isPinned = isPinned,
+            origin = origin
+        )
+    }
+
+    override suspend fun publishDisplayPinState(
+        sessionId: String,
+        messageId: String,
+        actorUserId: String,
+        pinned: Boolean,
+        displayMode: DisplayMode,
+        origin: DisplayCommandOrigin?
+    ) {
+        pinCalls += PinCall(displayMode, pinned, origin)
+    }
+
+    override suspend fun publishDisplayClear(
+        sessionId: String,
+        actorUserId: String,
+        displayMode: DisplayMode,
+        origin: DisplayCommandOrigin?
+    ) {
+        clearMode = displayMode
     }
 }

@@ -1,6 +1,6 @@
 {
-  "showMessageCommand": {
-    "eventId": "cmd-show-001",
+  "autoLatestShowCommand": {
+    "eventId": "cmd-show-auto-001",
     "type": "display.show_message",
     "sessionId": "session-abc",
     "actorUserId": "host_1",
@@ -10,6 +10,7 @@
         "sessionId": "session-abc",
         "displayMode": "AUTO_LATEST",
         "isPinned": false,
+        "commandOrigin": "AUTO_LATEST",
         "message": {
           "id": "msg-100",
           "sessionId": "session-abc",
@@ -19,6 +20,34 @@
           "text": "Gardening on Sunday",
           "attachmentId": null,
           "createdAt": 1785259198000,
+          "status": "DISPLAYED",
+          "saved": false,
+          "displayedOnMonitor": true
+        }
+      }
+    }
+  },
+  "manualRestoreCommand": {
+    "eventId": "cmd-restore-001",
+    "type": "display.restore_message",
+    "sessionId": "session-abc",
+    "actorUserId": "host_1",
+    "occurredAt": 1785259202000,
+    "payload": {
+      "display": {
+        "sessionId": "session-abc",
+        "displayMode": "APPROVAL_REQUIRED",
+        "isPinned": true,
+        "commandOrigin": "MANUAL_RESTORE",
+        "message": {
+          "id": "msg-099",
+          "sessionId": "session-abc",
+          "senderUserId": "participant_2",
+          "senderName": "Participant Two",
+          "target": "GROUP",
+          "text": "Please repeat that",
+          "attachmentId": null,
+          "createdAt": 1785259197000,
           "status": "DISPLAYED",
           "saved": false,
           "displayedOnMonitor": true
@@ -37,7 +66,56 @@
         "sessionId": "session-abc",
         "currentMessageId": "msg-100",
         "isPinned": true,
-        "displayMode": "AUTO_LATEST"
+        "displayMode": "APPROVAL_REQUIRED",
+        "commandOrigin": "MANUAL_SHOW"
+      }
+    }
+  },
+  "unpinCommand": {
+    "eventId": "cmd-unpin-001",
+    "type": "display.unpin_message",
+    "sessionId": "session-abc",
+    "actorUserId": "host_1",
+    "occurredAt": 1785259207000,
+    "payload": {
+      "displayState": {
+        "sessionId": "session-abc",
+        "currentMessageId": "msg-100",
+        "isPinned": false,
+        "displayMode": "APPROVAL_REQUIRED",
+        "commandOrigin": "MANUAL_SHOW"
+      }
+    }
+  },
+  "clearCommand": {
+    "eventId": "cmd-clear-001",
+    "type": "display.clear",
+    "sessionId": "session-abc",
+    "actorUserId": "host_1",
+    "occurredAt": 1785259210000,
+    "payload": {
+      "displayState": {
+        "sessionId": "session-abc",
+        "currentMessageId": null,
+        "isPinned": false,
+        "displayMode": "APPROVAL_REQUIRED",
+        "commandOrigin": null
+      }
+    }
+  },
+  "modeChangedCommand": {
+    "eventId": "cmd-mode-001",
+    "type": "display.mode_changed",
+    "sessionId": "session-abc",
+    "actorUserId": "host_1",
+    "occurredAt": 1785259212000,
+    "payload": {
+      "displayState": {
+        "sessionId": "session-abc",
+        "currentMessageId": "msg-100",
+        "isPinned": true,
+        "displayMode": "APPROVAL_REQUIRED",
+        "commandOrigin": "MANUAL_SHOW"
       }
     }
   },
@@ -47,13 +125,31 @@
     "sessionId": "session-abc",
     "actorUserId": "display-1",
     "occurredAt": 1785259203000,
-    "inReplyToEventId": "cmd-show-001",
+    "inReplyToEventId": "cmd-show-auto-001",
     "payload": {
       "displayState": {
         "sessionId": "session-abc",
         "currentMessageId": "msg-100",
         "isPinned": false,
-        "displayMode": "AUTO_LATEST"
+        "displayMode": "AUTO_LATEST",
+        "commandOrigin": "AUTO_LATEST"
+      }
+    }
+  },
+  "unpinnedAck": {
+    "eventId": "ack-unpinned-001",
+    "type": "display.unpinned",
+    "sessionId": "session-abc",
+    "actorUserId": "display-1",
+    "occurredAt": 1785259208000,
+    "inReplyToEventId": "cmd-unpin-001",
+    "payload": {
+      "displayState": {
+        "sessionId": "session-abc",
+        "currentMessageId": "msg-100",
+        "isPinned": false,
+        "displayMode": "APPROVAL_REQUIRED",
+        "commandOrigin": "MANUAL_SHOW"
       }
     }
   },
@@ -62,14 +158,48 @@
     "type": "display.cleared",
     "sessionId": "session-abc",
     "actorUserId": "display-1",
-    "occurredAt": 1785259210000,
+    "occurredAt": 1785259210500,
     "inReplyToEventId": "cmd-clear-001",
     "payload": {
       "displayState": {
         "sessionId": "session-abc",
         "currentMessageId": null,
         "isPinned": false,
-        "displayMode": "AUTO_LATEST"
+        "displayMode": "APPROVAL_REQUIRED",
+        "commandOrigin": null
+      }
+    }
+  },
+  "failedPinnedAutomaticReplacement": {
+    "eventId": "ack-failed-001",
+    "type": "display.failed",
+    "sessionId": "session-abc",
+    "actorUserId": "display-1",
+    "occurredAt": 1785259213000,
+    "inReplyToEventId": "cmd-show-auto-002",
+    "payload": {
+      "displayState": {
+        "sessionId": "session-abc",
+        "currentMessageId": "msg-100",
+        "isPinned": true,
+        "displayMode": "APPROVAL_REQUIRED",
+        "commandOrigin": "MANUAL_SHOW"
+      }
+    }
+  },
+  "stateReconciliation": {
+    "eventId": "state-001",
+    "type": "display.state",
+    "sessionId": "session-abc",
+    "actorUserId": "display-1",
+    "occurredAt": 1785259214000,
+    "payload": {
+      "displayState": {
+        "sessionId": "session-abc",
+        "currentMessageId": "msg-100",
+        "isPinned": true,
+        "displayMode": "APPROVAL_REQUIRED",
+        "commandOrigin": "MANUAL_SHOW"
       }
     }
   }

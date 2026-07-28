@@ -10,6 +10,7 @@ import com.example.groupaac.data.entity.ProcessedEventEntity
 import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEventCodec
+import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.OutboxDomainType
 import com.example.groupaac.model.OutboxEventState
@@ -127,37 +128,52 @@ class RealtimeReliabilityStore(
         entry: OutboxEventEntity
     ): RealtimeEvent = RealtimeEventCodec.decode(entry.serializedEvent)
 
-    suspend fun applyDisplayStateIfNewer(
+    suspend fun updateLocalDisplayState(
         sessionId: String,
         eventId: String,
         currentMessageId: String?,
         isPinned: Boolean,
         displayMode: DisplayMode,
-        commandTimetoken: Long,
+        commandOrigin: DisplayCommandOrigin?,
         now: Long
-    ): Boolean {
-        return database.withTransaction {
+    ) {
+        database.withTransaction {
             val current = reliabilityDao.getDisplayState(sessionId)
-            if (
-                current?.lastAppliedCommandTimetoken != null &&
-                commandTimetoken <= current.lastAppliedCommandTimetoken
-            ) {
-                false
-            } else {
-                reliabilityDao.upsertDisplayState(
-                    DisplayStateEntity(
-                        sessionId = sessionId,
-                        currentMessageId = currentMessageId,
-                        isPinned = isPinned,
-                        displayMode = displayMode,
-                        lastAppliedCommandTimetoken = commandTimetoken,
-                        lastAppliedCommandEventId = eventId,
-                        updatedAt = now
-                    )
+            reliabilityDao.upsertDisplayState(
+                DisplayStateEntity(
+                    sessionId = sessionId,
+                    currentMessageId = currentMessageId,
+                    isPinned = isPinned,
+                    displayMode = displayMode,
+                    commandOrigin = commandOrigin,
+                    lastIssuedCommandEventId = eventId,
+                    lastAppliedCommandTimetoken = current?.lastAppliedCommandTimetoken,
+                    lastAppliedCommandEventId = current?.lastAppliedCommandEventId,
+                    updatedAt = now
                 )
-                true
-            }
+            )
         }
+    }
+
+    fun isDisplayAcknowledgementFresh(
+        current: DisplayStateEntity?,
+        inReplyToEventId: String?,
+        timetoken: Long
+    ): Boolean {
+        if (
+            inReplyToEventId != null &&
+            current?.lastIssuedCommandEventId != null &&
+            inReplyToEventId != current.lastIssuedCommandEventId
+        ) {
+            return false
+        }
+        if (
+            current?.lastAppliedCommandTimetoken != null &&
+            timetoken <= current.lastAppliedCommandTimetoken
+        ) {
+            return false
+        }
+        return true
     }
 
     companion object {

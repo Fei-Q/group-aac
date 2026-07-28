@@ -12,6 +12,7 @@ import com.example.groupaac.data.realtime.reliability.OutboxDispatching
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
+import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageDisplayStatus
 import com.example.groupaac.model.MessageStatus
@@ -166,7 +167,8 @@ class MessageRepository(
             showOrRestoreMessage(
                 sessionId = sessionId,
                 messageId = messageId,
-                restore = false
+                restore = false,
+                origin = DisplayCommandOrigin.MANUAL_SHOW
             )
         }
         outboxDispatcher.requestImmediateDispatch()
@@ -177,7 +179,8 @@ class MessageRepository(
             showOrRestoreMessage(
                 sessionId = sessionId,
                 messageId = messageId,
-                restore = true
+                restore = true,
+                origin = DisplayCommandOrigin.MANUAL_RESTORE
             )
         }
         outboxDispatcher.requestImmediateDispatch()
@@ -187,24 +190,26 @@ class MessageRepository(
         transactionRunner.inTransaction {
             val current = reliabilityDao.getDisplayState(sessionId)
             val messageId = current?.currentMessageId ?: return@inTransaction
+            val session = sessionDao.getSession(sessionId) ?: return@inTransaction
             messageDao.hideDisplayedMessages(sessionId)
             messageDao.markDisplayed(messageId)
-            reliabilityStore.applyDisplayStateIfNewer(
+            reliabilityStore.updateLocalDisplayState(
                 sessionId = sessionId,
                 eventId = IdUtils.newId(),
                 currentMessageId = messageId,
                 isPinned = true,
-                displayMode = current.displayMode,
-                commandTimetoken = System.currentTimeMillis(),
+                displayMode = session.displayMode,
+                commandOrigin = current.commandOrigin,
                 now = TimeUtils.now()
             )
-            val session = sessionDao.getSession(sessionId) ?: return@inTransaction
             val actorUserId = session.hostUserId ?: messageDao.getMessage(messageId)?.senderUserId ?: return@inTransaction
             sessionRealtimeSync.publishDisplayPinState(
                 sessionId = sessionId,
                 messageId = messageId,
                 actorUserId = actorUserId,
-                pinned = true
+                pinned = true,
+                displayMode = session.displayMode,
+                origin = current.commandOrigin
             )
         }
         outboxDispatcher.requestImmediateDispatch()
@@ -214,24 +219,26 @@ class MessageRepository(
         transactionRunner.inTransaction {
             val current = reliabilityDao.getDisplayState(sessionId)
             val messageId = current?.currentMessageId ?: return@inTransaction
+            val session = sessionDao.getSession(sessionId) ?: return@inTransaction
             messageDao.hideDisplayedMessages(sessionId)
             messageDao.markDisplayed(messageId)
-            reliabilityStore.applyDisplayStateIfNewer(
+            reliabilityStore.updateLocalDisplayState(
                 sessionId = sessionId,
                 eventId = IdUtils.newId(),
                 currentMessageId = messageId,
                 isPinned = false,
-                displayMode = current.displayMode,
-                commandTimetoken = System.currentTimeMillis(),
+                displayMode = session.displayMode,
+                commandOrigin = current.commandOrigin,
                 now = TimeUtils.now()
             )
-            val session = sessionDao.getSession(sessionId) ?: return@inTransaction
             val actorUserId = session.hostUserId ?: messageDao.getMessage(messageId)?.senderUserId ?: return@inTransaction
             sessionRealtimeSync.publishDisplayPinState(
                 sessionId = sessionId,
                 messageId = messageId,
                 actorUserId = actorUserId,
-                pinned = false
+                pinned = false,
+                displayMode = session.displayMode,
+                origin = current.commandOrigin
             )
         }
         outboxDispatcher.requestImmediateDispatch()
@@ -240,21 +247,23 @@ class MessageRepository(
     suspend fun clearDisplay(sessionId: String) {
         transactionRunner.inTransaction {
             val current = reliabilityDao.getDisplayState(sessionId)
+            val session = sessionDao.getSession(sessionId) ?: return@inTransaction
             messageDao.hideDisplayedMessages(sessionId)
-            reliabilityStore.applyDisplayStateIfNewer(
+            reliabilityStore.updateLocalDisplayState(
                 sessionId = sessionId,
                 eventId = IdUtils.newId(),
                 currentMessageId = null,
                 isPinned = false,
-                displayMode = current?.displayMode ?: DisplayMode.AUTO_LATEST,
-                commandTimetoken = System.currentTimeMillis(),
+                displayMode = session.displayMode,
+                commandOrigin = null,
                 now = TimeUtils.now()
             )
-            val session = sessionDao.getSession(sessionId) ?: return@inTransaction
             val actorUserId = session.hostUserId ?: return@inTransaction
             sessionRealtimeSync.publishDisplayClear(
                 sessionId = sessionId,
-                actorUserId = actorUserId
+                actorUserId = actorUserId,
+                displayMode = session.displayMode,
+                origin = current?.commandOrigin
             )
         }
         outboxDispatcher.requestImmediateDispatch()
@@ -296,39 +305,47 @@ class MessageRepository(
             sessionId = message.sessionId,
             messageId = message.id,
             isPinned = false,
-            displayMode = session.displayMode
+            displayMode = session.displayMode,
+            origin = DisplayCommandOrigin.AUTO_LATEST
         )
         sessionRealtimeSync.publishDisplayShowMessage(
             session = session,
             message = message,
             senderName = senderName,
             actorUserId = message.senderUserId,
-            restore = false
+            restore = false,
+            isPinned = false,
+            origin = DisplayCommandOrigin.AUTO_LATEST
         )
     }
 
     private suspend fun showOrRestoreMessage(
         sessionId: String,
         messageId: String,
-        restore: Boolean
+        restore: Boolean,
+        origin: DisplayCommandOrigin
     ) {
         val session = sessionDao.getSession(sessionId) ?: return
         val message = messageDao.getMessage(messageId) ?: return
+        val current = reliabilityDao.getDisplayState(sessionId)
         val senderName = sessionDao.getMember(sessionId, message.senderUserId)?.displayName
             ?: userDao.getUser(message.senderUserId)?.displayName
             ?: "Unknown"
         applyDisplayedMessageState(
             sessionId = sessionId,
             messageId = messageId,
-            isPinned = false,
-            displayMode = session.displayMode
+            isPinned = current?.isPinned == true,
+            displayMode = session.displayMode,
+            origin = origin
         )
         sessionRealtimeSync.publishDisplayShowMessage(
             session = session,
             message = message,
             senderName = senderName,
             actorUserId = session.hostUserId ?: message.senderUserId,
-            restore = restore
+            restore = restore,
+            isPinned = current?.isPinned == true,
+            origin = origin
         )
     }
 
@@ -336,20 +353,21 @@ class MessageRepository(
         sessionId: String,
         messageId: String,
         isPinned: Boolean,
-        displayMode: DisplayMode
+        displayMode: DisplayMode,
+        origin: DisplayCommandOrigin
     ) {
         messageDao.hideDisplayedMessages(sessionId)
         messageDao.updateDisplaySelection(
             messageId = messageId,
             displayStatus = MessageDisplayStatus.PENDING
         )
-        reliabilityStore.applyDisplayStateIfNewer(
+        reliabilityStore.updateLocalDisplayState(
             sessionId = sessionId,
             eventId = IdUtils.newId(),
             currentMessageId = messageId,
             isPinned = isPinned,
             displayMode = displayMode,
-            commandTimetoken = System.currentTimeMillis(),
+            commandOrigin = origin,
             now = TimeUtils.now()
         )
     }

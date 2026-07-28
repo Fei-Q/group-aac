@@ -140,6 +140,20 @@ interface SessionDao {
         scheduledDurationMinutes: Int?
     )
 
+    @Query(
+        """
+        UPDATE sessions
+        SET displayMode = :displayMode,
+            updatedAt = :updatedAt
+        WHERE id = :sessionId
+        """
+    )
+    suspend fun updateDisplayMode(
+        sessionId: String,
+        displayMode: com.example.groupaac.model.DisplayMode,
+        updatedAt: Long = System.currentTimeMillis()
+    )
+
     @Query("DELETE FROM session_members WHERE sessionId = :sessionId")
     suspend fun deleteMembersForSession(sessionId: String)
 

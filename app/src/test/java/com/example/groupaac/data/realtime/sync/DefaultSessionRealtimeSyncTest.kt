@@ -27,6 +27,7 @@ import com.example.groupaac.model.OutboxDomainType
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.ActiveSession
+import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SignalState
 import com.example.groupaac.model.SignalType
@@ -223,6 +224,88 @@ class DefaultSessionRealtimeSyncTest {
         assertEquals("msg-1", displayState?.currentMessageId)
         assertEquals(true, displayState?.isPinned)
         assertEquals("cmd-1", displayState?.lastAppliedCommandEventId)
+    }
+
+    @Test
+    fun staleAcknowledgementDoesNotChangeDisplayedMessageFlags() = runTest {
+        database.messageDao().upsertMessage(
+            MessageEntity(
+                id = "msg-current",
+                sessionId = "session-1",
+                senderUserId = "alice",
+                target = MessageTarget.GROUP,
+                text = "Current",
+                createdAt = 100L
+            )
+        )
+        database.messageDao().upsertMessage(
+            MessageEntity(
+                id = "msg-stale",
+                sessionId = "session-1",
+                senderUserId = "alice",
+                target = MessageTarget.GROUP,
+                text = "Stale",
+                createdAt = 101L
+            )
+        )
+        database.reliabilityDao().upsertDisplayState(
+            com.example.groupaac.data.entity.DisplayStateEntity(
+                sessionId = "session-1",
+                currentMessageId = "msg-current",
+                isPinned = true,
+                displayMode = DisplayMode.AUTO_LATEST,
+                commandOrigin = DisplayCommandOrigin.MANUAL_SHOW,
+                lastIssuedCommandEventId = "cmd-latest",
+                lastAppliedCommandTimetoken = 300L,
+                lastAppliedCommandEventId = "cmd-prev",
+                updatedAt = 1_000L
+            )
+        )
+        database.messageDao().markDisplayed("msg-current")
+
+        val payload = buildJsonObject {
+            put(
+                "displayState",
+                Json.encodeToJsonElement(
+                    DisplayStatePayload.serializer(),
+                    DisplayStatePayload(
+                        sessionId = "session-1",
+                        currentMessageId = "msg-stale",
+                        isPinned = false,
+                        displayMode = DisplayMode.AUTO_LATEST.name,
+                        commandOrigin = DisplayCommandOrigin.AUTO_LATEST.name
+                    )
+                )
+            )
+        }
+        val received = ReceivedRealtimeEvent(
+            channel = RealtimeChannels.displayEvents("session-1"),
+            timetoken = 400L,
+            publisherUserId = "display-1",
+            event = RealtimeEvent(
+                eventId = "ack-stale",
+                type = RealtimeEventTypes.DISPLAY_RENDERED,
+                sessionId = "session-1",
+                actorUserId = "display-1",
+                occurredAt = 200L,
+                inReplyToEventId = "cmd-older",
+                payload = payload
+            )
+        )
+
+        assertFalse(sync.applyIncoming(received))
+        assertEquals(
+            "msg-current",
+            database.reliabilityDao().getDisplayState("session-1")?.currentMessageId
+        )
+        assertEquals(
+            true,
+            database.messageDao().getMessage("msg-current")?.displayedOnMonitor
+        )
+        assertEquals(
+            false,
+            database.messageDao().getMessage("msg-stale")?.displayedOnMonitor
+        )
     }
 
     @Test

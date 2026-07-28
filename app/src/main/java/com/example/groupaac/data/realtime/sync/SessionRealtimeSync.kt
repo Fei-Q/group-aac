@@ -7,6 +7,7 @@ import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
+import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageTarget
 
@@ -160,19 +161,34 @@ interface SessionRealtimeSync {
         message: MessageEntity,
         senderName: String,
         actorUserId: String,
-        restore: Boolean
+        restore: Boolean,
+        isPinned: Boolean,
+        origin: DisplayCommandOrigin
     )
 
     suspend fun publishDisplayPinState(
         sessionId: String,
         messageId: String,
         actorUserId: String,
-        pinned: Boolean
+        pinned: Boolean,
+        displayMode: DisplayMode,
+        origin: DisplayCommandOrigin?
     )
 
     suspend fun publishDisplayClear(
         sessionId: String,
-        actorUserId: String
+        actorUserId: String,
+        displayMode: DisplayMode,
+        origin: DisplayCommandOrigin?
+    )
+
+    suspend fun publishDisplayModeChanged(
+        sessionId: String,
+        actorUserId: String,
+        displayMode: DisplayMode,
+        currentMessageId: String?,
+        isPinned: Boolean,
+        origin: DisplayCommandOrigin?
     )
 
     suspend fun applyIncoming(received: ReceivedRealtimeEvent): Boolean
@@ -225,17 +241,31 @@ object NoOpSessionRealtimeSync : SessionRealtimeSync {
         message: MessageEntity,
         senderName: String,
         actorUserId: String,
-        restore: Boolean
+        restore: Boolean,
+        isPinned: Boolean,
+        origin: DisplayCommandOrigin
     ) = Unit
     override suspend fun publishDisplayPinState(
         sessionId: String,
         messageId: String,
         actorUserId: String,
-        pinned: Boolean
+        pinned: Boolean,
+        displayMode: DisplayMode,
+        origin: DisplayCommandOrigin?
     ) = Unit
     override suspend fun publishDisplayClear(
         sessionId: String,
-        actorUserId: String
+        actorUserId: String,
+        displayMode: DisplayMode,
+        origin: DisplayCommandOrigin?
+    ) = Unit
+    override suspend fun publishDisplayModeChanged(
+        sessionId: String,
+        actorUserId: String,
+        displayMode: DisplayMode,
+        currentMessageId: String?,
+        isPinned: Boolean,
+        origin: DisplayCommandOrigin?
     ) = Unit
 
     override suspend fun applyIncoming(received: ReceivedRealtimeEvent): Boolean = false

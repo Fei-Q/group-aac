@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "2310cd69d1fecb1e8d3c6111d1893327",
+    "identityHash": "6702862adc2dffd2a8465ec2ba920b93",
     "entities": [
       {
         "tableName": "users",
@@ -852,7 +852,7 @@
       },
       {
         "tableName": "display_state",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sessionId` TEXT NOT NULL, `currentMessageId` TEXT, `isPinned` INTEGER NOT NULL, `displayMode` TEXT NOT NULL, `lastAppliedCommandTimetoken` INTEGER, `lastAppliedCommandEventId` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`sessionId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sessionId` TEXT NOT NULL, `currentMessageId` TEXT, `isPinned` INTEGER NOT NULL, `displayMode` TEXT NOT NULL, `commandOrigin` TEXT, `lastIssuedCommandEventId` TEXT, `lastAppliedCommandTimetoken` INTEGER, `lastAppliedCommandEventId` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`sessionId`))",
         "fields": [
           {
             "fieldPath": "sessionId",
@@ -876,6 +876,16 @@
             "columnName": "displayMode",
             "affinity": "TEXT",
             "notNull": true
+          },
+          {
+            "fieldPath": "commandOrigin",
+            "columnName": "commandOrigin",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastIssuedCommandEventId",
+            "columnName": "lastIssuedCommandEventId",
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "lastAppliedCommandTimetoken",
@@ -1087,7 +1097,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '2310cd69d1fecb1e8d3c6111d1893327')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '6702862adc2dffd2a8465ec2ba920b93')"
     ]
   }
 }

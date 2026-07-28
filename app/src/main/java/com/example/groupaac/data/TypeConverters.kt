@@ -2,6 +2,7 @@ package com.example.groupaac.data
 
 import androidx.room.TypeConverter
 import com.example.groupaac.model.CalendarViewMode
+import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.FacilitatorDefaultTab
 import com.example.groupaac.model.HomeExperience
@@ -41,6 +42,14 @@ class TypeConverters {
     @TypeConverter
     fun stringToDisplayMode(value: String?): DisplayMode =
         DisplayMode.fromName(value)
+
+    @TypeConverter
+    fun displayCommandOriginToString(value: DisplayCommandOrigin?): String? =
+        value?.name
+
+    @TypeConverter
+    fun stringToDisplayCommandOrigin(value: String?): DisplayCommandOrigin? =
+        DisplayCommandOrigin.fromName(value)
 
     @TypeConverter
     fun sessionRoleToString(value: SessionRole): String = value.name
