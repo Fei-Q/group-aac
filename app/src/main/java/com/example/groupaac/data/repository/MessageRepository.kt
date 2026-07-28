@@ -9,6 +9,8 @@ import com.example.groupaac.data.entity.MessageEntity
 import com.example.groupaac.data.pi.DisplayCommand
 import com.example.groupaac.data.pi.PiClient
 import com.example.groupaac.data.pi.PiMessagePayload
+import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
+import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.model.MessageStatus
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.util.IdUtils
@@ -19,7 +21,8 @@ class MessageRepository(
     private val messageDao: MessageDao,
     private val sessionDao: SessionDao,
     private val userDao: UserDao,
-    private val piClient: PiClient
+    private val piClient: PiClient,
+    private val sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
 ) {
     fun observeMessages(sessionId: String): Flow<List<MessageWithSender>> =
         messageDao.observeMessages(sessionId)
@@ -85,6 +88,17 @@ class MessageRepository(
             text = cleanText,
             createdAt = sentAt
         )
+        val storedMessage = messageDao.getMessage(messageId)
+        if (storedMessage != null) {
+            val senderName = sessionDao.getMember(sessionId, senderUserId)?.displayName
+                ?: userDao.getUser(senderUserId)?.displayName
+                ?: "Unknown"
+            sessionRealtimeSync.publishMessageCreated(
+                message = storedMessage,
+                senderName = senderName,
+                target = target
+            )
+        }
 
         return messageId
     }

@@ -9,6 +9,8 @@ import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.pi.PiClient
 import com.example.groupaac.data.pi.PiJoinRequest
+import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
+import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.model.ActiveSession
 import com.example.groupaac.model.JoinRequestStatus
@@ -28,7 +30,8 @@ class SessionRepository(
     private val sessionJoinRequestDao: SessionJoinRequestDao,
     private val userDao: UserDao,
     private val activeSessionStore: ActiveSessionStore,
-    private val piClient: PiClient
+    private val piClient: PiClient,
+    private val sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
 ) {
     fun observeSession(
         sessionId: String
@@ -146,7 +149,6 @@ class SessionRepository(
             member = member
         )
 
-
         activeSessionStore.setActiveSession(
             userId = ownerUserId,
             sessionId = session.id
@@ -160,6 +162,8 @@ class SessionRepository(
                 role = SessionRole.HOST
             )
         )
+        sessionRealtimeSync.publishSessionStarted(session, ownerUserId)
+        sessionRealtimeSync.publishMemberJoined(session, member)
 
         return ActiveSession(
             sessionId = session.id,
@@ -203,6 +207,7 @@ class SessionRepository(
             session = session,
             member = member
         )
+        sessionRealtimeSync.publishSessionUpdated(session, ownerUserId)
 
         return session
     }
@@ -228,6 +233,7 @@ class SessionRepository(
             scheduledDurationMinutes = scheduledDurationMinutes
         )
         sessionDao.upsertSession(updated)
+        sessionRealtimeSync.publishSessionUpdated(updated, ownerUserId)
         return updated
     }
 
@@ -314,7 +320,11 @@ class SessionRepository(
 
         sessionJoinRequestDao.deleteRequestsForSession(sessionId)
         sessionDao.deleteMembersForSession(sessionId)
-        return sessionDao.deleteHostedSession(sessionId, ownerUserId) > 0
+        val deleted = sessionDao.deleteHostedSession(sessionId, ownerUserId) > 0
+        if (deleted) {
+            sessionRealtimeSync.publishSessionCancelled(session, ownerUserId)
+        }
+        return deleted
     }
 
     suspend fun joinSession(
@@ -366,6 +376,7 @@ class SessionRepository(
                         role = SessionRole.PARTICIPANT
                     )
                 )
+                sessionRealtimeSync.publishMemberJoined(session, member)
 
                 JoinSessionResult.Joined(
                     activeSession = ActiveSession(
@@ -439,6 +450,7 @@ class SessionRepository(
             requestedAt = now
         )
         sessionJoinRequestDao.upsertRequest(request)
+        sessionRealtimeSync.publishFacilitatorRequested(request, userId)
         return request
     }
 
@@ -487,6 +499,13 @@ class SessionRepository(
                 joinedAt = existingMember?.joinedAt ?: request.requestedAt
             )
         )
+        val updatedRequest = sessionJoinRequestDao.getRequestById(requestId)
+            ?: request.copy(
+                status = JoinRequestStatus.APPROVED,
+                decidedAt = TimeUtils.now(),
+                decidedByUserId = decidedByUserId
+            )
+        sessionRealtimeSync.publishFacilitatorApproved(updatedRequest, decidedByUserId)
         return true
     }
 
@@ -501,18 +520,39 @@ class SessionRepository(
         check(session.hostUserId == decidedByUserId) {
             "Only the session host may decline facilitator requests."
         }
-        return sessionJoinRequestDao.declineRequest(
+        val declined = sessionJoinRequestDao.declineRequest(
             requestId = requestId,
             decidedByUserId = decidedByUserId,
             decidedAt = TimeUtils.now()
         ) > 0
+        if (declined) {
+            val updatedRequest = sessionJoinRequestDao.getRequestById(requestId)
+                ?: request.copy(
+                    status = JoinRequestStatus.DECLINED,
+                    decidedAt = TimeUtils.now(),
+                    decidedByUserId = decidedByUserId
+                )
+            sessionRealtimeSync.publishFacilitatorDeclined(updatedRequest, decidedByUserId)
+        }
+        return declined
     }
 
     suspend fun cancelJoinRequest(requestId: String): Boolean {
-        return sessionJoinRequestDao.cancelRequest(
+        val request = sessionJoinRequestDao.getRequestById(requestId)
+            ?: return false
+        val cancelled = sessionJoinRequestDao.cancelRequest(
             requestId = requestId,
             decidedAt = TimeUtils.now()
         ) > 0
+        if (cancelled) {
+            val updatedRequest = sessionJoinRequestDao.getRequestById(requestId)
+                ?: request.copy(
+                    status = JoinRequestStatus.CANCELLED,
+                    decidedAt = TimeUtils.now()
+                )
+            sessionRealtimeSync.publishFacilitatorCancelled(updatedRequest, request.userId)
+        }
+        return cancelled
     }
 
     suspend fun activateApprovedFacilitatorRequest(
@@ -564,6 +604,9 @@ class SessionRepository(
 
     suspend fun endSession(sessionId: String) {
         sessionDao.markSessionEnded(sessionId)
+        val session = sessionDao.getSession(sessionId) ?: return
+        val actorUserId = session.hostUserId ?: return
+        sessionRealtimeSync.publishSessionEnded(session, actorUserId)
     }
 
     suspend fun seedDemoParticipants(sessionId: String) {

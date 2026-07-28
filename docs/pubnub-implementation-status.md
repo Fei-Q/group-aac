@@ -255,3 +255,38 @@ Status: complete
 
 - The reliability layer is now persisted locally, but repositories are not yet publishing through it; stage 7 wires the session flows onto these primitives.
 - Display-command freshness is currently enforced through PubNub timetoken ordering, which matches the implementation plan's received-order metadata requirement.
+
+## Stage 7 - Session synchronization
+
+Status: complete
+
+### Implemented
+
+- Extended [`SessionRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/SessionRealtimeClient.kt) with generic canonical-event publishing and per-channel observation while preserving the existing Pi-oriented calls used by the current app flow.
+- Upgraded [`FakeSessionRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/FakeSessionRealtimeClient.kt) into an in-memory realtime bus that records published canonical events with synthetic timetokens for unit verification.
+- Added a repository-facing synchronization boundary in [`SessionRealtimeSync`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/SessionRealtimeSync.kt), plus a safe no-op default to preserve local behavior when realtime is unavailable.
+- Added canonical session/message payload DTOs and snapshot payload support in [`RealtimePayloads`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/RealtimePayloads.kt).
+- Added [`DefaultSessionRealtimeSync`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSync.kt) to:
+  - publish session lifecycle, membership, facilitator request/decision, message, and targeted snapshot events to the required channels
+  - enqueue and mark outbox events through the stage-6 reliability store
+  - apply incoming canonical events back into Room with processed-event deduplication and channel-cursor updates
+- Wired repositories to publish canonical events after their local-first writes:
+  - [`SessionRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt)
+  - [`MessageRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/MessageRepository.kt)
+- Added synchronization unit coverage in [`DefaultSessionRealtimeSyncTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSyncTest.kt).
+
+### Verification
+
+- `./gradlew :app:assembleDebug`
+  - Failed first because the new sync layer used helper names that did not match the existing `RealtimeChannels` and `RealtimeEventCodec` APIs.
+  - Failed second because the Kotlin serialization plugin had not yet been declared in the root Gradle plugin block for this project.
+  - Passed on Tuesday, July 28, 2026, after aligning the sync layer with the repo’s actual protocol helpers and registering the serialization plugin.
+- `./gradlew :app:testDebugUnitTest`
+  - Failed first because [`RecordingRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/RecordingRealtimeClient.kt) still implemented the older realtime-client surface.
+  - Failed second because the initial outbox assertion checked the retry queue rather than the persisted sent event.
+  - Passed on Tuesday, July 28, 2026, after updating the test double and asserting against the stored sent outbox row.
+
+### Notes
+
+- Local Room behavior remains the UI source of truth and still works when realtime synchronization is a no-op.
+- Live subscription collectors and reconnect replay orchestration are still intentionally thin at this stage; the new sync service provides the publish/apply foundation that stages 8 and 9 now build on.
