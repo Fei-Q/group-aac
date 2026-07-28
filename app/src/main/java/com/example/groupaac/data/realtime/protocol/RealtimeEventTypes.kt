@@ -1,0 +1,58 @@
+package com.example.groupaac.data.realtime.protocol
+
+object RealtimeEventTypes {
+    const val SESSION_STARTED = "session.started"
+    const val SESSION_UPDATED = "session.updated"
+    const val SESSION_ENDED = "session.ended"
+    const val SESSION_CANCELLED = "session.cancelled"
+    const val SESSION_SETTINGS_CHANGED = "session.settings_changed"
+    const val SESSION_SNAPSHOT_REQUESTED = "session.snapshot_requested"
+    const val SESSION_SNAPSHOT = "session.snapshot"
+
+    const val MEMBER_JOINED = "member.joined"
+    const val MEMBER_LEFT = "member.left"
+    const val MEMBER_REMOVED = "member.removed"
+    const val MEMBER_DISPLAY_NAME_CHANGED = "member.display_name_changed"
+    const val MEMBER_ROLE_CHANGED = "member.role_changed"
+
+    const val FACILITATOR_REQUESTED = "facilitator.requested"
+    const val FACILITATOR_APPROVED = "facilitator.approved"
+    const val FACILITATOR_DECLINED = "facilitator.declined"
+    const val FACILITATOR_CANCELLED = "facilitator.cancelled"
+    const val HOST_TRANSFERRED = "host.transferred"
+
+    const val MESSAGE_CREATED = "message.created"
+    const val MESSAGE_DELETED = "message.deleted"
+    const val ATTACHMENT_AVAILABLE = "attachment.available"
+    const val ATTACHMENT_FAILED = "attachment.failed"
+    const val ANNOUNCEMENT_CREATED = "announcement.created"
+
+    const val AAC_SIGNAL_CREATED = "aac.signal.created"
+    const val AAC_SIGNAL_SNOOZED = "aac.signal.snoozed"
+    const val AAC_SIGNAL_CLEARED = "aac.signal.cleared"
+
+    const val DISPLAY_BIND_SESSION = "display.bind_session"
+    const val DISPLAY_UNBIND_SESSION = "display.unbind_session"
+    const val DISPLAY_SHOW_MESSAGE = "display.show_message"
+    const val DISPLAY_RESTORE_MESSAGE = "display.restore_message"
+    const val DISPLAY_CLEAR = "display.clear"
+    const val DISPLAY_PIN_MESSAGE = "display.pin_message"
+    const val DISPLAY_UNPIN_MESSAGE = "display.unpin_message"
+    const val DISPLAY_SHOW_ATTACHMENT = "display.show_attachment"
+    const val DISPLAY_SHOW_ANNOUNCEMENT = "display.show_announcement"
+    const val DISPLAY_PLAY_SOUND = "display.play_sound"
+    const val DISPLAY_MODE_CHANGED = "display.mode_changed"
+    const val DISPLAY_SET_PARTICIPANT_LIST = "display.set_participant_list"
+    const val DISPLAY_SET_THEME = "display.set_theme"
+
+    const val DISPLAY_CONNECTED = "display.connected"
+    const val DISPLAY_DISCONNECTED = "display.disconnected"
+    const val DISPLAY_RENDERED = "display.rendered"
+    const val DISPLAY_RESTORED = "display.restored"
+    const val DISPLAY_CLEARED = "display.cleared"
+    const val DISPLAY_PINNED = "display.pinned"
+    const val DISPLAY_UNPINNED = "display.unpinned"
+    const val DISPLAY_FAILED = "display.failed"
+    const val DISPLAY_STATE = "display.state"
+    const val DISPLAY_CAPABILITIES = "display.capabilities"
+}

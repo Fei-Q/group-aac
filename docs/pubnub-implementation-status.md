@@ -178,3 +178,41 @@ Status: complete
 
 - Repositories still speak through the legacy `PiClient` method surface, but that client is now explicitly marked deprecated and is backed by the new lifecycle-managed realtime boundary.
 - The transport implementation is still fake/local at this stage by design; actual PubNub event publishing/subscription begins in the next stages.
+
+## Stage 5 - Realtime protocol
+
+Status: complete
+
+### Implemented
+
+- Added channel helper functions in [`RealtimeChannels`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/protocol/RealtimeChannels.kt) for:
+  - `session.<sessionId>.public`
+  - `session.<sessionId>.facilitator`
+  - `session.<sessionId>.<userId>`
+  - `session.<sessionId>.display`
+  - `session.<sessionId>.display.events`
+  - `display.<displayId>.control`
+- Added canonical protocol models in [`RealtimeEvent`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/protocol/RealtimeEvent.kt):
+  - `RealtimeEvent`
+  - `ReceivedRealtimeEvent`
+- Added allowed event-type constants in [`RealtimeEventTypes`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/protocol/RealtimeEventTypes.kt).
+- Added manual serializer/parser support in [`RealtimeEventCodec`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/protocol/RealtimeEventCodec.kt) using `JsonObject` payloads and omission of nullable fields when absent.
+- Added channel routing in [`RealtimeEventRouter`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/protocol/RealtimeEventRouter.kt).
+- Added protocol tests in [`RealtimeProtocolTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/protocol/RealtimeProtocolTest.kt) covering:
+  - channel helper output
+  - serializer/parser round-trip
+  - omission of null transport fields
+  - preservation of `inReplyToEventId` and `expiresAt`
+  - supported/unsupported channel routing
+
+### Verification
+
+- `./gradlew :app:assembleDebug`
+  - Passed on Tuesday, July 28, 2026.
+- `./gradlew :app:testDebugUnitTest`
+  - Passed on Tuesday, July 28, 2026.
+
+### Notes
+
+- The protocol layer intentionally does not introduce `schemaVersion`, app-generated sequence numbers, `message.edited`, `message.received`, `aac.signal.updated`, `aac.signal.resolved`, or `display.take_down`.
+- Timetoken ordering metadata is represented through `ReceivedRealtimeEvent`; actual cursor/deduplication logic follows in stage 6.
