@@ -222,7 +222,7 @@ private fun SocialRow(
 }
 
 private fun previewUser() = UserEntity(
-    id = "u1",
+    uid = "u1",
     displayName = "Alice",
     createdAt = 0
 )

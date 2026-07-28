@@ -115,9 +115,9 @@ fun ShareScreen(
     val isCompactHeight = configuration.screenHeightDp < 480
     val useWideLayout = windowSize != AppWindowSize.Phone && !isCompactHeight
 
-    val sharedMessages = remember(uiState.messages, uiState.user?.id) {
+    val sharedMessages = remember(uiState.messages, uiState.user?.uid) {
         uiState.messages.filter {
-            it.message.senderUserId == uiState.user?.id &&
+            it.message.senderUserId == uiState.user?.uid &&
                     it.message.status != MessageStatus.DRAFT &&
                     it.message.status != MessageStatus.DELETED
         }
@@ -230,11 +230,11 @@ private fun ShareScreenCompact(
             onDeleteDraft = onDeleteDraft
         )
 
-        RecentMessagesCard(
-            sharedMessages = sharedMessages,
-            currentUserId = uiState.user?.id
-        )
-    }
+            RecentMessagesCard(
+                sharedMessages = sharedMessages,
+                currentUserId = uiState.user?.uid
+            )
+        }
 }
 
 @Composable
@@ -293,7 +293,7 @@ private fun ShareScreenWide(
 
             RecentMessagesCard(
                 sharedMessages = sharedMessages,
-                currentUserId = uiState.user?.id,
+                currentUserId = uiState.user?.uid,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -1316,7 +1316,7 @@ private fun previewShareUiState(): ParticipantUiState {
 
     return ParticipantUiState(
         user = UserEntity(
-            id = currentUserId,
+            uid = currentUserId,
             displayName = "Alice",
             createdAt = 0
         ),

@@ -69,7 +69,7 @@ class SessionCoordinatorViewModel(
                     )
 
                     if (user != null) {
-                        observeActiveSession(user.id)
+                        observeActiveSession(user.uid)
                     }
                 }
         }
@@ -121,14 +121,14 @@ class SessionCoordinatorViewModel(
             runCatching {
                 if (rememberProfile) {
                     accountRepository.updateDisplayName(
-                        userId = user.id,
+                        userId = user.uid,
                         displayName = displayName
                     )
                 }
 
                 sessionRepository.joinSession(
                     joinCode = code,
-                    userId = user.id,
+                    userId = user.uid,
                     displayName = displayName,
                     requestedRole = sessionRole
                 )
@@ -151,7 +151,7 @@ class SessionCoordinatorViewModel(
                             ?.name
                             ?: "Group Meeting"
                         observeJoinRequest(
-                            userId = user.id,
+                            userId = user.uid,
                             requestId = request.id
                         )
                         _uiState.value = _uiState.value.copy(
@@ -283,7 +283,7 @@ class SessionCoordinatorViewModel(
             runCatching {
                 sessionRepository.createSessionNow(
                     name = name,
-                    ownerUserId = user.id,
+                    ownerUserId = user.uid,
                     displayName = displayName
                 )
             }.onSuccess { activeSession ->
@@ -315,7 +315,7 @@ class SessionCoordinatorViewModel(
             )
 
             runCatching {
-                sessionRepository.leaveSession(user.id)
+                sessionRepository.leaveSession(user.uid)
             }.onSuccess {
                 _uiState.value = _uiState.value.copy(
                     connectionState =

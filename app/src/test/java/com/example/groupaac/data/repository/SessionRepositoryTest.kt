@@ -38,24 +38,24 @@ class SessionRepositoryTest {
 
         val activeSession = fixture.repository.createSessionNow(
             name = "Live Planning",
-            ownerUserId = fixture.host.id,
+            ownerUserId = fixture.host.uid,
             displayName = fixture.host.displayName
         )
 
         assertEquals(SessionRole.HOST, activeSession.role)
         assertEquals(
             activeSession.sessionId,
-            fixture.activeSessionStore.activeSessions[fixture.host.id]
+            fixture.activeSessionStore.activeSessions[fixture.host.uid]
         )
 
         val createdSession = fixture.sessionDao.getSession(activeSession.sessionId)
         assertNotNull(createdSession)
         assertNotNull(createdSession?.actualStartedAt)
-        assertEquals(fixture.host.id, createdSession?.hostUserId)
+        assertEquals(fixture.host.uid, createdSession?.hostUserId)
 
         val hostMember = fixture.sessionDao.getMember(
             activeSession.sessionId,
-            fixture.host.id
+            fixture.host.uid
         )
         assertNotNull(hostMember)
         assertEquals(SessionRole.HOST, hostMember?.role)
@@ -67,20 +67,20 @@ class SessionRepositoryTest {
 
         val scheduledSession = fixture.repository.scheduleSession(
             name = "Tuesday Support Group",
-            ownerUserId = fixture.host.id,
+            ownerUserId = fixture.host.uid,
             scheduledStartAt = 5_000L,
             scheduledDurationMinutes = 60
         )
 
-        assertNull(fixture.activeSessionStore.activeSessions[fixture.host.id])
+        assertNull(fixture.activeSessionStore.activeSessions[fixture.host.uid])
         assertNull(scheduledSession.actualStartedAt)
         assertEquals(5_000L, scheduledSession.scheduledStartAt)
         assertEquals(60, scheduledSession.scheduledDurationMinutes)
-        assertEquals(fixture.host.id, scheduledSession.hostUserId)
+        assertEquals(fixture.host.uid, scheduledSession.hostUserId)
         assertNotNull(
             fixture.sessionDao.getMember(
                 scheduledSession.id,
-                fixture.host.id
+                fixture.host.uid
             )
         )
     }
@@ -90,7 +90,7 @@ class SessionRepositoryTest {
         val fixture = sessionFixture()
         val scheduledSession = fixture.repository.scheduleSession(
             name = "Wednesday Check-in",
-            ownerUserId = fixture.host.id,
+            ownerUserId = fixture.host.uid,
             scheduledStartAt = 7_000L,
             scheduledDurationMinutes = 45
         )
@@ -98,7 +98,7 @@ class SessionRepositoryTest {
         try {
             fixture.repository.startScheduledSession(
                 sessionId = scheduledSession.id,
-                ownerUserId = fixture.participant.id
+                ownerUserId = fixture.participant.uid
             )
             fail("Expected only the host to be able to start the session.")
         } catch (_: IllegalStateException) {
@@ -112,7 +112,7 @@ class SessionRepositoryTest {
 
         val result = fixture.repository.joinSession(
             joinCode = fixture.session.joinCode,
-            userId = fixture.participant.id,
+            userId = fixture.participant.uid,
             displayName = fixture.participant.displayName,
             requestedRole = SessionRole.PARTICIPANT
         )
@@ -122,12 +122,12 @@ class SessionRepositoryTest {
         assertEquals(SessionRole.PARTICIPANT, joined.activeSession.role)
         assertEquals(
             fixture.session.id,
-            fixture.activeSessionStore.activeSessions[fixture.participant.id]
+            fixture.activeSessionStore.activeSessions[fixture.participant.uid]
         )
         assertNotNull(
             fixture.sessionDao.getMember(
                 fixture.session.id,
-                fixture.participant.id
+                fixture.participant.uid
             )
         )
         assertTrue(fixture.joinRequestDao.requests.isEmpty())
@@ -139,13 +139,13 @@ class SessionRepositoryTest {
 
         val first = fixture.repository.joinSession(
             joinCode = fixture.session.joinCode,
-            userId = fixture.facilitator.id,
+            userId = fixture.facilitator.uid,
             displayName = fixture.facilitator.displayName,
             requestedRole = SessionRole.FACILITATOR
         )
         val second = fixture.repository.joinSession(
             joinCode = fixture.session.joinCode,
-            userId = fixture.facilitator.id,
+            userId = fixture.facilitator.uid,
             displayName = fixture.facilitator.displayName,
             requestedRole = SessionRole.FACILITATOR
         )
@@ -159,11 +159,11 @@ class SessionRepositoryTest {
         assertNull(
             fixture.sessionDao.getMember(
                 fixture.session.id,
-                fixture.facilitator.id
+                fixture.facilitator.uid
             )
         )
         assertNull(
-            fixture.activeSessionStore.activeSessions[fixture.facilitator.id]
+            fixture.activeSessionStore.activeSessions[fixture.facilitator.uid]
         )
     }
 
@@ -172,7 +172,7 @@ class SessionRepositoryTest {
         val fixture = sessionFixture()
         val pending = fixture.repository.joinSession(
             joinCode = fixture.session.joinCode,
-            userId = fixture.facilitator.id,
+            userId = fixture.facilitator.uid,
             displayName = fixture.facilitator.displayName,
             requestedRole = SessionRole.FACILITATOR
         ) as JoinSessionResult.AwaitingApproval
@@ -181,7 +181,7 @@ class SessionRepositoryTest {
         try {
             fixture.repository.approveJoinRequest(
                 requestId = pending.request.id,
-                decidedByUserId = fixture.participant.id
+                decidedByUserId = fixture.participant.uid
             )
         } catch (_: IllegalStateException) {
             threw = true
@@ -192,7 +192,7 @@ class SessionRepositoryTest {
         assertNull(
             fixture.sessionDao.getMember(
                 fixture.session.id,
-                fixture.facilitator.id
+                fixture.facilitator.uid
             )
         )
     }
@@ -202,20 +202,20 @@ class SessionRepositoryTest {
         val fixture = sessionFixture()
         val pending = fixture.repository.joinSession(
             joinCode = fixture.session.joinCode,
-            userId = fixture.facilitator.id,
+            userId = fixture.facilitator.uid,
             displayName = fixture.facilitator.displayName,
             requestedRole = SessionRole.FACILITATOR
         ) as JoinSessionResult.AwaitingApproval
 
         val approved = fixture.repository.approveJoinRequest(
             requestId = pending.request.id,
-            decidedByUserId = fixture.host.id
+            decidedByUserId = fixture.host.uid
         )
 
         assertTrue(approved)
         val member = fixture.sessionDao.getMember(
             fixture.session.id,
-            fixture.facilitator.id
+            fixture.facilitator.uid
         )
         assertNotNull(member)
         assertEquals(SessionRole.FACILITATOR, member?.role)
@@ -230,21 +230,21 @@ class SessionRepositoryTest {
         val fixture = sessionFixture()
         val pending = fixture.repository.joinSession(
             joinCode = fixture.session.joinCode,
-            userId = fixture.facilitator.id,
+            userId = fixture.facilitator.uid,
             displayName = fixture.facilitator.displayName,
             requestedRole = SessionRole.FACILITATOR
         ) as JoinSessionResult.AwaitingApproval
 
         val declined = fixture.repository.declineJoinRequest(
             requestId = pending.request.id,
-            decidedByUserId = fixture.host.id
+            decidedByUserId = fixture.host.uid
         )
 
         assertTrue(declined)
         assertNull(
             fixture.sessionDao.getMember(
                 fixture.session.id,
-                fixture.facilitator.id
+                fixture.facilitator.uid
             )
         )
         assertEquals(
@@ -261,17 +261,17 @@ class SessionRepositoryTest {
         val piClient = RecordingPiClient()
 
         val host = UserEntity(
-            id = "host_1",
+            uid = "host_1",
             displayName = "Host",
             createdAt = 1L
         )
         val participant = UserEntity(
-            id = "participant_1",
+            uid = "participant_1",
             displayName = "Participant",
             createdAt = 2L
         )
         val facilitator = UserEntity(
-            id = "facilitator_1",
+            uid = "facilitator_1",
             displayName = "Facilitator",
             createdAt = 3L
         )
@@ -281,7 +281,7 @@ class SessionRepositoryTest {
             id = "session-1",
             name = "Friday Group",
             joinCode = "1234-5678",
-            hostUserId = host.id,
+            hostUserId = host.uid,
             createdAt = 10L,
             actualStartedAt = 10L
         )
@@ -289,7 +289,7 @@ class SessionRepositoryTest {
         sessionDao.seedMember(
             SessionMemberEntity(
                 sessionId = session.id,
-                userId = host.id,
+                userId = host.uid,
                 displayName = host.displayName,
                 role = SessionRole.HOST,
                 joinedAt = 10L
@@ -637,7 +637,7 @@ private class FakeUserDao : UserDao {
 
     fun seed(vararg seededUsers: UserEntity) {
         seededUsers.forEach { user ->
-            users[user.id] = user
+            users[user.uid] = user
         }
     }
 
@@ -650,12 +650,12 @@ private class FakeUserDao : UserDao {
     override suspend fun getUser(uid: String): UserEntity? = users[uid]
 
     override suspend fun upsertUser(user: UserEntity) {
-        users[user.id] = user
+        users[user.uid] = user
     }
 
     override suspend fun insertUser(user: UserEntity) {
-        check(users[user.id] == null) { "Duplicate user ${user.id}" }
-        users[user.id] = user
+        check(users[user.uid] == null) { "Duplicate user ${user.uid}" }
+        users[user.uid] = user
     }
 
     override fun observeSettings(userId: String): Flow<UserSettingsEntity?> =

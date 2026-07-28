@@ -166,7 +166,7 @@ class DebugRepository(
 
         userDao.upsertUser(
             UserEntity(
-                id = userId,
+                uid = userId,
                 displayName = displayName,
                 createdAt = existingUser?.createdAt ?: now
             )

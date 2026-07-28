@@ -41,14 +41,14 @@ class MessageRepositoryDisplayTest {
 
         database.userDao().upsertUser(
             UserEntity(
-                id = "host1",
+                uid = "host1",
                 displayName = "Host",
                 createdAt = 1L
             )
         )
         database.userDao().upsertUser(
             UserEntity(
-                id = "participant1",
+                uid = "participant1",
                 displayName = "Participant",
                 createdAt = 1L
             )

@@ -41,21 +41,21 @@ class SignalRepositoryTest {
 
         database.userDao().upsertUser(
             UserEntity(
-                id = "participant1",
+                uid = "participant1",
                 displayName = "Participant One",
                 createdAt = 1L
             )
         )
         database.userDao().upsertUser(
             UserEntity(
-                id = "facilitator1",
+                uid = "facilitator1",
                 displayName = "Facilitator One",
                 createdAt = 1L
             )
         )
         database.userDao().upsertUser(
             UserEntity(
-                id = "facilitator2",
+                uid = "facilitator2",
                 displayName = "Facilitator Two",
                 createdAt = 1L
             )

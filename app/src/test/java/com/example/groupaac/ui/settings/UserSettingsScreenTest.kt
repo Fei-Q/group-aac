@@ -156,7 +156,7 @@ class UserSettingsScreenTest {
     }
 
     private fun sampleUser() = UserEntity(
-        id = "user_1",
+        uid = "user_1",
         displayName = "Alice Baker",
         createdAt = 0L
     )

@@ -49,7 +49,7 @@ fun FacilitatorSessionsScreen(
     ) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var displayName by rememberSaveable(currentUser.id) {
+    var displayName by rememberSaveable(currentUser.uid) {
         mutableStateOf(currentUser.displayName)
     }
 
@@ -69,7 +69,7 @@ fun FacilitatorSessionsScreen(
         mutableStateOf<String?>(null)
     }
 
-    LaunchedEffect(currentUser.id, currentUser.displayName) {
+    LaunchedEffect(currentUser.uid, currentUser.displayName) {
         displayName = currentUser.displayName
     }
 
@@ -262,7 +262,7 @@ private fun SessionsHeader(
         )
 
         Text(
-            text = "Signed in as ${currentUser.displayName} • @${currentUser.id}",
+            text = "Signed in as ${currentUser.displayName} • @${currentUser.uid}",
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium
         )

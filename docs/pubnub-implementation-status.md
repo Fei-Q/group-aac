@@ -457,3 +457,55 @@ Status: complete
 5. Send a facilitator/private message and confirm it does not auto-display.
 6. Use Show, Restore, Pin/Unpin, and Clear in the facilitator log screen and confirm Room display state updates locally.
 7. Send an AAC signal from a participant and confirm one facilitator can snooze it without hiding it from another facilitator account.
+
+## Live Realtime Stage 1 - Baseline, schema cleanup, and test infrastructure
+
+Status: complete
+
+Date: 2026-07-28
+Branch: `feature/pubnub-live-integration`
+Base branch: `feature/pubnub-realtime-foundation`
+
+### Implemented
+
+- Renamed the Kotlin account primary-key property from `UserEntity.id` to `UserEntity.uid` and updated active usage across repositories, ViewModels, navigation flows, settings screens, previews, and unit tests.
+- Added shared UID handling in [`UserIdValidator`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/account/UserIdValidator.kt) for:
+  - normalization
+  - input sanitization
+  - regex validation against `^[a-z0-9][a-z0-9_]{2,23}$`
+- Replaced the pipe-delimited create-account callback with a typed callback carrying:
+  - `uid`
+  - `displayName`
+  - `homeExperience`
+- Tightened create-account UX in [`CreateAccountScreen`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/account/CreateAccountScreen.kt):
+  - unsupported characters are ignored
+  - UID input is capped at 24 characters
+  - inline validation feedback is shown
+  - Create is enabled only when UID and display name are valid
+  - success consumption now happens from a `LaunchedEffect` instead of direct composition-time state mutation
+- Reset the disposable Room baseline in [`AppDatabase`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/AppDatabase.kt) to schema version `1` and limited destructive recreation to debug builds only.
+- Removed obsolete exported schema snapshots:
+  - `app/schemas/com.example.groupaac.data.AppDatabase/2.json`
+  - `app/schemas/com.example.groupaac.data.AppDatabase/3.json`
+- Regenerated the current exported baseline schema at [`app/schemas/com.example.groupaac.data.AppDatabase/1.json`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/schemas/com.example.groupaac.data.AppDatabase/1.json).
+- Added missing AndroidX instrumentation dependencies in [`app/build.gradle.kts`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/build.gradle.kts).
+- Added a connected smoke test in [`MainActivitySmokeTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/androidTest/java/com/example/groupaac/MainActivitySmokeTest.kt) that launches `MainActivity` through `ActivityScenario` and asserts the app renders a root content view.
+
+### Verification
+
+- Emulator
+  - Serial: `emulator-5554`
+  - Boot state on Tuesday, July 28, 2026: `1`
+- `./gradlew :app:assembleDebug`
+  - Passed on Tuesday, July 28, 2026.
+- `./gradlew :app:testDebugUnitTest`
+  - Passed on Tuesday, July 28, 2026.
+- `./gradlew :app:connectedDebugAndroidTest --stacktrace`
+  - Passed on Tuesday, July 28, 2026.
+  - Executed `1` test on `Resizable_Experimental(AVD) - 17`.
+
+### Notes
+
+- This Stage 1 cleanup supersedes the earlier transitional note that `UserEntity.id` remained in active Kotlin use on the prior branch.
+- App data should be cleared after checking out this branch because the disposable Room baseline was intentionally reset to version `1`.
+- Prior PubNub foundation and later realtime stages were left intact; only Stage 1 cleanup work for the live-integration branch was applied here.

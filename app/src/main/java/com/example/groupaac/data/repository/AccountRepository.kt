@@ -39,8 +39,8 @@ class AccountRepository(
             )
         )
         if (result is CreateAccountResult.Success) {
-            preferences.setActiveUser(result.user.id)
-            realtimeClientManager.activateUser(result.user.id)
+            preferences.setActiveUser(result.user.uid)
+            realtimeClientManager.activateUser(result.user.uid)
         }
         return result
     }

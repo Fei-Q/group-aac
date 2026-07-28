@@ -82,7 +82,7 @@ fun JoinSessionScreen(
     var codeDigits by rememberSaveable {
         mutableStateOf("")
     }
-    var displayName by rememberSaveable(currentUser.id) {
+    var displayName by rememberSaveable(currentUser.uid) {
         mutableStateOf(currentUser.displayName)
     }
     var selectedRole by rememberSaveable {
@@ -92,7 +92,7 @@ fun JoinSessionScreen(
         mutableStateOf<String?>(null)
     }
 
-    LaunchedEffect(currentUser.id, currentUser.displayName) {
+    LaunchedEffect(currentUser.uid, currentUser.displayName) {
         displayName = currentUser.displayName
     }
 
@@ -674,7 +674,7 @@ private fun JoinSessionScreenTabletPreview() {
     GroupAacTheme {
         JoinSessionScreen(
             currentUser = UserEntity(
-                id = "alice",
+                uid = "alice",
                 displayName = "Alice",
                 createdAt = 0
             ),
@@ -695,7 +695,7 @@ private fun JoinSessionScreenPhonePreview() {
     GroupAacTheme {
         JoinSessionScreen(
             currentUser = UserEntity(
-                id = "alice",
+                uid = "alice",
                 displayName = "Alice",
                 createdAt = 0
             ),

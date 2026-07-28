@@ -23,6 +23,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,7 +36,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.groupaac.data.account.CreateAccountResult
+import com.example.groupaac.data.account.UserIdValidationResult
+import com.example.groupaac.data.account.UserIdValidator
 import com.example.groupaac.model.HomeExperience
+import com.example.groupaac.model.UserRole
 import com.example.groupaac.ui.common.AppCard
 import com.example.groupaac.ui.common.PrimaryButton
 import com.example.groupaac.ui.common.roleIconRes
@@ -44,13 +48,12 @@ import com.example.groupaac.ui.theme.AacBlue
 import com.example.groupaac.ui.theme.AacBorder
 import com.example.groupaac.ui.theme.AacTextSecondary
 import com.example.groupaac.ui.theme.GroupAacTheme
-import com.example.groupaac.model.UserRole
 
 @SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 fun CreateAccountScreen(
     onBack: () -> Unit,
-    onCreate: (String, HomeExperience) -> Unit,
+    onCreate: (uid: String, displayName: String, homeExperience: HomeExperience) -> Unit,
     createAccountResult: CreateAccountResult? = null,
     onConsumeCreateAccountResult: () -> Unit = {}
 ) {
@@ -58,6 +61,22 @@ fun CreateAccountScreen(
     var displayName by remember { mutableStateOf("") }
     var homeExperience by remember {
         mutableStateOf(HomeExperience.SIMPLE)
+    }
+    val normalizedUid = UserIdValidator.normalize(uid)
+    val uidValidation = UserIdValidator.validate(normalizedUid)
+    val displayNameError = if (displayName.trim().isBlank()) {
+        "Display name is required."
+    } else {
+        null
+    }
+    val canCreate =
+        uidValidation == UserIdValidationResult.Valid &&
+            displayNameError == null
+
+    LaunchedEffect(createAccountResult) {
+        if (createAccountResult is CreateAccountResult.Success) {
+            onConsumeCreateAccountResult()
+        }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(AacBackground).padding(24.dp)) {
@@ -77,14 +96,18 @@ fun CreateAccountScreen(
                     OutlinedTextField(
                         value = uid,
                         onValueChange = { input ->
-                            uid = input.lowercase().filter { char ->
-                                char.isLowerCase() || char.isDigit() || char == '_'
-                            }
+                            uid = UserIdValidator.sanitizeForInput(input)
                         },
                         label = { Text("UID") },
                         supportingText = {
-                            Text("3-24 chars, lowercase letters, digits, underscore.")
+                            val inlineValidation =
+                                uidValidation as? UserIdValidationResult.Invalid
+                            Text(
+                                inlineValidation?.message
+                                    ?: "3-24 chars, lowercase letters, digits, underscore."
+                            )
                         },
+                        isError = uid.isNotBlank() && uidValidation is UserIdValidationResult.Invalid,
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -92,6 +115,12 @@ fun CreateAccountScreen(
                         value = displayName,
                         onValueChange = { displayName = it },
                         label = { Text("Display name") },
+                        supportingText = {
+                            if (displayNameError != null) {
+                                Text(displayNameError)
+                            }
+                        },
+                        isError = displayName.isNotBlank() && displayNameError != null,
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -108,7 +137,7 @@ fun CreateAccountScreen(
                             text = result.message,
                             color = MaterialTheme.colorScheme.error
                         )
-                        is CreateAccountResult.Success -> onConsumeCreateAccountResult()
+                        is CreateAccountResult.Success -> Unit
                         null -> Unit
                     }
                     Text(
@@ -176,12 +205,12 @@ fun CreateAccountScreen(
                         text = "Create account",
                         onClick = {
                             onCreate(
-                                "${uid.trim()}|${displayName.trim()}",
+                                normalizedUid,
+                                displayName.trim(),
                                 homeExperience
                             )
                         },
-                        enabled = uid.trim().isNotEmpty() &&
-                            displayName.trim().isNotEmpty(),
+                        enabled = canCreate,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -256,7 +285,7 @@ fun CreateAccountScreenTabletPreview() {
     GroupAacTheme {
         CreateAccountScreen(
             onBack = {},
-            onCreate = { _, _ -> }
+            onCreate = { _, _, _ -> }
         )
     }
 }
@@ -267,7 +296,7 @@ fun CreateAccountScreenPhonePreview() {
     GroupAacTheme {
         CreateAccountScreen(
             onBack = {},
-            onCreate = { _, _ -> }
+            onCreate = { _, _, _ -> }
         )
     }
 }

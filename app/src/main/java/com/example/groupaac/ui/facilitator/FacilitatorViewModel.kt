@@ -62,13 +62,13 @@ class FacilitatorViewModel(
                         state.copy(
                             facilitator = user,
                             isHost =
-                                state.session?.hostUserId == user?.id
+                                state.session?.hostUserId == user?.uid
                         )
                     }
 
                     settingsObservationJob?.cancel()
                     if (user != null) {
-                        settingsObservationJob = observeSettings(user.id)
+                        settingsObservationJob = observeSettings(user.uid)
                     } else {
                         uiState.update { it.copy(settings = null) }
                     }
@@ -94,7 +94,7 @@ class FacilitatorViewModel(
                             session = session,
                             isHost =
                                 session?.hostUserId ==
-                                    state.facilitator?.id
+                                    state.facilitator?.uid
                         )
                     }
                 }
@@ -272,7 +272,7 @@ class FacilitatorViewModel(
     }
 
     fun toggleSnoozeParticipant(userId: String) {
-        val facilitatorId = uiState.value.facilitator?.id ?: return
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
         val signal = uiState.value.activeSignals
             .firstOrNull {
                 it.userId == userId &&
@@ -303,7 +303,7 @@ class FacilitatorViewModel(
             facilitatorRepository.addNote(
                 sessionId = sessionId,
                 participantUserId = participantUserId,
-                facilitatorUserId = facilitator.id,
+                facilitatorUserId = facilitator.uid,
                 text = text
             )
         }
@@ -318,7 +318,7 @@ class FacilitatorViewModel(
             facilitatorRepository.quickLog(
                 sessionId = sessionId,
                 participantUserId = participantUserId,
-                facilitatorUserId = facilitator.id,
+                facilitatorUserId = facilitator.uid,
                 label = label
             )
         }
@@ -329,7 +329,7 @@ class FacilitatorViewModel(
         viewModelScope.launch {
             sessionRepository.approveJoinRequest(
                 requestId = requestId,
-                decidedByUserId = facilitator.id
+                decidedByUserId = facilitator.uid
             )
         }
     }
@@ -339,7 +339,7 @@ class FacilitatorViewModel(
         viewModelScope.launch {
             sessionRepository.declineJoinRequest(
                 requestId = requestId,
-                decidedByUserId = facilitator.id
+                decidedByUserId = facilitator.uid
             )
         }
     }

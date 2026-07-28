@@ -144,7 +144,7 @@ private fun SavedUserList(users: List<UserEntity>, onUserSelected: (UserEntity) 
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(user.displayName, style = MaterialTheme.typography.titleMedium)
-                    Text("@${user.id}", color = AacTextSecondary)
+                    Text("@${user.uid}", color = AacTextSecondary)
                 }
                 SecondaryButton("Continue", onClick = { onUserSelected(user) })
             }

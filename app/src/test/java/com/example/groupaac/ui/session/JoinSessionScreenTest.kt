@@ -21,7 +21,7 @@ class JoinSessionScreenTest {
         composeRule.setContent {
             JoinSessionScreen(
                 currentUser = UserEntity(
-                    id = "user_1",
+                    uid = "user_1",
                     displayName = "Alice",
                     createdAt = 0L
                 ),

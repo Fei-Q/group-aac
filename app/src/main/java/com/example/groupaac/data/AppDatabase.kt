@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import com.example.groupaac.BuildConfig
 import com.example.groupaac.data.dao.FacilitatorDao
 import com.example.groupaac.data.dao.MessageDao
 import com.example.groupaac.data.dao.ReliabilityDao
@@ -46,7 +47,7 @@ import com.example.groupaac.data.entity.UserSettingsEntity
         FacilitatorNoteEntity::class,
         QuickLogEntity::class
     ],
-    version = 3,
+    version = 1,
     exportSchema = true
 )
 @TypeConverters(com.example.groupaac.data.TypeConverters::class)
@@ -60,12 +61,18 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun reliabilityDao(): ReliabilityDao
 
     companion object {
-        fun create(context: Context): AppDatabase = Room.databaseBuilder(
-            context.applicationContext,
-            AppDatabase::class.java,
-            "group_aac.db"
-        )
-            .fallbackToDestructiveMigration()
-            .build()
+        fun create(context: Context): AppDatabase {
+            val builder = Room.databaseBuilder(
+                context.applicationContext,
+                AppDatabase::class.java,
+                "group_aac.db"
+            )
+
+            if (BuildConfig.DEBUG) {
+                builder.fallbackToDestructiveMigration()
+            }
+
+            return builder.build()
+        }
     }
 }

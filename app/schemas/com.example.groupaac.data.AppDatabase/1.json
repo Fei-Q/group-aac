@@ -2,14 +2,14 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "6f1072e28f66c5edd44a173938f30e2a",
+    "identityHash": "697ca09c92c1a827af0f82ecdde02273",
     "entities": [
       {
         "tableName": "users",
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`uid` TEXT NOT NULL, `displayName` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`uid`))",
         "fields": [
           {
-            "fieldPath": "id",
+            "fieldPath": "uid",
             "columnName": "uid",
             "affinity": "TEXT",
             "notNull": true
@@ -36,7 +36,7 @@
       },
       {
         "tableName": "user_settings",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `defaultSessionName` TEXT NOT NULL, `homeExperience` TEXT NOT NULL, `calendarViewMode` TEXT NOT NULL, `textScale` REAL NOT NULL, `highContrastEnabled` INTEGER NOT NULL, `soundEnabled` INTEGER NOT NULL, `reduceMotionEnabled` INTEGER NOT NULL, `keepScreenAwake` INTEGER NOT NULL, `participantDefaultTab` TEXT NOT NULL, `participantReadAloudEnabled` INTEGER NOT NULL, `participantReadAloudVoice` TEXT NOT NULL, `participantReadAloudRate` REAL NOT NULL, `participantSaveDraftsAutomatically` INTEGER NOT NULL, `participantDefaultShareTarget` TEXT NOT NULL, `participantShowTypingStatus` INTEGER NOT NULL, `facilitatorDefaultTab` TEXT NOT NULL, `facilitatorShowLowParticipationAlerts` INTEGER NOT NULL, `facilitatorLowParticipationThresholdMinutes` INTEGER NOT NULL, `facilitatorShowHelpAlerts` INTEGER NOT NULL, `facilitatorShowRepeatAlerts` INTEGER NOT NULL, `facilitatorShowWaitingAlerts` INTEGER NOT NULL, `facilitatorDefaultSnoozeMinutes` INTEGER NOT NULL, `facilitatorAutoClearResolvedAlerts` INTEGER NOT NULL, `facilitatorQuickLogEnabled` INTEGER NOT NULL, `facilitatorAutoSaveNotes` INTEGER NOT NULL, `facilitatorShowPrivateMessagesInLog` INTEGER NOT NULL, `facilitatorIncludeResolvedSignalsInSummary` INTEGER NOT NULL, `monitorAutoDisplayGroupMessages` INTEGER NOT NULL, `monitorRequireManualApproval` INTEGER NOT NULL, `monitorPlaySoundOnNewMessage` INTEGER NOT NULL, `monitorClearOnSessionEnd` INTEGER NOT NULL, `monitorShowSenderName` INTEGER NOT NULL, `monitorShowTimestamp` INTEGER NOT NULL, `monitorDefaultDisplaySeconds` INTEGER NOT NULL, `saveSessionHistory` INTEGER NOT NULL, `saveFacilitatorNotes` INTEGER NOT NULL, `saveAttachmentMetadata` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`userId`), FOREIGN KEY(`userId`) REFERENCES `users`(`uid`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `defaultSessionName` TEXT NOT NULL, `homeExperience` TEXT NOT NULL, `calendarViewMode` TEXT NOT NULL, `textScale` REAL NOT NULL, `highContrastEnabled` INTEGER NOT NULL, `soundEnabled` INTEGER NOT NULL, `reduceMotionEnabled` INTEGER NOT NULL, `keepScreenAwake` INTEGER NOT NULL, `participantDefaultTab` TEXT NOT NULL, `participantReadAloudEnabled` INTEGER NOT NULL, `participantReadAloudVoice` TEXT NOT NULL, `participantReadAloudRate` REAL NOT NULL, `participantSaveDraftsAutomatically` INTEGER NOT NULL, `participantDefaultShareTarget` TEXT NOT NULL, `participantShowTypingStatus` INTEGER NOT NULL, `facilitatorDefaultTab` TEXT NOT NULL, `facilitatorShowLowParticipationAlerts` INTEGER NOT NULL, `facilitatorLowParticipationThresholdMinutes` INTEGER NOT NULL, `facilitatorShowHelpAlerts` INTEGER NOT NULL, `facilitatorShowRepeatAlerts` INTEGER NOT NULL, `facilitatorShowWaitingAlerts` INTEGER NOT NULL, `facilitatorDefaultSnoozeMinutes` INTEGER NOT NULL, `facilitatorQuickLogEnabled` INTEGER NOT NULL, `facilitatorAutoSaveNotes` INTEGER NOT NULL, `facilitatorShowPrivateMessagesInLog` INTEGER NOT NULL, `monitorAutoDisplayGroupMessages` INTEGER NOT NULL, `monitorRequireManualApproval` INTEGER NOT NULL, `monitorPlaySoundOnNewMessage` INTEGER NOT NULL, `monitorClearOnSessionEnd` INTEGER NOT NULL, `monitorShowSenderName` INTEGER NOT NULL, `monitorShowTimestamp` INTEGER NOT NULL, `monitorDefaultDisplaySeconds` INTEGER NOT NULL, `saveSessionHistory` INTEGER NOT NULL, `saveFacilitatorNotes` INTEGER NOT NULL, `saveAttachmentMetadata` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`userId`), FOREIGN KEY(`userId`) REFERENCES `users`(`uid`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "userId",
@@ -177,12 +177,6 @@
             "notNull": true
           },
           {
-            "fieldPath": "facilitatorAutoClearResolvedAlerts",
-            "columnName": "facilitatorAutoClearResolvedAlerts",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
             "fieldPath": "facilitatorQuickLogEnabled",
             "columnName": "facilitatorQuickLogEnabled",
             "affinity": "INTEGER",
@@ -197,12 +191,6 @@
           {
             "fieldPath": "facilitatorShowPrivateMessagesInLog",
             "columnName": "facilitatorShowPrivateMessagesInLog",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "facilitatorIncludeResolvedSignalsInSummary",
-            "columnName": "facilitatorIncludeResolvedSignalsInSummary",
             "affinity": "INTEGER",
             "notNull": true
           },
@@ -583,7 +571,7 @@
       },
       {
         "tableName": "status_signals",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sessionId` TEXT NOT NULL, `userId` TEXT NOT NULL, `type` TEXT NOT NULL, `state` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `resolvedAt` INTEGER, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sessionId` TEXT NOT NULL, `userId` TEXT NOT NULL, `type` TEXT NOT NULL, `state` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `clearedAt` INTEGER, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -622,8 +610,8 @@
             "notNull": true
           },
           {
-            "fieldPath": "resolvedAt",
-            "columnName": "resolvedAt",
+            "fieldPath": "clearedAt",
+            "columnName": "clearedAt",
             "affinity": "INTEGER"
           }
         ],
@@ -631,6 +619,255 @@
           "autoGenerate": false,
           "columnNames": [
             "id"
+          ]
+        }
+      },
+      {
+        "tableName": "signal_snoozes",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`signalId` TEXT NOT NULL, `facilitatorUserId` TEXT NOT NULL, `snoozedUntil` INTEGER, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`signalId`, `facilitatorUserId`))",
+        "fields": [
+          {
+            "fieldPath": "signalId",
+            "columnName": "signalId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "facilitatorUserId",
+            "columnName": "facilitatorUserId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "snoozedUntil",
+            "columnName": "snoozedUntil",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "signalId",
+            "facilitatorUserId"
+          ]
+        }
+      },
+      {
+        "tableName": "outbox_events",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`eventId` TEXT NOT NULL, `actorUserId` TEXT, `sessionId` TEXT NOT NULL, `channel` TEXT NOT NULL, `serializedEvent` TEXT NOT NULL, `attemptCount` INTEGER NOT NULL, `nextAttemptAt` INTEGER NOT NULL, `state` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `acceptedTimetoken` INTEGER, `expiresAt` INTEGER, PRIMARY KEY(`eventId`))",
+        "fields": [
+          {
+            "fieldPath": "eventId",
+            "columnName": "eventId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actorUserId",
+            "columnName": "actorUserId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sessionId",
+            "columnName": "sessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "channel",
+            "columnName": "channel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "serializedEvent",
+            "columnName": "serializedEvent",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "attemptCount",
+            "columnName": "attemptCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextAttemptAt",
+            "columnName": "nextAttemptAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "state",
+            "columnName": "state",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "acceptedTimetoken",
+            "columnName": "acceptedTimetoken",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "expiresAt",
+            "columnName": "expiresAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "eventId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_outbox_events_state_nextAttemptAt",
+            "unique": false,
+            "columnNames": [
+              "state",
+              "nextAttemptAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_outbox_events_state_nextAttemptAt` ON `${TABLE_NAME}` (`state`, `nextAttemptAt`)"
+          },
+          {
+            "name": "index_outbox_events_sessionId",
+            "unique": false,
+            "columnNames": [
+              "sessionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_outbox_events_sessionId` ON `${TABLE_NAME}` (`sessionId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "processed_events",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`eventId` TEXT NOT NULL, `channel` TEXT NOT NULL, `timetoken` INTEGER NOT NULL, `processedAt` INTEGER NOT NULL, PRIMARY KEY(`eventId`))",
+        "fields": [
+          {
+            "fieldPath": "eventId",
+            "columnName": "eventId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "channel",
+            "columnName": "channel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timetoken",
+            "columnName": "timetoken",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "processedAt",
+            "columnName": "processedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "eventId"
+          ]
+        }
+      },
+      {
+        "tableName": "channel_cursors",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`channel` TEXT NOT NULL, `lastProcessedTimetoken` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`channel`))",
+        "fields": [
+          {
+            "fieldPath": "channel",
+            "columnName": "channel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastProcessedTimetoken",
+            "columnName": "lastProcessedTimetoken",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "channel"
+          ]
+        }
+      },
+      {
+        "tableName": "display_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sessionId` TEXT NOT NULL, `currentMessageId` TEXT, `isPinned` INTEGER NOT NULL, `displayMode` TEXT NOT NULL, `lastAppliedCommandTimetoken` INTEGER, `lastAppliedCommandEventId` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`sessionId`))",
+        "fields": [
+          {
+            "fieldPath": "sessionId",
+            "columnName": "sessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentMessageId",
+            "columnName": "currentMessageId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isPinned",
+            "columnName": "isPinned",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayMode",
+            "columnName": "displayMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastAppliedCommandTimetoken",
+            "columnName": "lastAppliedCommandTimetoken",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastAppliedCommandEventId",
+            "columnName": "lastAppliedCommandEventId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "sessionId"
           ]
         }
       },
@@ -820,7 +1057,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '6f1072e28f66c5edd44a173938f30e2a')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '697ca09c92c1a827af0f82ecdde02273')"
     ]
   }
 }

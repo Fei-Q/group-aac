@@ -118,35 +118,35 @@ fun OutsideSessionNavGraph(
     val coroutineScope = rememberCoroutineScope()
 
     val profileViewModel: ProfileViewModel = viewModel(
-        key = "outside-profile-${currentUser.id}",
+        key = "outside-profile-${currentUser.uid}",
         factory = ProfileViewModelFactory(
-            userId = currentUser.id,
+            userId = currentUser.uid,
             accountRepository = container.accountRepository,
             settingsRepository = container.settingsRepository
         )
     )
 
     val profileUiState by profileViewModel.uiState.collectAsStateWithLifecycle()
-    val settings = profileUiState.settings ?: UserSettingsEntity(userId = currentUser.id)
+    val settings = profileUiState.settings ?: UserSettingsEntity(userId = currentUser.uid)
     val userForActions = profileUiState.user ?: currentUser
 
-    val upcomingSessionsFlow = remember(homeExperience, currentUser.id) {
+    val upcomingSessionsFlow = remember(homeExperience, currentUser.uid) {
         if (homeExperience == HomeExperience.ADVANCED) {
-            container.sessionRepository.observeUpcomingHostedSessions(currentUser.id)
+            container.sessionRepository.observeUpcomingHostedSessions(currentUser.uid)
         } else {
             flowOf(emptyList())
         }
     }
-    val liveSessionsFlow = remember(homeExperience, currentUser.id) {
+    val liveSessionsFlow = remember(homeExperience, currentUser.uid) {
         if (homeExperience == HomeExperience.ADVANCED) {
-            container.sessionRepository.observeLiveHostedSessions(currentUser.id)
+            container.sessionRepository.observeLiveHostedSessions(currentUser.uid)
         } else {
             flowOf(emptyList())
         }
     }
-    val pastSessionsFlow = remember(homeExperience, currentUser.id) {
+    val pastSessionsFlow = remember(homeExperience, currentUser.uid) {
         if (homeExperience == HomeExperience.ADVANCED) {
-            container.sessionRepository.observePastHostedSessions(currentUser.id)
+            container.sessionRepository.observePastHostedSessions(currentUser.uid)
         } else {
             flowOf(emptyList())
         }
@@ -264,7 +264,7 @@ fun OutsideSessionNavGraph(
                                         runCatching {
                                             container.sessionRepository.openHostedSession(
                                                 sessionId = session.id,
-                                                ownerUserId = currentUser.id
+                                                ownerUserId = currentUser.uid
                                             )
                                         }.onFailure { error ->
                                             managementError =
@@ -278,7 +278,7 @@ fun OutsideSessionNavGraph(
                                         runCatching {
                                             container.sessionRepository.startScheduledSession(
                                                 sessionId = session.id,
-                                                ownerUserId = currentUser.id
+                                                ownerUserId = currentUser.uid
                                             )
                                         }.onFailure { error ->
                                             managementError =
@@ -333,7 +333,7 @@ fun OutsideSessionNavGraph(
                             runCatching {
                                 container.sessionRepository.startScheduledSession(
                                     sessionId = session.id,
-                                    ownerUserId = currentUser.id
+                                    ownerUserId = currentUser.uid
                                 )
                             }.onFailure { error ->
                                 managementError =
@@ -351,7 +351,7 @@ fun OutsideSessionNavGraph(
                             runCatching {
                                 container.sessionRepository.cancelScheduledSession(
                                     sessionId = session.id,
-                                    ownerUserId = currentUser.id
+                                    ownerUserId = currentUser.uid
                                 )
                             }.onFailure { error ->
                                 managementError =
@@ -365,7 +365,7 @@ fun OutsideSessionNavGraph(
                             runCatching {
                                 container.sessionRepository.openHostedSession(
                                     sessionId = session.id,
-                                    ownerUserId = currentUser.id
+                                    ownerUserId = currentUser.uid
                                 )
                             }.onFailure { error ->
                                 managementError =
@@ -396,14 +396,14 @@ fun OutsideSessionNavGraph(
                                 if (sessionId == null) {
                                     container.sessionRepository.scheduleSession(
                                         name = sessionName,
-                                        ownerUserId = currentUser.id,
+                                        ownerUserId = currentUser.uid,
                                         scheduledStartAt = scheduledStartAt,
                                         scheduledDurationMinutes = durationMinutes
                                     )
                                 } else {
                                     container.sessionRepository.updateScheduledSession(
                                         sessionId = sessionId,
-                                        ownerUserId = currentUser.id,
+                                        ownerUserId = currentUser.uid,
                                         name = sessionName,
                                         scheduledStartAt = scheduledStartAt,
                                         scheduledDurationMinutes = durationMinutes

@@ -73,7 +73,7 @@ fun AppNavGraph(
                     LoginScreen(
                         uiState = accountState,
                         onUserSelected = { user ->
-                            accountViewModel.switchUser(user.id)
+                            accountViewModel.switchUser(user.uid)
                         },
                         onCreateAccount = {
                             navController.navigate(
@@ -88,9 +88,7 @@ fun AppNavGraph(
                         onBack = {
                             navController.popBackStack()
                         },
-                        onCreate = { payload, homeExperience ->
-                            val uid = payload.substringBefore('|')
-                            val displayName = payload.substringAfter('|')
+                        onCreate = { uid, displayName, homeExperience ->
                             accountViewModel.createUser(
                                 uid,
                                 displayName,

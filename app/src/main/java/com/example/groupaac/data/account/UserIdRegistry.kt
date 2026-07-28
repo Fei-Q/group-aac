@@ -31,13 +31,14 @@ class LocalUserIdRegistry(
     override suspend fun createAccount(
         request: CreateAccountRequest
     ): CreateAccountResult {
-        val normalizedUid = request.uid.trim().lowercase()
+        val normalizedUid = UserIdValidator.normalize(request.uid)
         val displayName = request.displayName.trim()
 
-        if (!UID_PATTERN.matches(normalizedUid)) {
-            return CreateAccountResult.Invalid(
-                "UID must be 3-24 characters using lowercase letters, digits, or underscores."
-            )
+        when (val validation = UserIdValidator.validate(normalizedUid)) {
+            is UserIdValidationResult.Invalid -> {
+                return CreateAccountResult.Invalid(validation.message)
+            }
+            UserIdValidationResult.Valid -> Unit
         }
 
         if (displayName.isBlank()) {
@@ -46,7 +47,7 @@ class LocalUserIdRegistry(
 
         val now = TimeUtils.now()
         val user = UserEntity(
-            id = normalizedUid,
+            uid = normalizedUid,
             displayName = displayName,
             createdAt = now
         )
@@ -69,9 +70,5 @@ class LocalUserIdRegistry(
                 error.message ?: "Unable to create account."
             )
         }
-    }
-
-    companion object {
-        val UID_PATTERN = Regex("^[a-z0-9][a-z0-9_]{2,23}$")
     }
 }

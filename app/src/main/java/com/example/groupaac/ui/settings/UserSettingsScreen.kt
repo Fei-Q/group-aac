@@ -530,7 +530,7 @@ private fun UserSettingsScreenSimplePreview() {
     GroupAacTheme {
         UserSettingsScreen(
             user = UserEntity(
-                id = "alice",
+                uid = "alice",
                 displayName = "Alice Baker",
                 createdAt = 0L
             ),
@@ -548,7 +548,7 @@ private fun UserSettingsScreenAdvancedPreview() {
     GroupAacTheme {
         UserSettingsScreen(
             user = UserEntity(
-                id = "alice",
+                uid = "alice",
                 displayName = "Alice Baker",
                 createdAt = 0L
             ),
