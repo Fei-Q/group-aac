@@ -15,3 +15,7 @@ captures/
 # Android Studio / IntelliJ
 .navigation/
 pubnub.properties
+backend/.venv/
+backend/.pytest_cache/
+backend/__pycache__/
+group_aac_backend.db

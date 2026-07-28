@@ -12,6 +12,17 @@ import com.example.groupaac.data.pi.PiJoinRequest
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.data.session.ActiveSessionStore
+import com.example.groupaac.data.sessiondirectory.CancelRemoteSessionResult
+import com.example.groupaac.data.sessiondirectory.CloseRemoteSessionRequest
+import com.example.groupaac.data.sessiondirectory.CreateRemoteSessionRequest
+import com.example.groupaac.data.sessiondirectory.CreateRemoteSessionResult
+import com.example.groupaac.data.sessiondirectory.EndRemoteSessionResult
+import com.example.groupaac.data.sessiondirectory.RemoteSessionRecord
+import com.example.groupaac.data.sessiondirectory.RemoteSessionStatus
+import com.example.groupaac.data.sessiondirectory.ResolveJoinCodeResult
+import com.example.groupaac.data.sessiondirectory.SessionDirectory
+import com.example.groupaac.data.sessiondirectory.UpdateRemoteSessionRequest
+import com.example.groupaac.data.sessiondirectory.UpdateRemoteSessionResult
 import com.example.groupaac.model.ActiveSession
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.JoinSessionResult
@@ -31,6 +42,7 @@ class SessionRepository(
     private val userDao: UserDao,
     private val activeSessionStore: ActiveSessionStore,
     private val piClient: PiClient,
+    private val sessionDirectory: SessionDirectory,
     private val sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
 ) {
     fun observeSession(
@@ -124,19 +136,24 @@ class SessionRepository(
     ): ActiveSession {
         val owner = userDao.getUser(ownerUserId)
             ?: error("User not found.")
-        val now = TimeUtils.now()
         val cleanDisplayName = displayName
             .trim()
             .ifBlank { owner.displayName }
-        val session = SessionEntity(
-            id = IdUtils.newId(),
-            name = name.trim().ifBlank { "Group Meeting" },
-            joinCode = generateUniqueJoinCode(),
-            hostUserId = ownerUserId,
-            createdAt = now,
-            // This code path is used by the current "Create Now" flow.
-            actualStartedAt = now
-        )
+        val session = when (
+            val result = sessionDirectory.createSession(
+                CreateRemoteSessionRequest(
+                    hostUid = ownerUserId,
+                    name = name,
+                    status = RemoteSessionStatus.LIVE,
+                    scheduledStartAt = null,
+                    scheduledDurationMinutes = null
+                )
+            )
+        ) {
+            is CreateRemoteSessionResult.Created -> result.session.toSessionEntity()
+            is CreateRemoteSessionResult.Failure -> error(result.message)
+        }
+        val now = session.actualStartedAt ?: TimeUtils.now()
         val member = hostMembership(
             sessionId = session.id,
             ownerUserId = ownerUserId,
@@ -186,16 +203,21 @@ class SessionRepository(
     ): SessionEntity {
         val owner = userDao.getUser(ownerUserId)
             ?: error("User not found.")
+        val session = when (
+            val result = sessionDirectory.createSession(
+                CreateRemoteSessionRequest(
+                    hostUid = ownerUserId,
+                    name = name,
+                    status = RemoteSessionStatus.SCHEDULED,
+                    scheduledStartAt = scheduledStartAt,
+                    scheduledDurationMinutes = scheduledDurationMinutes
+                )
+            )
+        ) {
+            is CreateRemoteSessionResult.Created -> result.session.toSessionEntity()
+            is CreateRemoteSessionResult.Failure -> error(result.message)
+        }
         val now = TimeUtils.now()
-        val session = SessionEntity(
-            id = IdUtils.newId(),
-            name = name.trim().ifBlank { "Group Meeting" },
-            joinCode = generateUniqueJoinCode(),
-            hostUserId = ownerUserId,
-            createdAt = now,
-            scheduledStartAt = scheduledStartAt,
-            scheduledDurationMinutes = scheduledDurationMinutes
-        )
         val member = hostMembership(
             sessionId = session.id,
             ownerUserId = ownerUserId,
@@ -227,11 +249,26 @@ class SessionRepository(
             "Only upcoming sessions can be edited."
         }
 
-        val updated = session.copy(
-            name = name.trim().ifBlank { session.name },
-            scheduledStartAt = scheduledStartAt,
-            scheduledDurationMinutes = scheduledDurationMinutes
-        )
+        val updated = when (
+            val result = sessionDirectory.updateSession(
+                UpdateRemoteSessionRequest(
+                    sessionId = sessionId,
+                    hostUid = ownerUserId,
+                    name = name,
+                    status = RemoteSessionStatus.SCHEDULED,
+                    scheduledStartAt = scheduledStartAt,
+                    scheduledDurationMinutes = scheduledDurationMinutes
+                )
+            )
+        ) {
+            is UpdateRemoteSessionResult.Updated -> result.session.toSessionEntity(
+                existing = session
+            )
+            UpdateRemoteSessionResult.NotFound -> error("Session not found.")
+            UpdateRemoteSessionResult.Cancelled -> error("This session has been cancelled.")
+            UpdateRemoteSessionResult.Ended -> error("This session has already ended.")
+            is UpdateRemoteSessionResult.Failure -> error(result.message)
+        }
         sessionDao.upsertSession(updated)
         sessionRealtimeSync.publishSessionUpdated(updated, ownerUserId)
         return updated
@@ -249,10 +286,32 @@ class SessionRepository(
             "This session has already ended."
         }
 
+        val updatedSession = when (
+            val result = sessionDirectory.updateSession(
+                UpdateRemoteSessionRequest(
+                    sessionId = sessionId,
+                    hostUid = ownerUserId,
+                    name = session.name,
+                    status = RemoteSessionStatus.LIVE,
+                    scheduledStartAt = session.scheduledStartAt,
+                    scheduledDurationMinutes = session.scheduledDurationMinutes
+                )
+            )
+        ) {
+            is UpdateRemoteSessionResult.Updated -> result.session.toSessionEntity(
+                existing = session
+            )
+            UpdateRemoteSessionResult.NotFound -> error("Session not found.")
+            UpdateRemoteSessionResult.Cancelled -> error("This session has been cancelled.")
+            UpdateRemoteSessionResult.Ended -> error("This session has already ended.")
+            is UpdateRemoteSessionResult.Failure -> error(result.message)
+        }
+        sessionDao.upsertSession(updatedSession)
+
         val owner = userDao.getUser(ownerUserId)
             ?: error("User not found.")
         val member = sessionDao.getMember(sessionId, ownerUserId)
-        val joinedAt = member?.joinedAt ?: session.createdAt
+        val joinedAt = member?.joinedAt ?: updatedSession.createdAt
 
         sessionDao.upsertMember(
             hostMembership(
@@ -262,7 +321,6 @@ class SessionRepository(
                 joinedAt = joinedAt
             )
         )
-        sessionDao.markSessionStartedIfNeeded(sessionId)
 
         return activateHostedSession(
             sessionId = sessionId,
@@ -318,13 +376,31 @@ class SessionRepository(
             "Only upcoming sessions can be cancelled."
         }
 
-        sessionJoinRequestDao.deleteRequestsForSession(sessionId)
-        sessionDao.deleteMembersForSession(sessionId)
-        val deleted = sessionDao.deleteHostedSession(sessionId, ownerUserId) > 0
-        if (deleted) {
-            sessionRealtimeSync.publishSessionCancelled(session, ownerUserId)
+        return when (
+            val result = sessionDirectory.cancelSession(
+                CloseRemoteSessionRequest(
+                    sessionId = sessionId,
+                    hostUid = ownerUserId
+                )
+            )
+        ) {
+            is CancelRemoteSessionResult.Cancelled -> {
+                sessionJoinRequestDao.deleteRequestsForSession(sessionId)
+                sessionDao.deleteMembersForSession(sessionId)
+                val deleted = sessionDao.deleteHostedSession(sessionId, ownerUserId) > 0
+                if (deleted) {
+                    sessionRealtimeSync.publishSessionCancelled(
+                        result.session.toSessionEntity(existing = session),
+                        ownerUserId
+                    )
+                }
+                deleted
+            }
+            CancelRemoteSessionResult.NotFound -> error("Session not found.")
+            CancelRemoteSessionResult.Ended -> error("This session has already ended.")
+            CancelRemoteSessionResult.AlreadyCancelled -> error("This session has already been cancelled.")
+            is CancelRemoteSessionResult.Failure -> error(result.message)
         }
-        return deleted
     }
 
     suspend fun joinSession(
@@ -336,8 +412,25 @@ class SessionRepository(
         val user = userDao.getUser(userId)
             ?: error("User not found.")
         val cleanCode = normalizeJoinCode(joinCode)
-        val session = sessionDao.getSessionByCode(cleanCode)
-            ?: error("No session found for this code.")
+        val session = when (
+            val resolved = sessionDirectory.resolveJoinCode(
+                joinCode = cleanCode,
+                requesterUid = userId
+            )
+        ) {
+            is ResolveJoinCodeResult.Found -> {
+                val shell = resolved.session.toSessionEntity(
+                    existing = sessionDao.getSession(resolved.session.sessionId)
+                )
+                sessionDao.upsertSession(shell)
+                shell
+            }
+            ResolveJoinCodeResult.NotFound -> error("No session found for this code.")
+            ResolveJoinCodeResult.Expired -> error("This session code has expired.")
+            ResolveJoinCodeResult.Cancelled -> error("This session has been cancelled.")
+            ResolveJoinCodeResult.Ended -> error("This session has already ended.")
+            is ResolveJoinCodeResult.Failure -> error(resolved.message)
+        }
         require(requestedRole != SessionRole.HOST) {
             "Host access cannot be requested from the join screen."
         }
@@ -603,10 +696,26 @@ class SessionRepository(
     }
 
     suspend fun endSession(sessionId: String) {
-        sessionDao.markSessionEnded(sessionId)
         val session = sessionDao.getSession(sessionId) ?: return
         val actorUserId = session.hostUserId ?: return
-        sessionRealtimeSync.publishSessionEnded(session, actorUserId)
+        when (
+            val result = sessionDirectory.endSession(
+                CloseRemoteSessionRequest(
+                    sessionId = sessionId,
+                    hostUid = actorUserId
+                )
+            )
+        ) {
+            is EndRemoteSessionResult.Ended -> {
+                val updated = result.session.toSessionEntity(existing = session)
+                sessionDao.upsertSession(updated)
+                sessionRealtimeSync.publishSessionEnded(updated, actorUserId)
+            }
+            EndRemoteSessionResult.NotFound -> error("Session not found.")
+            EndRemoteSessionResult.Cancelled -> error("This session has been cancelled.")
+            EndRemoteSessionResult.AlreadyEnded -> Unit
+            is EndRemoteSessionResult.Failure -> error(result.message)
+        }
     }
 
     suspend fun seedDemoParticipants(sessionId: String) {
@@ -645,23 +754,6 @@ class SessionRepository(
         for (member in demoMembers) {
             sessionDao.upsertMember(member)
         }
-    }
-
-    private suspend fun generateUniqueJoinCode(): String {
-        repeat(20) {
-            val candidate = generateJoinCode()
-            if (sessionDao.countSessionsByJoinCode(candidate) == 0) {
-                return candidate
-            }
-        }
-
-        error("Unable to generate a unique session code.")
-    }
-
-    private fun generateJoinCode(): String {
-        val firstHalf = (1000..9999).random()
-        val secondHalf = (1000..9999).random()
-        return "$firstHalf-$secondHalf"
     }
 
     private fun normalizeJoinCode(raw: String): String {
@@ -741,5 +833,23 @@ class SessionRepository(
             .atStartOfDay(zone)
             .toInstant()
             .toEpochMilli()
+    }
+
+    private fun RemoteSessionRecord.toSessionEntity(
+        existing: SessionEntity? = null
+    ): SessionEntity {
+        return SessionEntity(
+            id = sessionId,
+            name = sessionName,
+            joinCode = joinCode,
+            hostUserId = hostUid,
+            displayMode = existing?.displayMode ?: com.example.groupaac.model.DisplayMode.AUTO_LATEST,
+            createdAt = existing?.createdAt ?: actualStartedAt ?: scheduledStartAt ?: TimeUtils.now(),
+            scheduledStartAt = scheduledStartAt,
+            scheduledDurationMinutes = scheduledDurationMinutes,
+            actualStartedAt = actualStartedAt,
+            actualEndedAt = actualEndedAt,
+            updatedAt = TimeUtils.now()
+        )
     }
 }

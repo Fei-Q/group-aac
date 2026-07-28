@@ -509,3 +509,55 @@ Base branch: `feature/pubnub-realtime-foundation`
 - This Stage 1 cleanup supersedes the earlier transitional note that `UserEntity.id` remained in active Kotlin use on the prior branch.
 - App data should be cleared after checking out this branch because the disposable Room baseline was intentionally reset to version `1`.
 - Prior PubNub foundation and later realtime stages were left intact; only Stage 1 cleanup work for the live-integration branch was applied here.
+
+## Live Realtime Stage 2 - Authoritative session directory
+
+Status: complete
+
+Date: 2026-07-28
+Branch: `feature/pubnub-live-integration`
+
+### Implemented
+
+- Added Android session-directory contracts in [`SessionDirectory`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/sessiondirectory/SessionDirectory.kt) with typed results for create, resolve, update, end, and cancel flows.
+- Added [`RemoteSessionDirectory`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/sessiondirectory/RemoteSessionDirectory.kt), [`HttpGroupAacApi`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/sessiondirectory/HttpGroupAacApi.kt), and deterministic [`FakeSessionDirectory`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/sessiondirectory/FakeSessionDirectory.kt).
+- Added `SESSION_DIRECTORY_BASE_URL` BuildConfig wiring in [`app/build.gradle.kts`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/build.gradle.kts) and runtime injection through [`AppContainer`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/AppContainer.kt).
+- Reworked [`SessionRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt) so that:
+  - session creation uses the backend-authoritative session ID and join code
+  - join-code resolution goes through `SessionDirectory` instead of `sessionDao.getSessionByCode()`
+  - the returned remote session shell is persisted in Room before participant join flow continues
+  - update, end, and cancel operations map explicit remote results
+- Added Android unit coverage in:
+  - [`RemoteSessionDirectoryTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/sessiondirectory/RemoteSessionDirectoryTest.kt)
+  - [`SessionRepositoryTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/repository/SessionRepositoryTest.kt)
+- Added a minimal backend under [`backend/`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/backend/) using FastAPI and SQLAlchemy with environment-driven database configuration compatible with PostgreSQL:
+  - models for `users`, `sessions`, `session_members`, and `facilitator_requests`
+  - explicit session status values `SCHEDULED`, `LIVE`, `ENDED`, `CANCELLED`
+  - endpoints:
+    - `POST /sessions`
+    - `POST /sessions/resolve-code`
+    - `PATCH /sessions/{sessionId}`
+    - `POST /sessions/{sessionId}/end`
+    - `POST /sessions/{sessionId}/cancel`
+- Implemented atomic eight-digit join-code reservation via a database unique constraint plus retry-on-collision logic.
+- Kept production auth and PubNub token issuance out of scope while leaving the client/API boundaries ready for them.
+
+### Verification
+
+- `backend/.venv/bin/pytest backend/tests`
+  - Passed on Tuesday, July 28, 2026.
+  - Executed `4` tests covering create/resolve, duplicate-code collision retry, missing/ended/cancelled/expired resolution, and update/end/cancel endpoint behavior.
+- `./gradlew :app:assembleDebug`
+  - Failed first on Tuesday, July 28, 2026, due to:
+    - missing `IdUtils` import in [`SessionRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt)
+    - an overly generic serialization call in [`HttpGroupAacApi`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/sessiondirectory/HttpGroupAacApi.kt)
+  - Passed on Tuesday, July 28, 2026, after those focused repairs.
+- `./gradlew :app:testDebugUnitTest`
+  - Failed first on Tuesday, July 28, 2026, for the same compile errors blocking `assembleDebug`.
+  - Passed on Tuesday, July 28, 2026, after the same repairs.
+
+### Notes
+
+- Backend tests currently use SQLite in-memory for determinism, while runtime configuration remains PostgreSQL-compatible through `GROUP_AAC_DATABASE_URL`.
+- The default backend runtime database file `group_aac_backend.db` is ignored and is not committed.
+- Production authentication, authorization, and PubNub token issuance remain deferred to later stages by design.

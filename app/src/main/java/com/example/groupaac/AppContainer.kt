@@ -24,6 +24,10 @@ import com.example.groupaac.data.repository.SettingsRepository
 import com.example.groupaac.data.repository.SignalRepository
 import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.data.session.DataStoreActiveSessionStore
+import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
+import com.example.groupaac.data.sessiondirectory.HttpGroupAacApi
+import com.example.groupaac.data.sessiondirectory.RemoteSessionDirectory
+import com.example.groupaac.data.sessiondirectory.SessionDirectory
 
 class AppContainer(context: Context) {
     val database: AppDatabase = AppDatabase.create(context)
@@ -52,6 +56,14 @@ class AppContainer(context: Context) {
 
     val activeSessionStore: ActiveSessionStore =
         DataStoreActiveSessionStore(preferences)
+    val sessionDirectory: SessionDirectory =
+        if (BuildConfig.SESSION_DIRECTORY_BASE_URL.isBlank()) {
+            FakeSessionDirectory()
+        } else {
+            RemoteSessionDirectory(
+                HttpGroupAacApi(BuildConfig.SESSION_DIRECTORY_BASE_URL)
+            )
+        }
 
     val accountRepository = AccountRepository(
         userIdRegistry = userIdRegistry,
@@ -70,6 +82,7 @@ class AppContainer(context: Context) {
         userDao = database.userDao(),
         activeSessionStore = activeSessionStore,
         piClient = piClient,
+        sessionDirectory = sessionDirectory,
         sessionRealtimeSync = sessionRealtimeSync
     )
 

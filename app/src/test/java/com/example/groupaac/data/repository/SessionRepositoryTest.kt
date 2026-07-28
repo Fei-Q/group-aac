@@ -16,6 +16,9 @@ import com.example.groupaac.data.pi.PiMessagePayload
 import com.example.groupaac.data.pi.PiSessionEvent
 import com.example.groupaac.data.pi.PiSignalPayload
 import com.example.groupaac.data.session.ActiveSessionStore
+import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
+import com.example.groupaac.data.sessiondirectory.RemoteSessionRecord
+import com.example.groupaac.data.sessiondirectory.RemoteSessionStatus
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.JoinSessionResult
 import com.example.groupaac.model.SessionRole
@@ -32,6 +35,27 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class SessionRepositoryTest {
+    @Test
+    fun participantJoinPersistsResolvedSessionShellBeforeMembership() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        val result = fixture.repository.joinSession(
+            joinCode = fixture.session.joinCode,
+            userId = fixture.participant.uid,
+            displayName = fixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        assertTrue(result is JoinSessionResult.Joined)
+        assertNotNull(fixture.sessionDao.getSession(fixture.session.id))
+        assertNotNull(
+            fixture.sessionDao.getMember(
+                fixture.session.id,
+                fixture.participant.uid
+            )
+        )
+    }
+
     @Test
     fun createSessionNowCreatesHostMembershipAndActivates() = runTest {
         val fixture = sessionFixture()
@@ -253,12 +277,15 @@ class SessionRepositoryTest {
         )
     }
 
-    private fun sessionFixture(): SessionFixture {
+    private fun sessionFixture(
+        seedLocalSession: Boolean = true
+    ): SessionFixture {
         val sessionDao = FakeSessionDao()
         val joinRequestDao = FakeSessionJoinRequestDao()
         val userDao = FakeUserDao()
         val activeSessionStore = FakeActiveSessionStore()
         val piClient = RecordingPiClient()
+        val sessionDirectory = FakeSessionDirectory(nowProvider = { 10L })
 
         val host = UserEntity(
             uid = "host_1",
@@ -285,14 +312,30 @@ class SessionRepositoryTest {
             createdAt = 10L,
             actualStartedAt = 10L
         )
-        sessionDao.seedSession(session)
-        sessionDao.seedMember(
-            SessionMemberEntity(
+        if (seedLocalSession) {
+            sessionDao.seedSession(session)
+            sessionDao.seedMember(
+                SessionMemberEntity(
+                    sessionId = session.id,
+                    userId = host.uid,
+                    displayName = host.displayName,
+                    role = SessionRole.HOST,
+                    joinedAt = 10L
+                )
+            )
+        }
+        sessionDirectory.seedSession(
+            RemoteSessionRecord(
                 sessionId = session.id,
-                userId = host.uid,
-                displayName = host.displayName,
-                role = SessionRole.HOST,
-                joinedAt = 10L
+                joinCode = session.joinCode,
+                sessionName = session.name,
+                hostUid = host.uid,
+                status = RemoteSessionStatus.LIVE,
+                scheduledStartAt = session.scheduledStartAt,
+                scheduledDurationMinutes = session.scheduledDurationMinutes,
+                actualStartedAt = session.actualStartedAt,
+                actualEndedAt = session.actualEndedAt,
+                expiresAt = 10L + 86_400_000L
             )
         )
 
@@ -301,7 +344,8 @@ class SessionRepositoryTest {
             sessionJoinRequestDao = joinRequestDao,
             userDao = userDao,
             activeSessionStore = activeSessionStore,
-            piClient = piClient
+            piClient = piClient,
+            sessionDirectory = sessionDirectory
         )
 
         return SessionFixture(
@@ -309,11 +353,42 @@ class SessionRepositoryTest {
             sessionDao = sessionDao,
             joinRequestDao = joinRequestDao,
             activeSessionStore = activeSessionStore,
+            sessionDirectory = sessionDirectory,
             session = session,
             host = host,
             participant = participant,
             facilitator = facilitator
         )
+    }
+
+    @Test
+    fun endedResolutionReturnsExplicitMessage() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+        fixture.sessionDirectory.seedSession(
+            RemoteSessionRecord(
+                sessionId = fixture.session.id,
+                joinCode = fixture.session.joinCode,
+                sessionName = fixture.session.name,
+                hostUid = fixture.host.uid,
+                status = RemoteSessionStatus.ENDED,
+                scheduledStartAt = fixture.session.scheduledStartAt,
+                scheduledDurationMinutes = fixture.session.scheduledDurationMinutes,
+                actualStartedAt = fixture.session.actualStartedAt,
+                actualEndedAt = 20L,
+                expiresAt = 86_400_000L
+            )
+        )
+        try {
+            fixture.repository.joinSession(
+                joinCode = fixture.session.joinCode,
+                userId = fixture.participant.uid,
+                displayName = fixture.participant.displayName,
+                requestedRole = SessionRole.PARTICIPANT
+            )
+            fail("Expected ended sessions to be rejected.")
+        } catch (error: IllegalStateException) {
+            assertEquals("This session has already ended.", error.message)
+        }
     }
 }
 
@@ -322,6 +397,7 @@ private data class SessionFixture(
     val sessionDao: FakeSessionDao,
     val joinRequestDao: FakeSessionJoinRequestDao,
     val activeSessionStore: FakeActiveSessionStore,
+    val sessionDirectory: FakeSessionDirectory,
     val session: SessionEntity,
     val host: UserEntity,
     val participant: UserEntity,
