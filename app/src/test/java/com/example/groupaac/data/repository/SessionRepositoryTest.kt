@@ -9,12 +9,6 @@ import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
-import com.example.groupaac.data.pi.DisplayCommand
-import com.example.groupaac.data.pi.PiClient
-import com.example.groupaac.data.pi.PiJoinRequest
-import com.example.groupaac.data.pi.PiMessagePayload
-import com.example.groupaac.data.pi.PiSessionEvent
-import com.example.groupaac.data.pi.PiSignalPayload
 import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
 import com.example.groupaac.data.sessiondirectory.RemoteSessionRecord
@@ -284,7 +278,6 @@ class SessionRepositoryTest {
         val joinRequestDao = FakeSessionJoinRequestDao()
         val userDao = FakeUserDao()
         val activeSessionStore = FakeActiveSessionStore()
-        val piClient = RecordingPiClient()
         val sessionDirectory = FakeSessionDirectory(nowProvider = { 10L })
 
         val host = UserEntity(
@@ -344,7 +337,6 @@ class SessionRepositoryTest {
             sessionJoinRequestDao = joinRequestDao,
             userDao = userDao,
             activeSessionStore = activeSessionStore,
-            piClient = piClient,
             sessionDirectory = sessionDirectory
         )
 
@@ -791,21 +783,4 @@ private class FakeActiveSessionStore : ActiveSessionStore {
     override suspend fun clearActiveSession(userId: String) {
         activeSessions[userId] = null
     }
-}
-
-private class RecordingPiClient : PiClient {
-    val joinRequests = mutableListOf<PiJoinRequest>()
-
-    override suspend fun joinSession(request: PiJoinRequest) {
-        joinRequests += request
-    }
-
-    override suspend fun sendMessage(payload: PiMessagePayload) = Unit
-
-    override suspend fun sendSignal(payload: PiSignalPayload) = Unit
-
-    override suspend fun sendDisplayCommand(command: DisplayCommand) = Unit
-
-    override fun observeSessionEvents(sessionId: String): Flow<PiSessionEvent> =
-        flowOf(PiSessionEvent.Connected)
 }

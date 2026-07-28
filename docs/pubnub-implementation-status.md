@@ -418,6 +418,51 @@ Status: complete
 
 - Raspberry Pi source is not present in this repository.
 - Added Android-to-Pi contract documentation in:
+
+## Live Realtime Next Steps - Stage 4
+
+Status: complete
+
+Date: Tuesday, July 28, 2026
+Branch: `feature/pubnub-live-integration`
+Starting commit: `5d504c5 Implement live PubNub transport`
+
+### Implemented
+
+- Added [`SessionSubscriptionCoordinator`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/SessionSubscriptionCoordinator.kt) to own runtime session-scoped PubNub subscriptions.
+- Started and stopped subscriptions automatically from active account/session state for:
+  - participant `public` and private-user channels
+  - facilitator and host `public`, `facilitator`, private-user, and `display.events` channels
+  - facilitator-request pending state with the requester private channel plus session public channel
+- Wired startup restoration through [`AppContainer`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/AppContainer.kt) so a persisted active session resubscribes after realtime client activation on launch.
+- Routed every subscribed incoming event through a single pipeline:
+  - channel route parsing
+  - obvious channel/session/user mismatch rejection
+  - handoff to [`SessionRealtimeSync.applyIncoming()`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/SessionRealtimeSync.kt) for expiry rejection, deduplication, Room application, and processed-event/cursor recording
+- Fed realtime connection state from the coordinator into [`SessionCoordinatorViewModel`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/session/SessionCoordinatorViewModel.kt) instead of relying on the old unused manual realtime callback methods.
+- Removed the two leftover legacy session-activation `PiClient.joinSession(...)` calls from [`SessionRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt) so account/session subscription ownership stays with the realtime coordinator.
+- Added Stage 4 unit coverage in [`SessionSubscriptionCoordinatorTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/SessionSubscriptionCoordinatorTest.kt) for:
+  - correct channels by role
+  - stop/unsubscribe behavior
+  - account-switch cleanup
+  - active-session restoration
+  - incoming event delivery into `applyIncoming()`
+  - connection-state propagation
+  - pending facilitator-request private-channel tracking
+
+### Verification
+
+- `./gradlew :app:assembleDebug :app:testDebugUnitTest`
+  - Passed on Tuesday, July 28, 2026.
+- Focused verification during implementation:
+  - `./gradlew :app:testDebugUnitTest --tests "com.example.groupaac.data.realtime.SessionSubscriptionCoordinatorTest"`
+    - Failed first while the new coordinator test harness was still using a non-starting background scope.
+    - Passed on Tuesday, July 28, 2026, after moving the tests onto an explicit unconfined test scope with deterministic cleanup.
+
+### Notes
+
+- This stage does not yet enforce full role authorization; it only rejects obvious session/channel mismatches as requested.
+- A live two-client PubNub exchange smoke test was not run in this environment during this stage, so runtime verification here is build plus unit-test based.
   - [`docs/pi-display-protocol-contract.md`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/docs/pi-display-protocol-contract.md)
   - [`docs/pi-display-protocol-fixtures.json`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/docs/pi-display-protocol-fixtures.json)
 

@@ -16,6 +16,7 @@ import com.example.groupaac.data.realtime.PubNubRuntimeConfig
 import com.example.groupaac.data.realtime.PubNubSessionRealtimeClientFactory
 import com.example.groupaac.data.realtime.RealtimeClientManager
 import com.example.groupaac.data.realtime.RealtimeStartupInitializer
+import com.example.groupaac.data.realtime.SessionSubscriptionCoordinator
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.data.realtime.sync.DefaultSessionRealtimeSync
 import com.example.groupaac.data.repository.AccountRepository
@@ -32,9 +33,14 @@ import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
 import com.example.groupaac.data.sessiondirectory.HttpGroupAacApi
 import com.example.groupaac.data.sessiondirectory.RemoteSessionDirectory
 import com.example.groupaac.data.sessiondirectory.SessionDirectory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 
 class AppContainer(context: Context) {
+    private val applicationScope =
+        CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val database: AppDatabase = AppDatabase.create(context)
     val preferences = AppPreferences(context)
     val attachmentStorage = AttachmentStorage(context)
@@ -102,9 +108,17 @@ class AppContainer(context: Context) {
         sessionJoinRequestDao = database.sessionJoinRequestDao(),
         userDao = database.userDao(),
         activeSessionStore = activeSessionStore,
-        piClient = piClient,
         sessionDirectory = sessionDirectory,
         sessionRealtimeSync = sessionRealtimeSync
+    )
+    val sessionSubscriptionCoordinator = SessionSubscriptionCoordinator(
+        activeUserId = accountRepository.activeUserId,
+        activeSessionProvider = { userId ->
+            sessionRepository.observeActiveSession(userId)
+        },
+        realtimeClientManager = realtimeClientManager,
+        sessionRealtimeSync = sessionRealtimeSync,
+        scope = applicationScope
     )
 
     val messageRepository = MessageRepository(

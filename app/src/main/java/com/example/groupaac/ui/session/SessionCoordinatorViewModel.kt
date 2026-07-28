@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.groupaac.data.entity.UserEntity
+import com.example.groupaac.data.realtime.RealtimeConnectionState
+import com.example.groupaac.data.realtime.SessionSubscriptionCoordinator
 import com.example.groupaac.data.repository.AccountRepository
 import com.example.groupaac.data.repository.SessionRepository
 import com.example.groupaac.model.ActiveSession
@@ -28,7 +30,8 @@ data class SessionCoordinatorUiState(
 
 class SessionCoordinatorViewModel(
     private val accountRepository: AccountRepository,
-    private val sessionRepository: SessionRepository
+    private val sessionRepository: SessionRepository,
+    private val sessionSubscriptionCoordinator: SessionSubscriptionCoordinator
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(
@@ -42,6 +45,7 @@ class SessionCoordinatorViewModel(
 
     init {
         observeActiveUser()
+        observeRealtimeConnection()
     }
 
     private fun observeActiveUser() {
@@ -94,8 +98,12 @@ class SessionCoordinatorViewModel(
                         connectionState = if (activeSession == null) {
                             SessionConnectionState.NotInSession
                         } else {
-                            SessionConnectionState.Connected(
-                                activeSession
+                            connectionStateFor(
+                                session = activeSession,
+                                realtimeState =
+                                    sessionSubscriptionCoordinator
+                                        .connectionState
+                                        .value
                             )
                         }
                     )
@@ -136,6 +144,9 @@ class SessionCoordinatorViewModel(
                 when (result) {
                     is JoinSessionResult.Joined -> {
                         joinRequestJob?.cancel()
+                        sessionSubscriptionCoordinator.clearFacilitatorRequest(
+                            userId = user.uid
+                        )
                         _uiState.value = _uiState.value.copy(
                             connectionState =
                                 SessionConnectionState.Connected(
@@ -146,6 +157,10 @@ class SessionCoordinatorViewModel(
 
                     is JoinSessionResult.AwaitingApproval -> {
                         val request = result.request
+                        sessionSubscriptionCoordinator.trackFacilitatorRequest(
+                            sessionId = request.sessionId,
+                            userId = user.uid
+                        )
                         val sessionName = sessionRepository
                             .getSession(request.sessionId)
                             ?.name
@@ -166,6 +181,9 @@ class SessionCoordinatorViewModel(
                     }
                 }
             }.onFailure { error ->
+                sessionSubscriptionCoordinator.clearFacilitatorRequest(
+                    userId = user.uid
+                )
                 _uiState.value = _uiState.value.copy(
                     connectionState =
                         SessionConnectionState.NotInSession,
@@ -209,6 +227,10 @@ class SessionCoordinatorViewModel(
                                         userId = userId
                                     ) ?: return@collect
                             joinRequestJob?.cancel()
+                            sessionSubscriptionCoordinator.clearFacilitatorRequest(
+                                userId = userId,
+                                sessionId = request.sessionId
+                            )
                             _uiState.value = _uiState.value.copy(
                                 connectionState =
                                     SessionConnectionState.Connected(
@@ -220,6 +242,10 @@ class SessionCoordinatorViewModel(
 
                         JoinRequestStatus.DECLINED -> {
                             joinRequestJob?.cancel()
+                            sessionSubscriptionCoordinator.clearFacilitatorRequest(
+                                userId = userId,
+                                sessionId = request.sessionId
+                            )
                             _uiState.value = _uiState.value.copy(
                                 connectionState =
                                     SessionConnectionState.NotInSession,
@@ -231,6 +257,10 @@ class SessionCoordinatorViewModel(
                         JoinRequestStatus.CANCELLED,
                         null -> {
                             joinRequestJob?.cancel()
+                            sessionSubscriptionCoordinator.clearFacilitatorRequest(
+                                userId = userId,
+                                sessionId = request?.sessionId
+                            )
                             _uiState.value = _uiState.value.copy(
                                 connectionState =
                                     SessionConnectionState.NotInSession,
@@ -253,6 +283,10 @@ class SessionCoordinatorViewModel(
                 sessionRepository.cancelJoinRequest(state.requestId)
             }.onSuccess {
                 joinRequestJob?.cancel()
+                sessionSubscriptionCoordinator.clearFacilitatorRequest(
+                    userId = _uiState.value.activeUser?.uid,
+                    sessionId = state.sessionId
+                )
                 _uiState.value = _uiState.value.copy(
                     connectionState = SessionConnectionState.NotInSession,
                     errorMessage = null
@@ -353,27 +387,6 @@ class SessionCoordinatorViewModel(
         }
     }
 
-    fun onRealtimeDisconnected(reason: String? = null) {
-        val session = currentActiveSession() ?: return
-
-        _uiState.value = _uiState.value.copy(
-            connectionState =
-                SessionConnectionState.Reconnecting(
-                    session = session,
-                    reason = reason
-                )
-        )
-    }
-
-    fun onRealtimeConnected() {
-        val session = currentActiveSession() ?: return
-
-        _uiState.value = _uiState.value.copy(
-            connectionState =
-                SessionConnectionState.Connected(session)
-        )
-    }
-
     fun onRemoteSessionEnded(sessionId: String) {
         val session = currentActiveSession() ?: return
 
@@ -405,11 +418,53 @@ class SessionCoordinatorViewModel(
 
             else -> null
         }
+
+    private fun observeRealtimeConnection() {
+        viewModelScope.launch {
+            sessionSubscriptionCoordinator.connectionState.collect { realtimeState ->
+                val currentState = _uiState.value.connectionState
+                if (
+                    currentState is SessionConnectionState.Joining ||
+                    currentState is SessionConnectionState.AwaitingApproval ||
+                    currentState is SessionConnectionState.Leaving
+                ) {
+                    return@collect
+                }
+
+                val session = currentActiveSession() ?: return@collect
+                _uiState.value = _uiState.value.copy(
+                    connectionState = connectionStateFor(session, realtimeState)
+                )
+            }
+        }
+    }
+
+    private fun connectionStateFor(
+        session: ActiveSession,
+        realtimeState: RealtimeConnectionState
+    ): SessionConnectionState {
+        return when (realtimeState) {
+            RealtimeConnectionState.Connected ->
+                SessionConnectionState.Connected(session)
+
+            RealtimeConnectionState.Connecting,
+            RealtimeConnectionState.Reconnecting,
+            RealtimeConnectionState.Disconnected ->
+                SessionConnectionState.Reconnecting(session)
+
+            is RealtimeConnectionState.Failed ->
+                SessionConnectionState.Reconnecting(
+                    session = session,
+                    reason = realtimeState.message
+                )
+        }
+    }
 }
 
 class SessionCoordinatorViewModelFactory(
     private val accountRepository: AccountRepository,
-    private val sessionRepository: SessionRepository
+    private val sessionRepository: SessionRepository,
+    private val sessionSubscriptionCoordinator: SessionSubscriptionCoordinator
 ) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
@@ -418,7 +473,8 @@ class SessionCoordinatorViewModelFactory(
     ): T {
         return SessionCoordinatorViewModel(
             accountRepository = accountRepository,
-            sessionRepository = sessionRepository
+            sessionRepository = sessionRepository,
+            sessionSubscriptionCoordinator = sessionSubscriptionCoordinator
         ) as T
     }
 }

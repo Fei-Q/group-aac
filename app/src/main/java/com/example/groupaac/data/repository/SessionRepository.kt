@@ -7,8 +7,6 @@ import com.example.groupaac.data.dao.UserDao
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
-import com.example.groupaac.data.pi.PiClient
-import com.example.groupaac.data.pi.PiJoinRequest
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.data.session.ActiveSessionStore
@@ -41,7 +39,6 @@ class SessionRepository(
     private val sessionJoinRequestDao: SessionJoinRequestDao,
     private val userDao: UserDao,
     private val activeSessionStore: ActiveSessionStore,
-    private val piClient: PiClient,
     private val sessionDirectory: SessionDirectory,
     private val sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
 ) {
@@ -657,15 +654,6 @@ class SessionRepository(
             sessionId = session.id
         )
 
-        piClient.joinSession(
-            PiJoinRequest(
-                sessionCode = session.joinCode,
-                userId = userId,
-                displayName = member.displayName,
-                role = member.role
-            )
-        )
-
         return ActiveSession(
             sessionId = session.id,
             joinCode = session.joinCode,
@@ -774,15 +762,6 @@ class SessionRepository(
         activeSessionStore.setActiveSession(
             userId = ownerUserId,
             sessionId = sessionId
-        )
-
-        piClient.joinSession(
-            PiJoinRequest(
-                sessionCode = session.joinCode,
-                userId = ownerUserId,
-                displayName = displayName,
-                role = SessionRole.HOST
-            )
         )
 
         return ActiveSession(

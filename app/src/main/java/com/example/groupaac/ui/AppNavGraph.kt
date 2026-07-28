@@ -51,7 +51,9 @@ fun AppNavGraph(
         viewModel(
             factory = SessionCoordinatorViewModelFactory(
                 accountRepository = container.accountRepository,
-                sessionRepository = container.sessionRepository
+                sessionRepository = container.sessionRepository,
+                sessionSubscriptionCoordinator =
+                    container.sessionSubscriptionCoordinator
             )
         )
     val sessionState by sessionCoordinatorViewModel.uiState
