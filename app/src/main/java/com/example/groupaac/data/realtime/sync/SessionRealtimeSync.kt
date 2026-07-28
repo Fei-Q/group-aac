@@ -42,11 +42,14 @@ interface SessionRealtimeSync {
 
     suspend fun publishFacilitatorApproved(
         request: SessionJoinRequestEntity,
+        member: SessionMemberEntity,
+        session: SessionEntity,
         actorUserId: String
     )
 
     suspend fun publishFacilitatorDeclined(
         request: SessionJoinRequestEntity,
+        session: SessionEntity,
         actorUserId: String
     )
 
@@ -105,8 +108,17 @@ object NoOpSessionRealtimeSync : SessionRealtimeSync {
     override suspend fun publishSessionCancelled(session: SessionEntity, actorUserId: String) = Unit
     override suspend fun publishMemberJoined(session: SessionEntity, member: SessionMemberEntity) = Unit
     override suspend fun publishFacilitatorRequested(request: SessionJoinRequestEntity, actorUserId: String) = Unit
-    override suspend fun publishFacilitatorApproved(request: SessionJoinRequestEntity, actorUserId: String) = Unit
-    override suspend fun publishFacilitatorDeclined(request: SessionJoinRequestEntity, actorUserId: String) = Unit
+    override suspend fun publishFacilitatorApproved(
+        request: SessionJoinRequestEntity,
+        member: SessionMemberEntity,
+        session: SessionEntity,
+        actorUserId: String
+    ) = Unit
+    override suspend fun publishFacilitatorDeclined(
+        request: SessionJoinRequestEntity,
+        session: SessionEntity,
+        actorUserId: String
+    ) = Unit
     override suspend fun publishFacilitatorCancelled(request: SessionJoinRequestEntity, actorUserId: String) = Unit
     override suspend fun publishMessageCreated(message: MessageEntity, senderName: String, target: MessageTarget) = Unit
     override suspend fun publishSignalCreated(signal: StatusSignalEntity, displayName: String) = Unit

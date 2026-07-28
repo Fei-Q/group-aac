@@ -76,6 +76,19 @@ data class SessionSnapshotPayload(
 )
 
 @Serializable
+data class FacilitatorApprovalPayload(
+    val request: SessionJoinRequestPayload,
+    val member: SessionMemberPayload,
+    val session: SessionPayload
+)
+
+@Serializable
+data class FacilitatorDeclinePayload(
+    val request: SessionJoinRequestPayload,
+    val session: SessionPayload
+)
+
+@Serializable
 data class DisplayMessagePayload(
     val sessionId: String,
     val message: MessagePayload,

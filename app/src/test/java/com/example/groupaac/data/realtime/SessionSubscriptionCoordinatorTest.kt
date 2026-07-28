@@ -460,11 +460,14 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync {
 
     override suspend fun publishFacilitatorApproved(
         request: SessionJoinRequestEntity,
+        member: SessionMemberEntity,
+        session: SessionEntity,
         actorUserId: String
     ) = Unit
 
     override suspend fun publishFacilitatorDeclined(
         request: SessionJoinRequestEntity,
+        session: SessionEntity,
         actorUserId: String
     ) = Unit
 

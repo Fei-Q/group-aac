@@ -8,6 +8,7 @@ import com.example.groupaac.data.entity.MessageEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.UserEntity
+import com.example.groupaac.data.repository.ImmediateTransactionRunner
 import com.example.groupaac.data.realtime.RealtimeClientManager
 import com.example.groupaac.data.realtime.RealtimeConnectionState
 import com.example.groupaac.data.realtime.SessionRealtimeClient
@@ -16,7 +17,6 @@ import com.example.groupaac.data.realtime.protocol.RealtimeChannels
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import com.example.groupaac.data.realtime.reliability.NoOpOutboxDispatcher
 import com.example.groupaac.data.realtime.sync.DefaultSessionRealtimeSync
-import com.example.groupaac.data.repository.ImmediateTransactionRunner
 import com.example.groupaac.data.repository.MessageRepository
 import com.example.groupaac.model.MessageStatus
 import com.example.groupaac.model.MessageTarget
@@ -58,6 +58,7 @@ class OutboxDispatcherTest {
         ).allowMainThreadQueries().build()
         store = RealtimeReliabilityStore(database, database.reliabilityDao())
         sync = DefaultSessionRealtimeSync(
+            transactionRunner = ImmediateTransactionRunner,
             sessionDao = database.sessionDao(),
             sessionJoinRequestDao = database.sessionJoinRequestDao(),
             messageDao = database.messageDao(),

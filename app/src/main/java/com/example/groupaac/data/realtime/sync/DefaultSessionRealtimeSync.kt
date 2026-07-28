@@ -16,6 +16,7 @@ import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.OutboxDomainType
+import com.example.groupaac.data.repository.TransactionRunner
 import com.example.groupaac.util.IdUtils
 import kotlinx.serialization.serializer
 import kotlinx.serialization.json.Json
@@ -26,6 +27,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 class DefaultSessionRealtimeSync(
+    private val transactionRunner: TransactionRunner,
     private val sessionDao: SessionDao,
     private val sessionJoinRequestDao: SessionJoinRequestDao,
     private val messageDao: MessageDao,
@@ -156,6 +158,8 @@ class DefaultSessionRealtimeSync(
 
     override suspend fun publishFacilitatorApproved(
         request: SessionJoinRequestEntity,
+        member: SessionMemberEntity,
+        session: SessionEntity,
         actorUserId: String
     ) {
         publish(
@@ -167,9 +171,13 @@ class DefaultSessionRealtimeSync(
                 sessionId = request.sessionId,
                 actorUserId = actorUserId,
                 payload = payload(
-                    "request" to json.encodeToJsonElement(
-                        SessionJoinRequestPayload.serializer(),
-                        request.toRealtimePayload()
+                    "approval" to json.encodeToJsonElement(
+                        FacilitatorApprovalPayload.serializer(),
+                        FacilitatorApprovalPayload(
+                            request = request.toRealtimePayload(),
+                            member = member.toRealtimePayload(),
+                            session = session.toRealtimePayload()
+                        )
                     )
                 )
             )
@@ -178,6 +186,7 @@ class DefaultSessionRealtimeSync(
 
     override suspend fun publishFacilitatorDeclined(
         request: SessionJoinRequestEntity,
+        session: SessionEntity,
         actorUserId: String
     ) {
         publish(
@@ -189,9 +198,12 @@ class DefaultSessionRealtimeSync(
                 sessionId = request.sessionId,
                 actorUserId = actorUserId,
                 payload = payload(
-                    "request" to json.encodeToJsonElement(
-                        SessionJoinRequestPayload.serializer(),
-                        request.toRealtimePayload()
+                    "decline" to json.encodeToJsonElement(
+                        FacilitatorDeclinePayload.serializer(),
+                        FacilitatorDeclinePayload(
+                            request = request.toRealtimePayload(),
+                            session = session.toRealtimePayload()
+                        )
                     )
                 )
             )
@@ -406,79 +418,98 @@ class DefaultSessionRealtimeSync(
             return false
         }
 
-        when (received.event.type) {
-            RealtimeEventTypes.SESSION_STARTED,
-            RealtimeEventTypes.SESSION_UPDATED,
-            RealtimeEventTypes.SESSION_ENDED,
-            RealtimeEventTypes.SESSION_CANCELLED -> {
-                payload<SessionPayload>(received.event.payload, "session")?.let {
-                    sessionDao.upsertSession(it.toEntity())
-                } ?: return false
+        return transactionRunner.inTransaction {
+            when (received.event.type) {
+                RealtimeEventTypes.SESSION_STARTED,
+                RealtimeEventTypes.SESSION_UPDATED,
+                RealtimeEventTypes.SESSION_ENDED,
+                RealtimeEventTypes.SESSION_CANCELLED -> {
+                    payload<SessionPayload>(received.event.payload, "session")?.let {
+                        sessionDao.upsertSession(it.toEntity())
+                    } ?: return@inTransaction false
+                }
+
+                RealtimeEventTypes.MEMBER_JOINED -> {
+                    payload<SessionMemberPayload>(received.event.payload, "member")?.let {
+                        sessionDao.upsertMember(it.toEntity())
+                    } ?: return@inTransaction false
+                }
+
+                RealtimeEventTypes.FACILITATOR_REQUESTED,
+                RealtimeEventTypes.FACILITATOR_CANCELLED -> {
+                    payload<SessionJoinRequestPayload>(received.event.payload, "request")?.let {
+                        sessionJoinRequestDao.upsertRequest(it.toEntity())
+                    } ?: return@inTransaction false
+                }
+
+                RealtimeEventTypes.FACILITATOR_APPROVED -> {
+                    val approval = payload<FacilitatorApprovalPayload>(
+                        received.event.payload,
+                        "approval"
+                    ) ?: return@inTransaction false
+                    sessionDao.upsertSession(approval.session.toEntity())
+                    sessionDao.upsertMember(approval.member.toEntity())
+                    sessionJoinRequestDao.upsertRequest(approval.request.toEntity())
+                }
+
+                RealtimeEventTypes.FACILITATOR_DECLINED -> {
+                    val decline = payload<FacilitatorDeclinePayload>(
+                        received.event.payload,
+                        "decline"
+                    ) ?: return@inTransaction false
+                    sessionDao.upsertSession(decline.session.toEntity())
+                    sessionJoinRequestDao.upsertRequest(decline.request.toEntity())
+                }
+
+                RealtimeEventTypes.MESSAGE_CREATED,
+                RealtimeEventTypes.ANNOUNCEMENT_CREATED -> {
+                    payload<MessagePayload>(received.event.payload, "message")?.let {
+                        messageDao.upsertMessage(it.toEntity())
+                    } ?: return@inTransaction false
+                }
+
+                RealtimeEventTypes.DISPLAY_RENDERED,
+                RealtimeEventTypes.DISPLAY_RESTORED,
+                RealtimeEventTypes.DISPLAY_CLEARED,
+                RealtimeEventTypes.DISPLAY_PINNED,
+                RealtimeEventTypes.DISPLAY_UNPINNED,
+                RealtimeEventTypes.DISPLAY_STATE -> {
+                    val state = payload<DisplayStatePayload>(
+                        received.event.payload,
+                        "displayState"
+                    ) ?: return@inTransaction false
+                    messageDao.clearDisplayedMessages(state.sessionId)
+                    state.currentMessageId?.let { messageDao.markDisplayed(it) }
+                    reliabilityStore.applyDisplayStateIfNewer(
+                        sessionId = state.sessionId,
+                        eventId = received.event.inReplyToEventId ?: received.event.eventId,
+                        currentMessageId = state.currentMessageId,
+                        isPinned = state.isPinned,
+                        displayMode = state.mode(),
+                        commandTimetoken = received.timetoken,
+                        now = System.currentTimeMillis()
+                    )
+                }
+
+                RealtimeEventTypes.SESSION_SNAPSHOT -> {
+                    val snapshot = payload<SessionSnapshotPayload>(
+                        received.event.payload,
+                        "snapshot"
+                    ) ?: return@inTransaction false
+                    sessionDao.upsertSession(snapshot.session.toEntity())
+                    snapshot.members.forEach { sessionDao.upsertMember(it.toEntity()) }
+                    snapshot.requests.forEach { sessionJoinRequestDao.upsertRequest(it.toEntity()) }
+                    snapshot.messages.forEach { messageDao.upsertMessage(it.toEntity()) }
+                }
+
+                else -> return@inTransaction false
             }
 
-            RealtimeEventTypes.MEMBER_JOINED -> {
-                payload<SessionMemberPayload>(received.event.payload, "member")?.let {
-                    sessionDao.upsertMember(it.toEntity())
-                } ?: return false
-            }
-
-            RealtimeEventTypes.FACILITATOR_REQUESTED,
-            RealtimeEventTypes.FACILITATOR_APPROVED,
-            RealtimeEventTypes.FACILITATOR_DECLINED,
-            RealtimeEventTypes.FACILITATOR_CANCELLED -> {
-                payload<SessionJoinRequestPayload>(received.event.payload, "request")?.let {
-                    sessionJoinRequestDao.upsertRequest(it.toEntity())
-                } ?: return false
-            }
-
-            RealtimeEventTypes.MESSAGE_CREATED,
-            RealtimeEventTypes.ANNOUNCEMENT_CREATED -> {
-                payload<MessagePayload>(received.event.payload, "message")?.let {
-                    messageDao.upsertMessage(it.toEntity())
-                } ?: return false
-            }
-
-            RealtimeEventTypes.DISPLAY_RENDERED,
-            RealtimeEventTypes.DISPLAY_RESTORED,
-            RealtimeEventTypes.DISPLAY_CLEARED,
-            RealtimeEventTypes.DISPLAY_PINNED,
-            RealtimeEventTypes.DISPLAY_UNPINNED,
-            RealtimeEventTypes.DISPLAY_STATE -> {
-                val state = payload<DisplayStatePayload>(
-                    received.event.payload,
-                    "displayState"
-                ) ?: return false
-                messageDao.clearDisplayedMessages(state.sessionId)
-                state.currentMessageId?.let { messageDao.markDisplayed(it) }
-                reliabilityStore.applyDisplayStateIfNewer(
-                    sessionId = state.sessionId,
-                    eventId = received.event.inReplyToEventId ?: received.event.eventId,
-                    currentMessageId = state.currentMessageId,
-                    isPinned = state.isPinned,
-                    displayMode = state.mode(),
-                    commandTimetoken = received.timetoken,
-                    now = System.currentTimeMillis()
-                )
-            }
-
-            RealtimeEventTypes.SESSION_SNAPSHOT -> {
-                val snapshot = payload<SessionSnapshotPayload>(
-                    received.event.payload,
-                    "snapshot"
-                ) ?: return false
-                sessionDao.upsertSession(snapshot.session.toEntity())
-                snapshot.members.forEach { sessionDao.upsertMember(it.toEntity()) }
-                snapshot.requests.forEach { sessionJoinRequestDao.upsertRequest(it.toEntity()) }
-                snapshot.messages.forEach { messageDao.upsertMessage(it.toEntity()) }
-            }
-
-            else -> return false
+            reliabilityStore.recordProcessedEvent(
+                received = received,
+                now = System.currentTimeMillis()
+            )
         }
-
-        return reliabilityStore.recordProcessedEvent(
-            received = received,
-            now = System.currentTimeMillis()
-        )
     }
 
     private suspend fun publish(

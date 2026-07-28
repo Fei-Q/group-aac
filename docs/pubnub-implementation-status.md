@@ -751,3 +751,64 @@ Starting commit: `216270b Add runtime session subscriptions`
 
 - The live PubNub history adapter path is still a placeholder in [`PubNubSessionRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/PubNubSessionRealtimeClient.kt): subscription replay is wired and unit-tested through fake/history-capable clients, but real PubNub fetch-after-cursor behavior still needs transport implementation in a later stage.
 - The legacy `PiClient` compatibility boundary still exists while the rest of the session and display flows continue migrating onto the realtime/outbox model.
+
+## Live Realtime Stage 6 - Cross-device facilitator approval
+
+Status: complete
+
+Date: 2026-07-28
+Branch: `feature/pubnub-live-integration`
+Starting commit: `6921bd3 Make realtime delivery durable`
+
+### Implemented
+
+- Added [`FacilitatorApprovalPayload`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/RealtimePayloads.kt) containing:
+  - approved request
+  - resulting `SessionMemberPayload`
+  - current `SessionPayload`
+- Added [`FacilitatorDeclinePayload`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/RealtimePayloads.kt) so private decline delivery stays explicit and symmetrical for requester-side handling.
+- Updated [`SessionRepository.approveJoinRequest()`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt) so host approval now atomically:
+  - marks the request `APPROVED`
+  - creates or updates the facilitator membership
+  - enqueues private `facilitator.approved` to `session.<sessionId>.<requesterUid>`
+  - enqueues public `member.joined` for roster propagation
+- Updated host decline handling so private `facilitator.declined` stays requester-specific and is staged in the same transaction as the request status update.
+- Updated [`DefaultSessionRealtimeSync`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSync.kt) so requester-side `facilitator.approved` applies:
+  - session shell
+  - facilitator membership
+  - approved request
+  - processed event
+  - channel cursor
+  in one transaction before the UI can activate the requester.
+- Kept requester activation in [`SessionCoordinatorViewModel`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/session/SessionCoordinatorViewModel.kt) and [`SessionRepository.activateApprovedFacilitatorRequest()`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt), but made that activation independent of receiving the separate public `member.joined` event first.
+- Preserved the public `member.joined` event as a roster update for other clients only.
+- Kept duplicate private approval delivery harmless through the existing processed-event deduplication path and idempotent upserts.
+
+### Added tests
+
+- [`SessionRepositoryTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/repository/SessionRepositoryTest.kt)
+  - host approval publishes the private approval payload and public roster event
+  - decline publishes the private decline path cleanly
+- [`DefaultSessionRealtimeSyncTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSyncTest.kt)
+  - self-contained host approval payload contents
+  - request/approval flow across separate databases
+  - atomic requester apply of session/member/request plus processed event and cursor
+  - requester activation without waiting for the public roster event
+  - public roster propagation through `member.joined`
+  - duplicate private approval delivery
+  - private decline handling
+
+### Verification
+
+- Focused Stage 6 verification:
+  - `./gradlew :app:testDebugUnitTest --tests "com.example.groupaac.data.realtime.sync.DefaultSessionRealtimeSyncTest" --tests "com.example.groupaac.data.repository.SessionRepositoryTest"`
+    - Passed on Tuesday, July 28, 2026.
+- Full verification:
+  - `./gradlew :app:assembleDebug :app:testDebugUnitTest`
+    - Passed on Tuesday, July 28, 2026.
+    - Final unit-test run completed `71` tests with `0` failures.
+
+### Notes
+
+- A live two-client runtime smoke test was not run during this stage because this environment did not provide two concurrently available app clients beyond the new separate-database unit coverage.
+- The requester-side activation guarantee now depends on the private approval payload rather than ordering assumptions between private and public channels, which removes the prior cross-device race.

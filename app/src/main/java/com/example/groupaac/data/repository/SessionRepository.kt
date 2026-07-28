@@ -586,22 +586,32 @@ class SessionRepository(
             if (updated == 0) {
                 false
             } else {
-                sessionDao.upsertMember(
-                    SessionMemberEntity(
-                        sessionId = request.sessionId,
-                        userId = request.userId,
-                        displayName = request.displayName,
-                        role = request.requestedRole,
-                        joinedAt = existingMember?.joinedAt ?: request.requestedAt
-                    )
+                val member = SessionMemberEntity(
+                    sessionId = request.sessionId,
+                    userId = request.userId,
+                    displayName = request.displayName,
+                    role = request.requestedRole,
+                    joinedAt = existingMember?.joinedAt ?: request.requestedAt
                 )
+                sessionDao.upsertMember(member)
                 val updatedRequest = sessionJoinRequestDao.getRequestById(requestId)
                     ?: request.copy(
                         status = JoinRequestStatus.APPROVED,
                         decidedAt = now,
                         decidedByUserId = decidedByUserId
                     )
-                sessionRealtimeSync.publishFacilitatorApproved(updatedRequest, decidedByUserId)
+                val currentSession = sessionDao.getSession(request.sessionId)
+                    ?: session
+                sessionRealtimeSync.publishFacilitatorApproved(
+                    request = updatedRequest,
+                    member = member,
+                    session = currentSession,
+                    actorUserId = decidedByUserId
+                )
+                sessionRealtimeSync.publishMemberJoined(
+                    session = currentSession,
+                    member = member
+                )
                 true
             }
         }
@@ -637,7 +647,11 @@ class SessionRepository(
                         decidedAt = now,
                         decidedByUserId = decidedByUserId
                     )
-                sessionRealtimeSync.publishFacilitatorDeclined(updatedRequest, decidedByUserId)
+                sessionRealtimeSync.publishFacilitatorDeclined(
+                    request = updatedRequest,
+                    session = session,
+                    actorUserId = decidedByUserId
+                )
                 true
             }
         }

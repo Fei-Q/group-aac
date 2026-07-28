@@ -10,6 +10,8 @@ import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
 import com.example.groupaac.data.realtime.reliability.NoOpOutboxDispatcher
+import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
+import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
 import com.example.groupaac.data.sessiondirectory.RemoteSessionRecord
@@ -272,8 +274,56 @@ class SessionRepositoryTest {
         )
     }
 
+    @Test
+    fun approvalPublishesPrivateApprovalAndPublicRosterUpdate() = runTest {
+        val sync = RecordingSessionRealtimeSync()
+        val fixture = sessionFixture(sessionRealtimeSync = sync)
+        val pending = fixture.repository.joinSession(
+            joinCode = fixture.session.joinCode,
+            userId = fixture.facilitator.uid,
+            displayName = fixture.facilitator.displayName,
+            requestedRole = SessionRole.FACILITATOR
+        ) as JoinSessionResult.AwaitingApproval
+
+        val approved = fixture.repository.approveJoinRequest(
+            requestId = pending.request.id,
+            decidedByUserId = fixture.host.uid
+        )
+
+        assertTrue(approved)
+        assertNotNull(sync.facilitatorApproved)
+        assertNotNull(sync.memberJoined)
+        assertEquals(pending.request.id, sync.facilitatorApproved?.request?.id)
+        assertEquals(fixture.facilitator.uid, sync.facilitatorApproved?.member?.userId)
+        assertEquals(SessionRole.FACILITATOR, sync.facilitatorApproved?.member?.role)
+        assertEquals(fixture.session.id, sync.memberJoined?.first?.id)
+    }
+
+    @Test
+    fun declinePublishesPrivateDecline() = runTest {
+        val sync = RecordingSessionRealtimeSync()
+        val fixture = sessionFixture(sessionRealtimeSync = sync)
+        val pending = fixture.repository.joinSession(
+            joinCode = fixture.session.joinCode,
+            userId = fixture.facilitator.uid,
+            displayName = fixture.facilitator.displayName,
+            requestedRole = SessionRole.FACILITATOR
+        ) as JoinSessionResult.AwaitingApproval
+
+        val declined = fixture.repository.declineJoinRequest(
+            requestId = pending.request.id,
+            decidedByUserId = fixture.host.uid
+        )
+
+        assertTrue(declined)
+        assertNotNull(sync.facilitatorDeclined)
+        assertEquals(pending.request.id, sync.facilitatorDeclined?.first?.id)
+        assertEquals(fixture.session.id, sync.facilitatorDeclined?.second?.id)
+    }
+
     private fun sessionFixture(
-        seedLocalSession: Boolean = true
+        seedLocalSession: Boolean = true,
+        sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
     ): SessionFixture {
         val sessionDao = FakeSessionDao()
         val joinRequestDao = FakeSessionJoinRequestDao()
@@ -339,9 +389,9 @@ class SessionRepositoryTest {
             sessionJoinRequestDao = joinRequestDao,
             userDao = userDao,
             activeSessionStore = activeSessionStore,
-            sessionDirectory = sessionDirectory
-            ,
-            outboxDispatcher = NoOpOutboxDispatcher
+            sessionDirectory = sessionDirectory,
+            outboxDispatcher = NoOpOutboxDispatcher,
+            sessionRealtimeSync = sessionRealtimeSync
         )
 
         return SessionFixture(
@@ -399,6 +449,43 @@ private data class SessionFixture(
     val participant: UserEntity,
     val facilitator: UserEntity
 )
+
+private class RecordingSessionRealtimeSync : SessionRealtimeSync by NoOpSessionRealtimeSync {
+    data class ApprovalCall(
+        val request: SessionJoinRequestEntity,
+        val member: SessionMemberEntity,
+        val session: SessionEntity,
+        val actorUserId: String
+    )
+
+    var facilitatorApproved: ApprovalCall? = null
+    var memberJoined: Pair<SessionEntity, SessionMemberEntity>? = null
+    var facilitatorDeclined: Pair<SessionJoinRequestEntity, SessionEntity>? = null
+
+    override suspend fun publishFacilitatorApproved(
+        request: SessionJoinRequestEntity,
+        member: SessionMemberEntity,
+        session: SessionEntity,
+        actorUserId: String
+    ) {
+        facilitatorApproved = ApprovalCall(request, member, session, actorUserId)
+    }
+
+    override suspend fun publishMemberJoined(
+        session: SessionEntity,
+        member: SessionMemberEntity
+    ) {
+        memberJoined = session to member
+    }
+
+    override suspend fun publishFacilitatorDeclined(
+        request: SessionJoinRequestEntity,
+        session: SessionEntity,
+        actorUserId: String
+    ) {
+        facilitatorDeclined = request to session
+    }
+}
 
 private class FakeSessionDao : SessionDao {
     private val sessions = linkedMapOf<String, SessionEntity>()

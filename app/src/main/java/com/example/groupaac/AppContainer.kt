@@ -75,6 +75,7 @@ class AppContainer(context: Context) {
         reliabilityDao = database.reliabilityDao()
     )
     val sessionRealtimeSync = DefaultSessionRealtimeSync(
+        transactionRunner = RoomTransactionRunner(database),
         sessionDao = database.sessionDao(),
         sessionJoinRequestDao = database.sessionJoinRequestDao(),
         messageDao = database.messageDao(),
