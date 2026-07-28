@@ -1,5 +1,5 @@
 {
-  "autoLatestShowCommand": {
+  "showAutoLatest": {
     "eventId": "cmd-show-auto-001",
     "type": "display.show_message",
     "sessionId": "session-abc",
@@ -20,14 +20,42 @@
           "text": "Gardening on Sunday",
           "attachmentId": null,
           "createdAt": 1785259198000,
-          "status": "DISPLAYED",
+          "status": "ACTIVE",
           "saved": false,
-          "displayedOnMonitor": true
+          "displayedOnMonitor": false
         }
       }
     }
   },
-  "manualRestoreCommand": {
+  "showManualPinnedReplacement": {
+    "eventId": "cmd-show-manual-001",
+    "type": "display.show_message",
+    "sessionId": "session-abc",
+    "actorUserId": "host_1",
+    "occurredAt": 1785259201000,
+    "payload": {
+      "display": {
+        "sessionId": "session-abc",
+        "displayMode": "APPROVAL_REQUIRED",
+        "isPinned": true,
+        "commandOrigin": "MANUAL_SHOW",
+        "message": {
+          "id": "msg-101",
+          "sessionId": "session-abc",
+          "senderUserId": "participant_2",
+          "senderName": "Participant Two",
+          "target": "GROUP",
+          "text": "Please show this one",
+          "attachmentId": null,
+          "createdAt": 1785259199000,
+          "status": "ACTIVE",
+          "saved": false,
+          "displayedOnMonitor": false
+        }
+      }
+    }
+  },
+  "restoreManual": {
     "eventId": "cmd-restore-001",
     "type": "display.restore_message",
     "sessionId": "session-abc",
@@ -42,14 +70,14 @@
         "message": {
           "id": "msg-099",
           "sessionId": "session-abc",
-          "senderUserId": "participant_2",
-          "senderName": "Participant Two",
+          "senderUserId": "participant_3",
+          "senderName": "Participant Three",
           "target": "GROUP",
-          "text": "Please repeat that",
+          "text": "Restore this content",
           "attachmentId": null,
           "createdAt": 1785259197000,
-          "status": "DISPLAYED",
-          "saved": false,
+          "status": "ACTIVE",
+          "saved": true,
           "displayedOnMonitor": true
         }
       }
@@ -136,6 +164,23 @@
       }
     }
   },
+  "restoredAck": {
+    "eventId": "ack-restored-001",
+    "type": "display.restored",
+    "sessionId": "session-abc",
+    "actorUserId": "display-1",
+    "occurredAt": 1785259203500,
+    "inReplyToEventId": "cmd-restore-001",
+    "payload": {
+      "displayState": {
+        "sessionId": "session-abc",
+        "currentMessageId": "msg-099",
+        "isPinned": true,
+        "displayMode": "APPROVAL_REQUIRED",
+        "commandOrigin": "MANUAL_RESTORE"
+      }
+    }
+  },
   "unpinnedAck": {
     "eventId": "ack-unpinned-001",
     "type": "display.unpinned",
@@ -178,6 +223,25 @@
     "occurredAt": 1785259213000,
     "inReplyToEventId": "cmd-show-auto-002",
     "payload": {
+      "reason": "pinned_auto_latest_rejected",
+      "displayState": {
+        "sessionId": "session-abc",
+        "currentMessageId": "msg-100",
+        "isPinned": true,
+        "displayMode": "APPROVAL_REQUIRED",
+        "commandOrigin": "MANUAL_SHOW"
+      }
+    }
+  },
+  "failedStaleCommand": {
+    "eventId": "ack-failed-002",
+    "type": "display.failed",
+    "sessionId": "session-abc",
+    "actorUserId": "display-1",
+    "occurredAt": 1785259213500,
+    "inReplyToEventId": "cmd-show-stale-001",
+    "payload": {
+      "reason": "stale_or_duplicate_command",
       "displayState": {
         "sessionId": "session-abc",
         "currentMessageId": "msg-100",

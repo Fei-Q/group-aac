@@ -1,20 +1,28 @@
 # Pi Display Protocol Contract
 
 Date: 2026-07-28
-Status: Android-side contract only. Raspberry Pi implementation is not present in this repository.
+Status: Android-side contract and Python Pi test-consumer handoff
+
+## Scope
+
+This repository does not contain production Raspberry Pi code. The current handoff target is:
+
+- shared protocol semantics implemented on Android in [DefaultSessionRealtimeSync](../app/src/main/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSync.kt)
+- deterministic consumer behavior modeled in [backend/pi_test_consumer.py](../backend/pi_test_consumer.py)
+- JSON fixtures in [pi-display-protocol-fixtures.json](./pi-display-protocol-fixtures.json)
 
 ## Channels
 
 - `session.<sessionId>.display`
-  - Android facilitator/host publishes explicit display commands for the active session.
+  - Android facilitator/host publishes display commands here.
 - `session.<sessionId>.display.events`
-  - Raspberry Pi publishes acknowledgements and current display state updates.
+  - Pi publishes acknowledgements and state reconciliation events here.
 - `display.<displayId>.control`
-  - Reserved for device bind/unbind control outside the session-specific display flow.
+  - Reserved for future device enrollment or out-of-band control.
 
 ## Event Envelope
 
-All messages use the canonical realtime envelope already implemented on Android:
+Every command and acknowledgement uses the canonical realtime envelope:
 
 ```json
 {
@@ -29,158 +37,146 @@ All messages use the canonical realtime envelope already implemented on Android:
 }
 ```
 
-Transport metadata is outside the payload:
+Transport metadata is separate from the payload:
 
-- PubNub channel name
+- channel name
 - PubNub timetoken
 - optional publisher user ID
 
-The Pi should compare timetokens only within the display acknowledgement and reconciliation stream for a given session.
-Android optimistic display updates use local timestamps separately and must never be compared against PubNub timetokens.
+## Display Mode Rules
+
+- New sessions copy the account default at creation time:
+  - `monitorRequireManualApproval = false` -> `AUTO_LATEST`
+  - `monitorRequireManualApproval = true` -> `APPROVAL_REQUIRED`
+- After session creation, the live session mode comes from `SessionEntity.displayMode`, not from the account preference.
+- Android publishes both:
+  - `session.settings_changed` on the session public channel
+  - `display.mode_changed` on the session display channel
+
+## Command Origin Rules
+
+Supported command origins:
+
+- `AUTO_LATEST`
+- `MANUAL_SHOW`
+- `MANUAL_RESTORE`
+
+Required behavior:
+
+- while pinned, reject `AUTO_LATEST` replacement
+- while pinned, allow `MANUAL_SHOW`
+- while pinned, allow `MANUAL_RESTORE`
+- manual replacement keeps the display pinned to the newly selected content
+- unpin keeps current content visible
+- clear removes current content and also clears pin state
 
 ## Commands
 
 ### `display.show_message`
 
-Purpose:
-- Render a group message as the current focal shared-display item.
-
-Requirements:
-- Payload must include a full message snapshot.
-- Pi must not assume it already received `message.created`.
-- Payload includes `commandOrigin = AUTO_LATEST`.
-- If the current content is pinned, the Pi must reject this automatic replacement and publish `display.failed`.
+- Sent for eligible group messages only
+- Never auto-display:
+  - private messages
+  - notes
+  - profiles
+  - AAC signals
+- Payload key: `display`
+- Payload includes:
+  - `sessionId`
+  - `displayMode`
+  - `isPinned`
+  - `commandOrigin`
+  - fully renderable message snapshot
 
 ### `display.restore_message`
 
-Purpose:
-- Re-render a previously displayed message by explicit facilitator action.
-
-Requirements:
-- Payload shape matches `display.show_message`.
-- Payload includes `commandOrigin = MANUAL_RESTORE`.
-- Manual restore is allowed even while pinned. The selected content becomes the new pinned content.
-
-### Manual show origin
-
-- Explicit facilitator Show uses `commandOrigin = MANUAL_SHOW`.
-- Manual Show is allowed even while pinned. The selected content becomes the new pinned content.
+- Explicit facilitator restore of a previously shown message
+- Uses the same payload shape as `display.show_message`
+- `commandOrigin` must be `MANUAL_RESTORE`
 
 ### `display.pin_message`
 
-Purpose:
-- Mark the currently displayed message as pinned.
-
-Requirements:
-- Payload includes the `currentMessageId`.
-- While pinned, the Pi should reject older or equal-timetoken replacement commands.
+- Payload key: `displayState`
+- Must include current `currentMessageId`
+- Marks the current item pinned
 
 ### `display.unpin_message`
 
-Purpose:
-- Remove the pin while keeping the current message visible.
-
-Requirements:
-- The current content must remain visible after unpin succeeds.
+- Payload key: `displayState`
+- Keeps the current content visible while removing the pin
 
 ### `display.clear`
 
-Purpose:
-- Clear the current focal content without unbinding the display from the session.
-
-Requirements:
-- Clearing must also remove the active pin.
-- Clearing leaves the display bound to the session and sets `currentMessageId = null`.
+- Payload key: `displayState`
+- Clears visible content and removes the pin
 
 ### `display.mode_changed`
 
-Purpose:
-- Reconcile the live session display mode without treating the account preference as the live session setting.
+- Payload key: `displayState`
+- Announces the live session display mode and optionally the current message/pin/origin state
 
-Requirements:
-- Payload includes the current `displayMode`.
-- Payload may include the current `currentMessageId`, `isPinned`, and `commandOrigin` when known.
-- `APPROVAL_REQUIRED` means the Pi must not auto-advance to new group messages without an explicit manual Show or Restore.
+## Acknowledgements
 
-## Acknowledgements And State Reports
+Pi acknowledgements use `inReplyToEventId` to point back to the command event:
 
-### `display.rendered`
+- `display.rendered`
+- `display.restored`
+- `display.cleared`
+- `display.pinned`
+- `display.unpinned`
+- `display.failed`
+- `display.state`
 
-Purpose:
-- Confirm that `display.show_message` was rendered.
+`display.failed` should be used for:
 
-Requirements:
-- Set `inReplyToEventId` to the originating command event ID.
+- pinned automatic replacement rejection
+- malformed payloads
+- unsupported commands
+- stale command rejection
+- rendering failures
 
-### `display.restored`
+## Ordering And Freshness
 
-Purpose:
-- Confirm that `display.restore_message` was rendered.
+- PubNub timetokens are ordering metadata only.
+- Never compare `System.currentTimeMillis()` with a PubNub timetoken.
+- Android stores `lastAppliedCommandTimetoken` in `display_state`.
+- Pi should reject a command whose timetoken is older than or equal to the last accepted command timetoken for that session.
+- Android checks acknowledgement freshness first, then transactionally updates:
+  - `display_state`
+  - message display flags
+  - processed event row
+  - channel cursor
+- A stale acknowledgement must not change Room display flags.
 
-Requirements:
-- Set `inReplyToEventId` to the originating command event ID.
+## Python Pi Consumer Behavior
 
-### `display.cleared`
+[backend/pi_test_consumer.py](../backend/pi_test_consumer.py) currently models:
 
-Purpose:
-- Confirm that focal content was cleared.
+- duplicate event-id rejection
+- stale timetoken rejection
+- pinned `AUTO_LATEST` rejection
+- show/restore pin preservation
+- unpin-without-clearing semantics
+- clear-removes-pin semantics
+- acknowledgement publication on the display-events channel
 
-Requirements:
-- Set `inReplyToEventId` to the originating command event ID.
+It is not yet a live PubNub subscriber. It is a protocol reference and deterministic test harness.
 
-### `display.pinned`
+## Physical Pi Handoff
 
-Purpose:
-- Confirm that the current message is pinned.
+When replacing the Python harness with a physical Pi implementation, preserve:
 
-Requirements:
-- Set `inReplyToEventId` to the originating command event ID.
+- channel names
+- payload keys (`display`, `displayState`)
+- acknowledgement types
+- `inReplyToEventId` usage
+- timetoken ordering rules
+- pinned automatic rejection
+- manual replacement semantics
 
-### `display.unpinned`
+Recommended next implementation step:
 
-Purpose:
-- Confirm that the current message remains visible but is no longer pinned.
-
-Requirements:
-- Set `inReplyToEventId` to the originating command event ID.
-
-### `display.state`
-
-Purpose:
-- Report the Pi's current display state during reconnect or reconciliation.
-
-Payload requirements:
-- `sessionId`
-- `currentMessageId` or `null`
-- `isPinned`
-- `displayMode`
-- `commandOrigin` when focal content exists
-
-### `display.failed`
-
-Purpose:
-- Report that a display command was rejected or could not be rendered.
-
-Requirements:
-- Set `inReplyToEventId` to the originating command event ID.
-- Include the post-failure display state.
-- Use this for pinned automatic rejection, malformed payloads, or rendering failures.
-
-## Ordering Rules
-
-- Android stores the last applied display command timetoken in Room.
-- Pi should reject a command whose timetoken is older than or equal to the last applied command timetoken for that session.
-- Acknowledgements should reflect the post-command state and reference the source command through `inReplyToEventId`.
-- State reconciliation through `display.state` should report the Pi's current post-command state and latest accepted ordering.
-
-## Current Android Expectations
-
-- Only eligible group messages auto-display.
-- Private facilitator messages, notes, profile data, and AAC signals must never auto-display.
-- New sessions default to `AUTO_LATEST`.
-- `APPROVAL_REQUIRED` remains an advanced session setting.
-- While pinned, Android expects automatic replacement to be rejected but manual Show and Restore to succeed.
-
-## Fixtures
-
-Companion JSON fixtures live in [`docs/pi-display-protocol-fixtures.json`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/docs/pi-display-protocol-fixtures.json).
+1. Subscribe to `session.<sessionId>.display`.
+2. Persist `currentMessageId`, `isPinned`, and `lastCommandTimetoken`.
+3. Emit acknowledgements on `session.<sessionId>.display.events`.
+4. Use [pi-display-protocol-fixtures.json](./pi-display-protocol-fixtures.json) as the initial fixture pack.
