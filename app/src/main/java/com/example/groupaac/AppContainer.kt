@@ -9,9 +9,13 @@ import com.example.groupaac.data.prefs.AppPreferences
 import com.example.groupaac.data.realtime.AccountScopedRealtimeClientManager
 import com.example.groupaac.data.realtime.DelegatingPiClient
 import com.example.groupaac.data.realtime.FakeSessionRealtimeClient
+import com.example.groupaac.data.realtime.InactiveSessionRealtimeClient
+import com.example.groupaac.data.realtime.NoOpPubNubTokenProvider
 import com.example.groupaac.data.realtime.PubNubConfigProvider
 import com.example.groupaac.data.realtime.PubNubRuntimeConfig
+import com.example.groupaac.data.realtime.PubNubSessionRealtimeClientFactory
 import com.example.groupaac.data.realtime.RealtimeClientManager
+import com.example.groupaac.data.realtime.RealtimeStartupInitializer
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.data.realtime.sync.DefaultSessionRealtimeSync
 import com.example.groupaac.data.repository.AccountRepository
@@ -28,16 +32,33 @@ import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
 import com.example.groupaac.data.sessiondirectory.HttpGroupAacApi
 import com.example.groupaac.data.sessiondirectory.RemoteSessionDirectory
 import com.example.groupaac.data.sessiondirectory.SessionDirectory
+import kotlinx.coroutines.runBlocking
 
 class AppContainer(context: Context) {
     val database: AppDatabase = AppDatabase.create(context)
     val preferences = AppPreferences(context)
     val attachmentStorage = AttachmentStorage(context)
     val pubNubConfig: PubNubRuntimeConfig = PubNubConfigProvider.fromBuildConfig()
+    private val pubNubRealtimeClientFactory = PubNubSessionRealtimeClientFactory(
+        runtimeConfig = pubNubConfig,
+        tokenProvider = NoOpPubNubTokenProvider()
+    )
     val realtimeClientManager: RealtimeClientManager =
         AccountScopedRealtimeClientManager(
-            defaultClientFactory = { FakeSessionRealtimeClient() },
-            clientFactory = { FakeSessionRealtimeClient() }
+            defaultClientFactory = {
+                if (pubNubConfig.isConfigured) {
+                    InactiveSessionRealtimeClient()
+                } else {
+                    FakeSessionRealtimeClient()
+                }
+            },
+            clientFactory = { uid ->
+                if (pubNubConfig.isConfigured) {
+                    pubNubRealtimeClientFactory.create(uid)
+                } else {
+                    FakeSessionRealtimeClient()
+                }
+            }
         )
     val piClient: PiClient = DelegatingPiClient(realtimeClientManager)
     val userIdRegistry = LocalUserIdRegistry(database)
@@ -90,7 +111,6 @@ class AppContainer(context: Context) {
         messageDao = database.messageDao(),
         sessionDao = database.sessionDao(),
         userDao = database.userDao(),
-        piClient = piClient,
         reliabilityDao = database.reliabilityDao(),
         reliabilityStore = realtimeReliabilityStore,
         sessionRealtimeSync = sessionRealtimeSync
@@ -118,4 +138,13 @@ class AppContainer(context: Context) {
         signalDao = database.statusSignalDao(),
         messageDao = database.messageDao()
     )
+
+    init {
+        runBlocking {
+            RealtimeStartupInitializer(
+                activeUserId = preferences.activeUserId,
+                realtimeClientManager = realtimeClientManager
+            ).initialize()
+        }
+    }
 }

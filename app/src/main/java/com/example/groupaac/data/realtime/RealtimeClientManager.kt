@@ -24,7 +24,7 @@ class NoOpPubNubTokenProvider : PubNubTokenProvider {
 
 class AccountScopedRealtimeClientManager(
     private val defaultClientFactory: () -> SessionRealtimeClient,
-    private val clientFactory: (String) -> SessionRealtimeClient,
+    private val clientFactory: suspend (String) -> SessionRealtimeClient,
     private val sessionAuthority: SessionAuthority = AllowAllSessionAuthority()
 ) : RealtimeClientManager {
     private var activeUid: String? = null
@@ -37,9 +37,11 @@ class AccountScopedRealtimeClientManager(
         check(sessionAuthority.canActivate(uid)) {
             "Realtime activation denied for $uid."
         }
-        activeClient.close()
+        val nextClient = clientFactory(uid)
+        val previousClient = activeClient
         activeUid = uid
-        activeClient = clientFactory(uid)
+        activeClient = nextClient
+        previousClient.close()
     }
 
     override suspend fun deactivateUser() {

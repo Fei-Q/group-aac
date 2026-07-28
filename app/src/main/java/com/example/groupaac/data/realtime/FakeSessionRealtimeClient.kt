@@ -9,6 +9,8 @@ import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -17,6 +19,9 @@ class FakeSessionRealtimeClient : SessionRealtimeClient {
     val publishedEvents = mutableListOf<ReceivedRealtimeEvent>()
     private val events = MutableSharedFlow<ReceivedRealtimeEvent>(
         extraBufferCapacity = 32
+    )
+    private val connectionState = MutableStateFlow<RealtimeConnectionState>(
+        RealtimeConnectionState.Connected
     )
     private var nextTimetoken = 1_000L
 
@@ -47,9 +52,14 @@ class FakeSessionRealtimeClient : SessionRealtimeClient {
             .map { it }
     }
 
+    override fun observeConnectionState(): StateFlow<RealtimeConnectionState> =
+        connectionState
+
     override fun observeSessionEvents(sessionId: String): Flow<PiSessionEvent> {
         return flowOf(PiSessionEvent.Connected)
     }
 
-    override suspend fun close() = Unit
+    override suspend fun close() {
+        connectionState.value = RealtimeConnectionState.Disconnected
+    }
 }

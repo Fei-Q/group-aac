@@ -46,7 +46,7 @@ class RealtimeClientManagerTest {
     }
 
     @Test
-    fun deactivateCreatesFreshDefaultClient() = runTest {
+    fun deactivateClosesActiveClientForSignOut() = runTest {
         val manager = AccountScopedRealtimeClientManager(
             defaultClientFactory = { RecordingRealtimeClient() },
             clientFactory = { RecordingRealtimeClient() }
@@ -54,9 +54,11 @@ class RealtimeClientManagerTest {
 
         val initial = manager.requireClient()
         manager.activateUser("alice")
+        val aliceClient = manager.requireClient() as RecordingRealtimeClient
         manager.deactivateUser()
 
         assertTrue((initial as RecordingRealtimeClient).closed)
+        assertTrue(aliceClient.closed)
         assertTrue(manager.requireClient() is RecordingRealtimeClient)
     }
 }

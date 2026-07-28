@@ -39,20 +39,20 @@ class AccountRepository(
             )
         )
         if (result is CreateAccountResult.Success) {
-            preferences.setActiveUser(result.user.uid)
             realtimeClientManager.activateUser(result.user.uid)
+            preferences.setActiveUser(result.user.uid)
         }
         return result
     }
 
     suspend fun switchUser(userId: String) {
-        preferences.setActiveUser(userId)
         realtimeClientManager.activateUser(userId)
+        preferences.setActiveUser(userId)
     }
 
     suspend fun signOut() {
-        preferences.setActiveUser(null)
         realtimeClientManager.deactivateUser()
+        preferences.setActiveUser(null)
     }
 
     suspend fun updateDisplayName(userId: String, displayName: String) {

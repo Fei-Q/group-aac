@@ -8,7 +8,6 @@ import com.example.groupaac.data.entity.MessageEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.UserEntity
-import com.example.groupaac.data.pi.MockPiClient
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.model.DisplayMode
@@ -77,7 +76,6 @@ class MessageRepositoryDisplayTest {
             messageDao = database.messageDao(),
             sessionDao = database.sessionDao(),
             userDao = database.userDao(),
-            piClient = MockPiClient(),
             reliabilityDao = database.reliabilityDao(),
             reliabilityStore = RealtimeReliabilityStore(
                 database = database,

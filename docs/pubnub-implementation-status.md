@@ -561,3 +561,71 @@ Branch: `feature/pubnub-live-integration`
 - Backend tests currently use SQLite in-memory for determinism, while runtime configuration remains PostgreSQL-compatible through `GROUP_AAC_DATABASE_URL`.
 - The default backend runtime database file `group_aac_backend.db` is ignored and is not committed.
 - Production authentication, authorization, and PubNub token issuance remain deferred to later stages by design.
+
+## Live Realtime Stage 3 - Live PubNub transport
+
+Status: complete
+
+Date: 2026-07-28
+Branch: `feature/pubnub-live-integration`
+
+### Implemented
+
+- Added [`PubNubSessionRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/PubNubSessionRealtimeClient.kt) backed by the existing `com.pubnub:pubnub-kotlin` dependency.
+- Added one-client-per-active-UID realtime creation through [`PubNubSessionRealtimeClientFactory`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/PubNubSessionRealtimeClient.kt) using the active app UID as the PubNub `UserId`.
+- PubNub publish now sends canonical realtime envelopes and returns the accepted PubNub timetoken to the caller.
+- PubNub subscribe now converts incoming channel messages into [`ReceivedRealtimeEvent`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/protocol/RealtimeEvent.kt) via the canonical codec, with malformed payloads surfaced as failure state instead of crashing the client.
+- Added explicit realtime connection-state exposure in [`SessionRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/SessionRealtimeClient.kt):
+  - `Connecting`
+  - `Connected`
+  - `Reconnecting`
+  - `Disconnected`
+  - `Failed`
+- `close()` on the live client now closes subscriptions, unsubscribes, disconnects, and destroys the underlying PubNub client.
+- Kept all blocking PubNub initialization and teardown work off the Android main thread through the new transport factory/dispatcher path.
+- Preserved [`FakeSessionRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/FakeSessionRealtimeClient.kt) for tests and previews.
+- Added [`InactiveSessionRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/InactiveSessionRealtimeClient.kt) so configured builds do not silently fall back to the fake before a real user-specific client is activated.
+- Updated [`AccountScopedRealtimeClientManager`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/RealtimeClientManager.kt) to create the next user client before closing the previous one, preventing silent loss of the active client on initialization failure.
+- Updated [`AppContainer`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/AppContainer.kt) to:
+  - build real PubNub clients when runtime keys are configured
+  - keep `PubNubTokenProvider` in the construction path for future backend-issued tokens
+  - activate a persisted active UID during startup through [`RealtimeStartupInitializer`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/RealtimeStartupInitializer.kt) before active-session restoration begins
+- Reordered account activation in [`AccountRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/AccountRepository.kt) so realtime activation succeeds before the active-user preference is rewritten.
+- Removed duplicate legacy publication paths where actions were being sent both through `PiClient` and `SessionRealtimeSync`:
+  - message sends
+  - display show/restore/pin/unpin/clear
+  - initial host/participant join publication paths that were already represented canonically
+
+### Verification
+
+- `./gradlew :app:assembleDebug`
+  - Failed first on Tuesday, July 28, 2026, due to new PubNub adapter compile issues:
+    - generic inference on the per-channel shared flow
+    - a visibility leak from an internal transport test hook
+    - a Kotlin callback/property mismatch on the PubNub subscription listener
+  - Passed on Tuesday, July 28, 2026, after those focused repairs.
+- `./gradlew :app:testDebugUnitTest`
+  - Failed first on Tuesday, July 28, 2026, for the same initial PubNub adapter compile issues.
+  - Failed second on Tuesday, July 28, 2026, because [`PubNubSessionRealtimeClientTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/PubNubSessionRealtimeClientTest.kt) emitted before its collector was fully active.
+  - Passed on Tuesday, July 28, 2026, after the adapter fixes and the test-timing repair.
+  - Final unit-test run completed `49` tests with `0` failures.
+
+### Added tests
+
+- [`PubNubSessionRealtimeClientTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/PubNubSessionRealtimeClientTest.kt)
+  - canonical event serialization passed to the PubNub adapter
+  - accepted timetoken returned
+  - incoming event parsing
+  - malformed input handling
+  - connection-state updates
+- [`RealtimeClientManagerTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/RealtimeClientManagerTest.kt)
+  - account switch closes the old realtime client
+  - sign-out/deactivation closes the active realtime client
+- [`RealtimeStartupInitializerTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/RealtimeStartupInitializerTest.kt)
+  - persisted UID activation on startup
+
+### Notes
+
+- Local `pubnub.properties` credentials were present on Tuesday, July 28, 2026.
+- A PubNub Debug Console publish/receive smoke test was not executed in this noninteractive environment because it requires direct access to the PubNub web console and external service interaction beyond the local automated test path.
+- `pubnub.properties` remains ignored, and no secret key was added to Android configuration.

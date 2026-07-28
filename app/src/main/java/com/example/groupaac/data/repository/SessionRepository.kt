@@ -171,14 +171,6 @@ class SessionRepository(
             sessionId = session.id
         )
 
-        piClient.joinSession(
-            PiJoinRequest(
-                sessionCode = session.joinCode,
-                userId = ownerUserId,
-                displayName = cleanDisplayName,
-                role = SessionRole.HOST
-            )
-        )
         sessionRealtimeSync.publishSessionStarted(session, ownerUserId)
         sessionRealtimeSync.publishMemberJoined(session, member)
 
@@ -461,14 +453,6 @@ class SessionRepository(
                     sessionId = session.id
                 )
 
-                piClient.joinSession(
-                    PiJoinRequest(
-                        sessionCode = cleanCode,
-                        userId = userId,
-                        displayName = cleanDisplayName,
-                        role = SessionRole.PARTICIPANT
-                    )
-                )
                 sessionRealtimeSync.publishMemberJoined(session, member)
 
                 JoinSessionResult.Joined(

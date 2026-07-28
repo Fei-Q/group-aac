@@ -8,9 +8,6 @@ import com.example.groupaac.data.dao.SessionDao
 import com.example.groupaac.data.dao.UserDao
 import com.example.groupaac.data.entity.DisplayStateEntity
 import com.example.groupaac.data.entity.MessageEntity
-import com.example.groupaac.data.pi.DisplayCommand
-import com.example.groupaac.data.pi.PiClient
-import com.example.groupaac.data.pi.PiMessagePayload
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
@@ -25,7 +22,6 @@ class MessageRepository(
     private val messageDao: MessageDao,
     private val sessionDao: SessionDao,
     private val userDao: UserDao,
-    private val piClient: PiClient,
     private val reliabilityDao: ReliabilityDao,
     private val reliabilityStore: RealtimeReliabilityStore,
     private val sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
@@ -89,14 +85,6 @@ class MessageRepository(
             message.id
         }
 
-        sendMessageToPi(
-            id = messageId,
-            sessionId = sessionId,
-            senderUserId = senderUserId,
-            target = target,
-            text = cleanText,
-            createdAt = sentAt
-        )
         val storedMessage = messageDao.getMessage(messageId)
         if (storedMessage != null) {
             val senderName = sessionDao.getMember(sessionId, senderUserId)?.displayName
@@ -194,7 +182,6 @@ class MessageRepository(
             commandTimetoken = System.currentTimeMillis(),
             now = TimeUtils.now()
         )
-        piClient.sendDisplayCommand(DisplayCommand.PinMessage(sessionId, messageId))
         val session = sessionDao.getSession(sessionId) ?: return
         val actorUserId = session.hostUserId ?: messageDao.getMessage(messageId)?.senderUserId ?: return
         sessionRealtimeSync.publishDisplayPinState(
@@ -219,7 +206,6 @@ class MessageRepository(
             commandTimetoken = System.currentTimeMillis(),
             now = TimeUtils.now()
         )
-        piClient.sendDisplayCommand(DisplayCommand.UnpinMessage(sessionId, messageId))
         val session = sessionDao.getSession(sessionId) ?: return
         val actorUserId = session.hostUserId ?: messageDao.getMessage(messageId)?.senderUserId ?: return
         sessionRealtimeSync.publishDisplayPinState(
@@ -242,7 +228,6 @@ class MessageRepository(
             commandTimetoken = System.currentTimeMillis(),
             now = TimeUtils.now()
         )
-        piClient.sendDisplayCommand(DisplayCommand.Clear(sessionId))
         val session = sessionDao.getSession(sessionId) ?: return
         val actorUserId = session.hostUserId ?: return
         sessionRealtimeSync.publishDisplayClear(
@@ -257,32 +242,6 @@ class MessageRepository(
     suspend fun deleteDraft(messageId: String) {
         messageDao.deleteAttachmentsForMessage(messageId)
         messageDao.deleteMessage(messageId)
-    }
-
-    private suspend fun sendMessageToPi(
-        id: String,
-        sessionId: String,
-        senderUserId: String,
-        target: MessageTarget,
-        text: String,
-        createdAt: Long
-    ) {
-        val senderName = sessionDao.getMember(sessionId, senderUserId)?.displayName
-            ?: userDao.getUser(senderUserId)?.displayName
-            ?: "Unknown"
-
-        piClient.sendMessage(
-            PiMessagePayload(
-                id = id,
-                sessionId = sessionId,
-                senderUserId = senderUserId,
-                senderName = senderName,
-                text = text,
-                attachmentId = null,
-                target = target.name,
-                createdAt = createdAt
-            )
-        )
     }
 
     private suspend fun maybeAutoDisplayMessage(
@@ -304,9 +263,6 @@ class MessageRepository(
             messageId = message.id,
             isPinned = false,
             displayMode = session.displayMode
-        )
-        piClient.sendDisplayCommand(
-            DisplayCommand.ShowMessage(message.sessionId, message.id)
         )
         sessionRealtimeSync.publishDisplayShowMessage(
             session = session,
@@ -332,13 +288,6 @@ class MessageRepository(
             messageId = messageId,
             isPinned = false,
             displayMode = session.displayMode
-        )
-        piClient.sendDisplayCommand(
-            if (restore) {
-                DisplayCommand.RestoreMessage(sessionId, messageId)
-            } else {
-                DisplayCommand.ShowMessage(sessionId, messageId)
-            }
         )
         sessionRealtimeSync.publishDisplayShowMessage(
             session = session,
