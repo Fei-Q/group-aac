@@ -1,9 +1,29 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
     id("com.google.dagger.hilt.android")
+}
+
+val pubNubProperties = Properties().apply {
+    val propertiesFile = rootProject.file("pubnub.properties")
+
+    if (propertiesFile.exists()) {
+        propertiesFile.inputStream().use(::load)
+    }
+}
+
+val pubNubPublishKey =
+    pubNubProperties.getProperty("PUBNUB_PUBLISH_KEY", "")
+
+val pubNubSubscribeKey =
+    pubNubProperties.getProperty("PUBNUB_SUBSCRIBE_KEY", "")
+
+fun pubNubProperty(name: String): String {
+    return pubNubProperties.getProperty(name, "")
 }
 
 android {
@@ -79,4 +99,6 @@ dependencies {
     ksp("com.google.dagger:hilt-android-compiler:2.52")
 
     implementation("io.coil-kt:coil-compose:2.7.0")
+
+    implementation("com.pubnub:pubnub-kotlin:13.4.1")
 }
