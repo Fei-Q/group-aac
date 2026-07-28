@@ -27,6 +27,9 @@ interface StatusSignalDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSignal(signal: StatusSignalEntity)
 
+    @Query("SELECT * FROM status_signals WHERE id = :signalId LIMIT 1")
+    suspend fun getSignal(signalId: String): StatusSignalEntity?
+
     @Query(
         """
         SELECT status_signals.id,
@@ -73,6 +76,22 @@ interface StatusSignalDao {
         sessionId: String,
         userId: String
     ): Flow<StatusSignalEntity?>
+
+    @Query(
+        """
+        SELECT *
+        FROM status_signals
+        WHERE sessionId = :sessionId
+            AND userId = :userId
+            AND state = 'CURRENT'
+        ORDER BY createdAt DESC
+        LIMIT 1
+        """
+    )
+    suspend fun getCurrentSignal(
+        sessionId: String,
+        userId: String
+    ): StatusSignalEntity?
 
     @Query(
         """

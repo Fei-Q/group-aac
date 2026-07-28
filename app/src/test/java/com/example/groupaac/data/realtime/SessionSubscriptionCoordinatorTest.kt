@@ -1,9 +1,11 @@
 package com.example.groupaac.data.realtime
 
 import com.example.groupaac.data.entity.MessageEntity
+import com.example.groupaac.data.entity.AttachmentEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
+import com.example.groupaac.data.entity.StatusSignalEntity
 import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeChannels
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
@@ -438,6 +440,11 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync {
         actorUserId: String
     ) = Unit
 
+    override suspend fun publishSessionSettingsChanged(
+        session: SessionEntity,
+        actorUserId: String
+    ) = Unit
+
     override suspend fun publishSessionEnded(
         session: SessionEntity,
         actorUserId: String
@@ -451,6 +458,37 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync {
     override suspend fun publishMemberJoined(
         session: SessionEntity,
         member: SessionMemberEntity
+    ) = Unit
+
+    override suspend fun publishMemberLeft(
+        session: SessionEntity,
+        member: SessionMemberEntity,
+        actorUserId: String
+    ) = Unit
+
+    override suspend fun publishMemberRemoved(
+        session: SessionEntity,
+        member: SessionMemberEntity,
+        actorUserId: String
+    ) = Unit
+
+    override suspend fun publishMemberDisplayNameChanged(
+        session: SessionEntity,
+        member: SessionMemberEntity,
+        actorUserId: String
+    ) = Unit
+
+    override suspend fun publishMemberRoleChanged(
+        session: SessionEntity,
+        member: SessionMemberEntity,
+        actorUserId: String
+    ) = Unit
+
+    override suspend fun publishHostTransferred(
+        session: SessionEntity,
+        newHostMember: SessionMemberEntity,
+        previousHostUserId: String,
+        actorUserId: String
     ) = Unit
 
     override suspend fun publishFacilitatorRequested(
@@ -482,9 +520,49 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync {
         target: MessageTarget
     ) = Unit
 
+    override suspend fun publishMessageDeleted(
+        message: MessageEntity,
+        actorUserId: String
+    ) = Unit
+
+    override suspend fun publishAnnouncementCreated(
+        message: MessageEntity,
+        senderName: String,
+        actorUserId: String
+    ) = Unit
+
+    override suspend fun publishAttachmentAvailable(
+        message: MessageEntity,
+        attachment: AttachmentEntity,
+        actorUserId: String
+    ) = Unit
+
+    override suspend fun publishAttachmentFailed(
+        message: MessageEntity,
+        attachment: AttachmentEntity,
+        actorUserId: String,
+        errorMessage: String?
+    ) = Unit
+
     override suspend fun publishSignalCreated(
-        signal: com.example.groupaac.data.entity.StatusSignalEntity,
+        signal: StatusSignalEntity,
         displayName: String
+    ) = Unit
+
+    override suspend fun publishSignalSnoozed(
+        signal: StatusSignalEntity,
+        facilitatorUserId: String
+    ) = Unit
+
+    override suspend fun publishSignalCleared(
+        signal: StatusSignalEntity,
+        actorUserId: String
+    ) = Unit
+
+    override suspend fun publishSnapshotRequested(
+        sessionId: String,
+        requesterUserId: String,
+        actorUserId: String
     ) = Unit
 
     override suspend fun publishSnapshot(

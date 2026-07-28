@@ -62,6 +62,7 @@ class OutboxDispatcherTest {
             sessionDao = database.sessionDao(),
             sessionJoinRequestDao = database.sessionJoinRequestDao(),
             messageDao = database.messageDao(),
+            statusSignalDao = database.statusSignalDao(),
             reliabilityDao = database.reliabilityDao(),
             reliabilityStore = store
         )

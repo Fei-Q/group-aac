@@ -52,6 +52,9 @@ interface MessageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAttachments(attachments: List<AttachmentEntity>)
 
+    @Query("SELECT * FROM attachments WHERE id = :attachmentId LIMIT 1")
+    suspend fun getAttachment(attachmentId: String): AttachmentEntity?
+
     @Transaction
     suspend fun upsertMessageWithAttachments(
         message: MessageEntity,
@@ -66,6 +69,18 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
     suspend fun getMessage(messageId: String): MessageEntity?
+
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE sessionId = :sessionId
+          AND status != 'DELETED'
+        ORDER BY createdAt ASC
+        """
+    )
+    suspend fun getMessagesForSession(
+        sessionId: String
+    ): List<MessageEntity>
 
     @Query("""
         SELECT messages.*, COALESCE(users.displayName, session_members.displayName, 'Unknown') AS senderName
@@ -115,6 +130,20 @@ interface MessageDao {
 
     @Query("DELETE FROM attachments WHERE messageId = :messageId")
     suspend fun deleteAttachmentsForMessage(messageId: String)
+
+    @Query(
+        """
+        UPDATE attachments
+        SET remoteUri = :remoteUri,
+            syncStatus = :syncStatus
+        WHERE id = :attachmentId
+        """
+    )
+    suspend fun updateAttachmentSyncState(
+        attachmentId: String,
+        remoteUri: String?,
+        syncStatus: String
+    )
 
     @Query("""
         UPDATE messages

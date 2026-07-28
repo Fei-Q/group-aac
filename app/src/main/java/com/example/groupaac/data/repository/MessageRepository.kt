@@ -260,8 +260,18 @@ class MessageRepository(
         outboxDispatcher.requestImmediateDispatch()
     }
 
-    suspend fun deleteMessage(messageId: String) =
-        messageDao.deleteMessage(messageId)
+    suspend fun deleteMessage(messageId: String) {
+        transactionRunner.inTransaction {
+            val message = messageDao.getMessage(messageId)
+                ?: return@inTransaction
+            messageDao.deleteMessage(messageId)
+            sessionRealtimeSync.publishMessageDeleted(
+                message = message,
+                actorUserId = message.senderUserId
+            )
+        }
+        outboxDispatcher.requestImmediateDispatch()
+    }
 
     suspend fun deleteDraft(messageId: String) {
         messageDao.deleteAttachmentsForMessage(messageId)

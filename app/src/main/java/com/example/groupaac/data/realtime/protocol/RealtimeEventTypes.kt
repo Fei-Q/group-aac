@@ -31,13 +31,15 @@ object RealtimeEventTypes {
     const val AAC_SIGNAL_SNOOZED = "aac.signal.snoozed"
     const val AAC_SIGNAL_CLEARED = "aac.signal.cleared"
 
-    const val DISPLAY_BIND_SESSION = "display.bind_session"
-    const val DISPLAY_UNBIND_SESSION = "display.unbind_session"
     const val DISPLAY_SHOW_MESSAGE = "display.show_message"
     const val DISPLAY_RESTORE_MESSAGE = "display.restore_message"
     const val DISPLAY_CLEAR = "display.clear"
     const val DISPLAY_PIN_MESSAGE = "display.pin_message"
     const val DISPLAY_UNPIN_MESSAGE = "display.unpin_message"
+
+    // Reserved for later shared-display transport and device capability stages.
+    const val DISPLAY_BIND_SESSION = "display.bind_session"
+    const val DISPLAY_UNBIND_SESSION = "display.unbind_session"
     const val DISPLAY_SHOW_ATTACHMENT = "display.show_attachment"
     const val DISPLAY_SHOW_ANNOUNCEMENT = "display.show_announcement"
     const val DISPLAY_PLAY_SOUND = "display.play_sound"
@@ -45,6 +47,7 @@ object RealtimeEventTypes {
     const val DISPLAY_SET_PARTICIPANT_LIST = "display.set_participant_list"
     const val DISPLAY_SET_THEME = "display.set_theme"
 
+    // Reserved for later display-device lifecycle and capability reporting.
     const val DISPLAY_CONNECTED = "display.connected"
     const val DISPLAY_DISCONNECTED = "display.disconnected"
     const val DISPLAY_RENDERED = "display.rendered"

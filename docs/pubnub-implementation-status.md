@@ -260,164 +260,112 @@ Status: complete
 
 Status: complete
 
+Date: 2026-07-28
+Branch: `feature/pubnub-live-integration`
+Starting commit: `3950a10 Complete cross-device facilitator approval`
+
 ### Implemented
 
-- Extended [`SessionRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/SessionRealtimeClient.kt) with generic canonical-event publishing and per-channel observation while preserving the existing Pi-oriented calls used by the current app flow.
-- Upgraded [`FakeSessionRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/FakeSessionRealtimeClient.kt) into an in-memory realtime bus that records published canonical events with synthetic timetokens for unit verification.
-- Added a repository-facing synchronization boundary in [`SessionRealtimeSync`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/SessionRealtimeSync.kt), plus a safe no-op default to preserve local behavior when realtime is unavailable.
-- Added canonical session/message payload DTOs and snapshot payload support in [`RealtimePayloads`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/RealtimePayloads.kt).
-- Added [`DefaultSessionRealtimeSync`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSync.kt) to:
-  - publish session lifecycle, membership, facilitator request/decision, message, and targeted snapshot events to the required channels
-  - enqueue and mark outbox events through the stage-6 reliability store
-  - apply incoming canonical events back into Room with processed-event deduplication and channel-cursor updates
-- Wired repositories to publish canonical events after their local-first writes:
+- Added explicit Android-side [`SessionStatus`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/model/SessionStatus.kt) and persisted it through:
+  - [`SessionEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/SessionEntity.kt)
+  - [`TypeConverters`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/TypeConverters.kt)
   - [`SessionRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt)
-  - [`MessageRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/MessageRepository.kt)
-- Added synchronization unit coverage in [`DefaultSessionRealtimeSyncTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSyncTest.kt).
-
-### Verification
-
-- `./gradlew :app:assembleDebug`
-  - Failed first because the new sync layer used helper names that did not match the existing `RealtimeChannels` and `RealtimeEventCodec` APIs.
-  - Failed second because the Kotlin serialization plugin had not yet been declared in the root Gradle plugin block for this project.
-  - Passed on Tuesday, July 28, 2026, after aligning the sync layer with the repo’s actual protocol helpers and registering the serialization plugin.
-- `./gradlew :app:testDebugUnitTest`
-  - Failed first because [`RecordingRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/RecordingRealtimeClient.kt) still implemented the older realtime-client surface.
-  - Failed second because the initial outbox assertion checked the retry queue rather than the persisted sent event.
-  - Passed on Tuesday, July 28, 2026, after updating the test double and asserting against the stored sent outbox row.
-
-### Notes
-
-- Local Room behavior remains the UI source of truth and still works when realtime synchronization is a no-op.
-- Live subscription collectors and reconnect replay orchestration are still intentionally thin at this stage; the new sync service provides the publish/apply foundation that stages 8 and 9 now build on.
-
-## Stage 8 - AAC signals
-
-Status: complete
-
-### Implemented
-
-- Reworked signal persistence to the create/snooze/clear-only model:
-  - [`StatusSignalEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/StatusSignalEntity.kt) now stores `clearedAt` instead of `resolvedAt`.
-  - [`SignalState`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/model/SignalState.kt) no longer includes `RESOLVED`.
-  - Added facilitator-scoped snooze persistence in [`SignalSnoozeEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/SignalSnoozeEntity.kt).
-- Rebuilt signal queries and mutations in [`StatusSignalDao`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/dao/StatusSignalDao.kt) so that:
-  - active signals are based on underlying `CURRENT` rows only
-  - facilitator-specific snooze state is projected through a join on `signal_snoozes`
-  - clearing a participant signal also removes related snoozes
-- Updated [`SignalRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SignalRepository.kt) to:
-  - observe active signals per facilitator UID
-  - replace global snooze with facilitator-specific snooze/unsnooze
-  - remove all resolve paths
-  - clear snoozes when a signal is cleared
-- Updated facilitator flow in [`FacilitatorViewModel`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/facilitator/FacilitatorViewModel.kt) so snooze toggles are scoped to the active facilitator and participant clearing uses the clear-only path.
-- Removed leftover resolved-signal settings from [`UserSettingsEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/UserSettingsEntity.kt).
-- Wired the previously built realtime sync layer into runtime construction in [`AppContainer`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/AppContainer.kt) using:
-  - [`RealtimeReliabilityStore`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/reliability/RealtimeReliabilityStore.kt)
-  - [`DefaultSessionRealtimeSync`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSync.kt)
-- Added stage-8 repository coverage in [`SignalRepositoryTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/repository/SignalRepositoryTest.kt) for:
-  - facilitator-specific snooze visibility
-  - clearing signals removing snoozes
-- Regenerated the exported Room schema at [`app/schemas/com.example.groupaac.data.AppDatabase/3.json`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/schemas/com.example.groupaac.data.AppDatabase/3.json).
-
-### Verification
-
-- `./gradlew :app:assembleDebug`
-  - Failed first because [`SignalRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SignalRepository.kt) still needed the `SignalState` import after the signal cleanup.
-  - Passed on Tuesday, July 28, 2026, after restoring that import.
-- `./gradlew :app:testDebugUnitTest`
-  - Passed on Tuesday, July 28, 2026.
-
-### Notes
-
-- The deprecated `ACTIVE` enum entry remains only as a defensive fallback for older local rows during development, but current signal writes and queries now use `CURRENT`, `SNOOZED`, and `CLEARED`.
-- Resolve has been removed from the signal DAO/repository/view-model flow, but the facilitator participant UI still expresses the action as snooze vs clear behavior rather than introducing additional new controls at this stage.
-
-## Stage 9 - Shared display
-
-Status: complete
-
-### Implemented
-
-- Expanded [`DisplayCommand`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/pi/DisplayCommand.kt) to cover:
-  - `ShowMessage`
-  - `RestoreMessage`
-  - `PinMessage`
-  - `UnpinMessage`
-  - `Clear`
-- Extended the realtime display contract in:
+  - [`SessionDao`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/dao/SessionDao.kt)
+- Expanded the approved realtime event surface in:
   - [`SessionRealtimeSync`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/SessionRealtimeSync.kt)
   - [`RealtimePayloads`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/RealtimePayloads.kt)
   - [`DefaultSessionRealtimeSync`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSync.kt)
-- Added shared-display payload handling for:
-  - explicit `display.show_message` and `display.restore_message` commands
-  - `display.pin_message` and `display.unpin_message`
-  - `display.clear`
-  - Pi acknowledgement/state events updating Room display state via `inReplyToEventId`
-- Reworked [`MessageRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/MessageRepository.kt) so that:
-  - eligible group messages auto-display only when the session is `AUTO_LATEST`
-  - facilitator/private messages are not auto-displayed
-  - pinned display state blocks automatic replacement
-  - Clear also removes the pin
-  - display state is observable from Room
-  - manual Show, Restore, Pin/Unpin, and Clear all route through explicit display commands
-- Updated facilitator display state/UI wiring in:
-  - [`FacilitatorUiState`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/facilitator/FacilitatorUiState.kt)
-  - [`FacilitatorViewModel`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/facilitator/FacilitatorViewModel.kt)
-  - [`FacilitatorHomeScreen`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/facilitator/FacilitatorHomeScreen.kt)
-  - [`FacilitatorInSessionNavGraph`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/navigation/FacilitatorInSessionNavGraph.kt)
-  - [`SessionLogScreen`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/facilitator/SessionLogScreen.kt)
-- Added shared-display tests:
-  - [`DefaultSessionRealtimeSyncTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSyncTest.kt) now covers Pi display acknowledgements updating Room display state.
-  - [`MessageRepositoryDisplayTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/repository/MessageRepositoryDisplayTest.kt) covers auto-display eligibility and Clear removing pin state.
+- Added publish/apply coverage for:
+  - `session.started`
+  - `session.updated`
+  - `session.settings_changed`
+  - `session.ended`
+  - `session.cancelled`
+  - `session.snapshot_requested`
+  - `session.snapshot`
+  - `member.joined`
+  - `member.left`
+  - `member.removed`
+  - `member.display_name_changed`
+  - `member.role_changed`
+  - `host.transferred`
+  - `facilitator.requested`
+  - `facilitator.approved`
+  - `facilitator.declined`
+  - `facilitator.cancelled`
+  - `message.created`
+  - `message.deleted`
+  - `announcement.created`
+  - `attachment.available`
+  - `attachment.failed`
+  - `aac.signal.created`
+  - `aac.signal.snoozed`
+  - `aac.signal.cleared`
+- Marked the intentionally deferred display-only constants clearly in [`RealtimeEventTypes`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/protocol/RealtimeEventTypes.kt) and added declared-type coverage reporting in unit tests.
+- Moved signal routing onto the required channels:
+  - create/clear now publish to `session.<sessionId>.facilitator`
+  - facilitator-specific snooze now publishes to `session.<sessionId>.<facilitatorUid>`
+- Updated repository flows so realtime session events reflect real lifecycle meaning instead of generic upserts:
+  - scheduled-session edits publish `session.settings_changed`
+  - scheduled-session start publishes `session.started`
+  - explicit participant/facilitator leave publishes `member.left`
+  - message deletion now publishes `message.deleted`
+  - cancelled sessions remain persisted locally with `SessionStatus.CANCELLED`
+- Enforced host-only session ending in both repository and UI:
+  - [`SessionRepository.endSession(...)`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt) now requires the acting UID to match `hostUserId`
+  - [`AppNavGraph`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/AppNavGraph.kt), [`FacilitatorInSessionNavGraph`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/navigation/FacilitatorInSessionNavGraph.kt), and [`ActiveSessionHeader`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/session/ActiveSessionHeader.kt) no longer expose End Session to non-host facilitators
+- Added signal persistence helpers and sync application support in:
+  - [`StatusSignalDao`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/dao/StatusSignalDao.kt)
+  - [`SignalRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SignalRepository.kt)
+- Added Stage 7 tests covering:
+  - host can end vs facilitator cannot end
+  - cancelled sessions cannot be joined
+  - explicit leave publishes `member.left`
+  - cross-database signal create/clear propagation
+  - facilitator-specific snooze isolation
+  - duplicate lifecycle deduplication
+  - complete declared-type coverage
 
 ### Verification
 
-- `./gradlew :app:assembleDebug`
+- `./gradlew :app:compileDebugKotlin`
   - Passed on Tuesday, July 28, 2026.
 - `./gradlew :app:testDebugUnitTest`
+  - Failed first because Stage 7 expanded the sync and DAO contracts, and the unit-test fakes had not yet implemented the new members.
+  - Passed on Tuesday, July 28, 2026, after updating the test doubles and adding the Stage 7 lifecycle/signal assertions.
+- `./gradlew :app:assembleDebug`
   - Passed on Tuesday, July 28, 2026.
 
 ### Notes
 
-- New sessions already defaulted to `AUTO_LATEST` from stage 2, so this stage builds on that existing session-level default rather than changing it again.
-- The manual display controls now distinguish Show vs Restore based on message display history and place Pin/Unpin directly beside Clear in the currently showing pane.
+- Temporary disconnects still do not publish `member.left`; leave publication is limited to the explicit leave path in [`SessionRepository.leaveSession(...)`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt).
+- Full role-authorization enforcement beyond obvious host-only ending and channel/session sanity checks remains future work.
+- Display-only transport constants remain intentionally reserved for later stages.
+
+## Stage 8 - AAC signals
+
+Status: pending
+
+### Notes
+
+- Stage 7 added the realtime transport surface for `aac.signal.created`, `aac.signal.snoozed`, and `aac.signal.cleared`.
+- The dedicated Stage 8 cleanup and end-to-end removal of older signal behaviors has not been started on this branch.
+
+## Stage 9 - Shared display
+
+Status: pending
+
+### Notes
+
+- Stage 7 did not implement shared-display command UX or Pi acknowledgement flows beyond keeping the existing display-related contract intact.
 
 ## Stage 10 - Verification and handoff
 
-Status: complete
+Status: pending
 
-### Stage commits
+### Notes
 
-- Stage 4: `d25fae8` - `Lay PubNub realtime foundation`
-- Stage 5: `e26256f` - `Add realtime protocol contract`
-- Stage 6: `68dfd26` - `Add realtime reliability persistence`
-- Stage 7: `4f087ff` - `Add session realtime synchronization`
-- Stage 8: `34bdbe6` - `Refine AAC signal snooze semantics`
-- Stage 9: `2f3954b` - `Implement shared display controls`
-
-### Final verification
-
-- Emulator
-  - Serial: `emulator-5554`
-  - Boot state on Tuesday, July 28, 2026: `1`
-  - `adb -s emulator-5554 devices -l` reported:
-    - `emulator-5554 device product:sdk_gphone16k_arm64 model:sdk_gphone16k_arm64 device:emu64a16k`
-- `./gradlew :app:assembleDebug`
-  - Passed on Tuesday, July 28, 2026.
-- `./gradlew :app:testDebugUnitTest`
-  - Passed on Tuesday, July 28, 2026.
-- `./gradlew :app:connectedDebugAndroidTest --stacktrace`
-  - Failed on Tuesday, July 28, 2026.
-  - Instrumentation started `0` tests on `Resizable_Experimental(AVD) - 17`.
-  - The run crashed before executing tests because `androidx.test.runner.AndroidJUnitRunner` was not found in the test process classpath.
-  - Gradle report path:
-    - [`app/build/reports/androidTests/connected/debug/index.html`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/build/reports/androidTests/connected/debug/index.html)
-
-### Pi handoff artifacts
-
-- Raspberry Pi source is not present in this repository.
-- Added Android-to-Pi contract documentation in:
+- Final handoff verification, connected-test reruns, deployment notes, and Raspberry Pi contract documentation remain for the later verification stage.
 
 ## Live Realtime Next Steps - Stage 4
 

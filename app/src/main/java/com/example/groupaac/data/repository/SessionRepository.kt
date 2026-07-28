@@ -26,6 +26,7 @@ import com.example.groupaac.model.ActiveSession
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.JoinSessionResult
 import com.example.groupaac.model.SessionRole
+import com.example.groupaac.model.SessionStatus
 import com.example.groupaac.util.IdUtils
 import com.example.groupaac.util.TimeUtils
 import java.time.LocalDate
@@ -33,6 +34,7 @@ import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 
 class SessionRepository(
@@ -107,7 +109,8 @@ class SessionRepository(
                         if (
                             session == null ||
                             member == null ||
-                            session.actualEndedAt != null
+                            session.status == SessionStatus.ENDED ||
+                            session.status == SessionStatus.CANCELLED
                         ) {
                             null
                         } else {
@@ -268,7 +271,10 @@ class SessionRepository(
         }
         transactionRunner.inTransaction {
             sessionDao.upsertSession(updated)
-            sessionRealtimeSync.publishSessionUpdated(updated, ownerUserId)
+            sessionRealtimeSync.publishSessionSettingsChanged(
+                updated,
+                ownerUserId
+            )
         }
         outboxDispatcher.requestImmediateDispatch()
         return updated
@@ -282,7 +288,7 @@ class SessionRepository(
             sessionId = sessionId,
             ownerUserId = ownerUserId
         )
-        check(session.actualEndedAt == null) {
+        check(session.status != SessionStatus.ENDED) {
             "This session has already ended."
         }
 
@@ -306,7 +312,14 @@ class SessionRepository(
             UpdateRemoteSessionResult.Ended -> error("This session has already ended.")
             is UpdateRemoteSessionResult.Failure -> error(result.message)
         }
-        sessionDao.upsertSession(updatedSession)
+        transactionRunner.inTransaction {
+            sessionDao.upsertSession(updatedSession)
+            sessionRealtimeSync.publishSessionStarted(
+                updatedSession,
+                ownerUserId
+            )
+        }
+        outboxDispatcher.requestImmediateDispatch()
 
         val owner = userDao.getUser(ownerUserId)
             ?: error("User not found.")
@@ -338,7 +351,10 @@ class SessionRepository(
             sessionId = sessionId,
             ownerUserId = ownerUserId
         )
-        check(session.actualStartedAt != null && session.actualEndedAt == null) {
+        check(
+            session.status == SessionStatus.LIVE &&
+                session.actualEndedAt == null
+        ) {
             "Only live sessions can be opened."
         }
 
@@ -385,22 +401,20 @@ class SessionRepository(
             )
         ) {
             is CancelRemoteSessionResult.Cancelled -> {
-                val deleted = transactionRunner.inTransaction {
+                val cancelled = transactionRunner.inTransaction {
                     sessionJoinRequestDao.deleteRequestsForSession(sessionId)
-                    sessionDao.deleteMembersForSession(sessionId)
-                    val deleted = sessionDao.deleteHostedSession(sessionId, ownerUserId) > 0
-                    if (deleted) {
-                        sessionRealtimeSync.publishSessionCancelled(
-                            result.session.toSessionEntity(existing = session),
-                            ownerUserId
-                        )
-                    }
-                    deleted
+                    val updated = result.session.toSessionEntity(existing = session)
+                    sessionDao.upsertSession(updated)
+                    sessionRealtimeSync.publishSessionCancelled(
+                        updated,
+                        ownerUserId
+                    )
+                    true
                 }
-                if (deleted) {
+                if (cancelled) {
                     outboxDispatcher.requestImmediateDispatch()
                 }
-                deleted
+                cancelled
             }
             CancelRemoteSessionResult.NotFound -> error("Session not found.")
             CancelRemoteSessionResult.Ended -> error("This session has already ended.")
@@ -441,7 +455,10 @@ class SessionRepository(
             "Host access cannot be requested from the join screen."
         }
 
-        check(session.actualEndedAt == null) {
+        check(
+            session.status != SessionStatus.ENDED &&
+                session.status != SessionStatus.CANCELLED
+        ) {
             "This session has already ended."
         }
 
@@ -510,7 +527,39 @@ class SessionRepository(
         }
     }
 
-    suspend fun leaveSession(userId: String) {
+    suspend fun leaveSession(
+        userId: String,
+        sessionId: String? = null
+    ) {
+        val leavingSessionId = sessionId
+            ?: activeSessionStore.observeActiveSessionId(userId).first()
+        if (leavingSessionId != null) {
+            val session = sessionDao.getSession(leavingSessionId)
+            val member = sessionDao.getMember(leavingSessionId, userId)
+            if (
+                session != null &&
+                member != null &&
+                member.role != SessionRole.HOST &&
+                session.status != SessionStatus.ENDED &&
+                session.status != SessionStatus.CANCELLED
+            ) {
+                transactionRunner.inTransaction {
+                    sessionDao.deleteMember(leavingSessionId, userId)
+                    sessionRealtimeSync.publishMemberLeft(
+                        session = session,
+                        member = SessionMemberEntity(
+                            sessionId = leavingSessionId,
+                            userId = member.userId,
+                            displayName = member.displayName,
+                            role = member.role,
+                            joinedAt = member.joinedAt
+                        ),
+                        actorUserId = userId
+                    )
+                }
+                outboxDispatcher.requestImmediateDispatch()
+            }
+        }
         activeSessionStore.clearActiveSession(userId)
     }
 
@@ -726,9 +775,14 @@ class SessionRepository(
         )
     }
 
-    suspend fun endSession(sessionId: String) {
+    suspend fun endSession(
+        sessionId: String,
+        actorUserId: String
+    ) {
         val session = sessionDao.getSession(sessionId) ?: return
-        val actorUserId = session.hostUserId ?: return
+        check(session.hostUserId == actorUserId) {
+            "Only the session host may end the session."
+        }
         when (
             val result = sessionDirectory.endSession(
                 CloseRemoteSessionRequest(
@@ -870,6 +924,12 @@ class SessionRepository(
             hostUserId = hostUid,
             displayMode = existing?.displayMode ?: com.example.groupaac.model.DisplayMode.AUTO_LATEST,
             createdAt = existing?.createdAt ?: actualStartedAt ?: scheduledStartAt ?: TimeUtils.now(),
+            status = when (status) {
+                RemoteSessionStatus.SCHEDULED -> SessionStatus.SCHEDULED
+                RemoteSessionStatus.LIVE -> SessionStatus.LIVE
+                RemoteSessionStatus.ENDED -> SessionStatus.ENDED
+                RemoteSessionStatus.CANCELLED -> SessionStatus.CANCELLED
+            },
             scheduledStartAt = scheduledStartAt,
             scheduledDurationMinutes = scheduledDurationMinutes,
             actualStartedAt = actualStartedAt,

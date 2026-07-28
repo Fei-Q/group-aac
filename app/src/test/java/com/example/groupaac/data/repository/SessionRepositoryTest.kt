@@ -19,6 +19,7 @@ import com.example.groupaac.data.sessiondirectory.RemoteSessionStatus
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.JoinSessionResult
 import com.example.groupaac.model.SessionRole
+import com.example.groupaac.model.SessionStatus
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -321,6 +322,106 @@ class SessionRepositoryTest {
         assertEquals(fixture.session.id, sync.facilitatorDeclined?.second?.id)
     }
 
+    @Test
+    fun explicitLeaveRemovesMembershipAndPublishesMemberLeft() = runTest {
+        val sync = RecordingSessionRealtimeSync()
+        val fixture = sessionFixture(sessionRealtimeSync = sync)
+        fixture.repository.joinSession(
+            joinCode = fixture.session.joinCode,
+            userId = fixture.participant.uid,
+            displayName = fixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        fixture.repository.leaveSession(
+            userId = fixture.participant.uid,
+            sessionId = fixture.session.id
+        )
+
+        assertNull(
+            fixture.sessionDao.getMember(
+                fixture.session.id,
+                fixture.participant.uid
+            )
+        )
+        assertNotNull(sync.memberLeft)
+        assertEquals(fixture.participant.uid, sync.memberLeft?.second?.userId)
+    }
+
+    @Test
+    fun cancelledSessionCannotBeJoined() = runTest {
+        val fixture = sessionFixture()
+        val scheduled = fixture.repository.scheduleSession(
+            name = "Thursday Group",
+            ownerUserId = fixture.host.uid,
+            scheduledStartAt = 20_000L,
+            scheduledDurationMinutes = 60
+        )
+        fixture.repository.cancelScheduledSession(
+            sessionId = scheduled.id,
+            ownerUserId = fixture.host.uid
+        )
+
+        try {
+            fixture.repository.joinSession(
+                joinCode = scheduled.joinCode,
+                userId = fixture.participant.uid,
+                displayName = fixture.participant.displayName
+            )
+            fail("Expected cancelled sessions to reject joins.")
+        } catch (expected: IllegalStateException) {
+            assertTrue(expected.message?.contains("cancelled", ignoreCase = true) == true)
+        }
+    }
+
+    @Test
+    fun hostCanEndSession() = runTest {
+        val fixture = sessionFixture()
+        val active = fixture.repository.createSessionNow(
+            name = "Host End Test",
+            ownerUserId = fixture.host.uid,
+            displayName = fixture.host.displayName
+        )
+
+        fixture.repository.endSession(
+            sessionId = active.sessionId,
+            actorUserId = fixture.host.uid
+        )
+
+        val ended = fixture.sessionDao.getSession(active.sessionId)
+        assertEquals(SessionStatus.ENDED, ended?.status)
+        assertNotNull(ended?.actualEndedAt)
+    }
+
+    @Test
+    fun facilitatorCannotEndSession() = runTest {
+        val fixture = sessionFixture()
+        val active = fixture.repository.createSessionNow(
+            name = "Facilitator End Test",
+            ownerUserId = fixture.host.uid,
+            displayName = fixture.host.displayName
+        )
+        fixture.sessionDao.upsertMember(
+            SessionMemberEntity(
+                sessionId = active.sessionId,
+                userId = fixture.facilitator.uid,
+                displayName = fixture.facilitator.displayName,
+                role = SessionRole.FACILITATOR,
+                joinedAt = 20L
+            )
+        )
+
+        try {
+            fixture.repository.endSession(
+                sessionId = active.sessionId,
+                actorUserId = fixture.facilitator.uid
+            )
+            fail("Expected facilitator end-session attempt to fail.")
+        } catch (expected: IllegalStateException) {
+            assertTrue(expected.message?.contains("host", ignoreCase = true) == true)
+        }
+    }
+
     private fun sessionFixture(
         seedLocalSession: Boolean = true,
         sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
@@ -460,6 +561,7 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync by NoOpSessionR
 
     var facilitatorApproved: ApprovalCall? = null
     var memberJoined: Pair<SessionEntity, SessionMemberEntity>? = null
+    var memberLeft: Pair<SessionEntity, SessionMemberEntity>? = null
     var facilitatorDeclined: Pair<SessionJoinRequestEntity, SessionEntity>? = null
 
     override suspend fun publishFacilitatorApproved(
@@ -476,6 +578,14 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync by NoOpSessionR
         member: SessionMemberEntity
     ) {
         memberJoined = session to member
+    }
+
+    override suspend fun publishMemberLeft(
+        session: SessionEntity,
+        member: SessionMemberEntity,
+        actorUserId: String
+    ) {
+        memberLeft = session to member
     }
 
     override suspend fun publishFacilitatorDeclined(
@@ -627,6 +737,20 @@ private class FakeSessionDao : SessionDao {
         members[member.sessionId to member.userId] = member
     }
 
+    override suspend fun getMembersForSession(
+        sessionId: String
+    ): List<SessionMemberEntity> =
+        members.values
+            .filter { it.sessionId == sessionId }
+            .sortedBy { it.joinedAt }
+
+    override suspend fun deleteMember(
+        sessionId: String,
+        userId: String
+    ) {
+        members.remove(sessionId to userId)
+    }
+
     override fun observeMemberIds(sessionId: String): Flow<List<String>> =
         flowOf(
             members.values
@@ -703,6 +827,13 @@ private class FakeSessionJoinRequestDao : SessionJoinRequestDao {
     override suspend fun getRequestById(
         requestId: String
     ): SessionJoinRequestEntity? = requests[requestId]
+
+    override suspend fun getRequestsForSession(
+        sessionId: String
+    ): List<SessionJoinRequestEntity> =
+        requests.values
+            .filter { it.sessionId == sessionId }
+            .sortedBy { it.requestedAt }
 
     override suspend fun getPendingRequest(
         sessionId: String,

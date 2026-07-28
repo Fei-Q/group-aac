@@ -3,6 +3,7 @@ package com.example.groupaac.data.entity
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.example.groupaac.model.DisplayMode
+import com.example.groupaac.model.SessionStatus
 
 @Entity(tableName = "sessions")
 data class SessionEntity(
@@ -10,6 +11,7 @@ data class SessionEntity(
     val name: String,
     val joinCode: String,
     val hostUserId: String? = null,
+    val status: SessionStatus = SessionStatus.LIVE,
     val displayMode: DisplayMode = DisplayMode.AUTO_LATEST,
     val createdAt: Long,
     val scheduledStartAt: Long? = null,

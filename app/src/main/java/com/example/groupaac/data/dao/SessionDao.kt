@@ -39,8 +39,7 @@ interface SessionDao {
         """
         SELECT * FROM sessions
         WHERE hostUserId = :hostUserId
-          AND actualStartedAt IS NULL
-          AND actualEndedAt IS NULL
+          AND status = 'SCHEDULED'
           AND scheduledStartAt IS NOT NULL
           AND scheduledStartAt >= :dayStartMillis
         ORDER BY scheduledStartAt ASC
@@ -55,8 +54,7 @@ interface SessionDao {
         """
         SELECT * FROM sessions
         WHERE hostUserId = :hostUserId
-          AND actualStartedAt IS NOT NULL
-          AND actualEndedAt IS NULL
+          AND status = 'LIVE'
         ORDER BY actualStartedAt DESC
         """
     )
@@ -69,9 +67,9 @@ interface SessionDao {
         SELECT * FROM sessions
         WHERE hostUserId = :hostUserId
           AND (
-              actualEndedAt IS NOT NULL
+              status IN ('ENDED', 'CANCELLED')
               OR (
-                  actualStartedAt IS NULL
+                  status = 'SCHEDULED'
                   AND scheduledStartAt IS NOT NULL
                   AND scheduledStartAt < :dayStartMillis
               )
@@ -103,9 +101,10 @@ interface SessionDao {
     @Query(
         """
         UPDATE sessions
-        SET actualStartedAt = :startedAt
+        SET status = 'LIVE',
+            actualStartedAt = :startedAt
         WHERE id = :sessionId
-          AND actualStartedAt IS NULL
+          AND status != 'LIVE'
         """
     )
     suspend fun markSessionStartedIfNeeded(
@@ -116,7 +115,8 @@ interface SessionDao {
     @Query(
         """
         UPDATE sessions
-        SET actualEndedAt = :endedAt
+        SET status = 'ENDED',
+            actualEndedAt = :endedAt
         WHERE id = :sessionId
         """
     )
@@ -128,7 +128,8 @@ interface SessionDao {
     @Query(
         """
         UPDATE sessions
-        SET scheduledStartAt = :scheduledStartAt,
+        SET status = 'SCHEDULED',
+            scheduledStartAt = :scheduledStartAt,
             scheduledDurationMinutes = :scheduledDurationMinutes
         WHERE id = :sessionId
         """
@@ -156,6 +157,29 @@ interface SessionDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMember(member: SessionMemberEntity)
+
+    @Query(
+        """
+        SELECT * FROM session_members
+        WHERE sessionId = :sessionId
+        ORDER BY joinedAt ASC
+        """
+    )
+    suspend fun getMembersForSession(
+        sessionId: String
+    ): List<SessionMemberEntity>
+
+    @Query(
+        """
+        DELETE FROM session_members
+        WHERE sessionId = :sessionId
+          AND userId = :userId
+        """
+    )
+    suspend fun deleteMember(
+        sessionId: String,
+        userId: String
+    )
 
     @Query("SELECT userId FROM session_members WHERE sessionId = :sessionId")
     fun observeMemberIds(sessionId: String): Flow<List<String>>

@@ -145,16 +145,22 @@ fun AppNavGraph(
                 }
 
                 AppShell.FacilitatorInSession -> {
+                    val activeSession =
+                        sessionState.connectionState
+                            .requireActiveSession()
                     FacilitatorInSessionNavGraph(
-                        activeSession =
-                            sessionState.connectionState
-                                .requireActiveSession(),
+                        activeSession = activeSession,
                         connectionState =
                             sessionState.connectionState,
                         onLeaveSession =
                             sessionCoordinatorViewModel::leaveSession,
-                        onEndSession =
+                        onEndSession = if (
+                            activeSession.role == com.example.groupaac.model.SessionRole.HOST
+                        ) {
                             sessionCoordinatorViewModel::endSession
+                        } else {
+                            null
+                        }
                     )
                 }
             }

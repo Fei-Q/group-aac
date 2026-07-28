@@ -1,9 +1,11 @@
 package com.example.groupaac.data.realtime.sync
 
+import com.example.groupaac.data.entity.AttachmentEntity
 import com.example.groupaac.data.entity.MessageEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
+import com.example.groupaac.data.entity.StatusSignalEntity
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageDisplayStatus
@@ -11,6 +13,8 @@ import com.example.groupaac.model.MessageStatus
 import com.example.groupaac.model.MessageTransportStatus
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.SessionRole
+import com.example.groupaac.model.SessionStatus
+import com.example.groupaac.model.SignalType
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -19,6 +23,7 @@ data class SessionPayload(
     val name: String,
     val joinCode: String,
     val hostUserId: String? = null,
+    val status: String,
     val displayMode: String,
     val createdAt: Long,
     val scheduledStartAt: Long? = null,
@@ -51,6 +56,18 @@ data class SessionJoinRequestPayload(
 )
 
 @Serializable
+data class SessionSnapshotRequestPayload(
+    val requesterUserId: String
+)
+
+@Serializable
+data class HostTransferPayload(
+    val session: SessionPayload,
+    val newHostMember: SessionMemberPayload,
+    val previousHostUserId: String
+)
+
+@Serializable
 data class MessagePayload(
     val id: String,
     val sessionId: String,
@@ -65,6 +82,44 @@ data class MessagePayload(
     val displayStatus: String,
     val saved: Boolean,
     val displayedOnMonitor: Boolean
+)
+
+@Serializable
+data class MessageDeletionPayload(
+    val id: String,
+    val sessionId: String,
+    val target: String
+)
+
+@Serializable
+data class AttachmentStatusPayload(
+    val attachmentId: String,
+    val messageId: String,
+    val localUri: String,
+    val mimeType: String,
+    val originalName: String? = null,
+    val remoteUri: String? = null,
+    val syncStatus: String,
+    val errorMessage: String? = null
+)
+
+@Serializable
+data class SignalCreatedPayload(
+    val signalId: String,
+    val sessionId: String,
+    val userId: String,
+    val displayName: String,
+    val type: String,
+    val createdAt: Long
+)
+
+@Serializable
+data class SignalStatePayload(
+    val signalId: String,
+    val sessionId: String,
+    val userId: String,
+    val facilitatorUserId: String? = null,
+    val clearedAt: Long? = null
 )
 
 @Serializable
@@ -109,6 +164,7 @@ fun SessionEntity.toRealtimePayload(): SessionPayload = SessionPayload(
     name = name,
     joinCode = joinCode,
     hostUserId = hostUserId,
+    status = status.name,
     displayMode = displayMode.name,
     createdAt = createdAt,
     scheduledStartAt = scheduledStartAt,
@@ -123,6 +179,7 @@ fun SessionPayload.toEntity(): SessionEntity = SessionEntity(
     name = name,
     joinCode = joinCode,
     hostUserId = hostUserId,
+    status = SessionStatus.fromName(status),
     displayMode = com.example.groupaac.model.DisplayMode.fromName(displayMode),
     createdAt = createdAt,
     scheduledStartAt = scheduledStartAt,
@@ -188,6 +245,13 @@ fun MessageEntity.toRealtimePayload(senderName: String): MessagePayload = Messag
     displayedOnMonitor = displayedOnMonitor
 )
 
+fun MessageEntity.toDeletionPayload(): MessageDeletionPayload =
+    MessageDeletionPayload(
+        id = id,
+        sessionId = sessionId,
+        target = target.name
+    )
+
 fun MessagePayload.toEntity(): MessageEntity = MessageEntity(
     id = id,
     sessionId = sessionId,
@@ -209,6 +273,50 @@ fun MessagePayload.toEntity(): MessageEntity = MessageEntity(
         } ?: MessageDisplayStatus.HIDDEN,
     saved = saved,
     displayedOnMonitor = displayedOnMonitor
+)
+
+fun AttachmentEntity.toStatusPayload(
+    errorMessage: String? = null
+): AttachmentStatusPayload = AttachmentStatusPayload(
+    attachmentId = id,
+    messageId = messageId,
+    localUri = localUri,
+    mimeType = mimeType,
+    originalName = originalName,
+    remoteUri = remoteUri,
+    syncStatus = syncStatus,
+    errorMessage = errorMessage
+)
+
+fun SignalCreatedPayload.toEntity(): StatusSignalEntity = StatusSignalEntity(
+    id = signalId,
+    sessionId = sessionId,
+    userId = userId,
+    type = SignalType.entries.firstOrNull { it.name == type }
+        ?: SignalType.HELP,
+    createdAt = createdAt
+)
+
+fun StatusSignalEntity.toCreatedPayload(
+    displayName: String
+): SignalCreatedPayload = SignalCreatedPayload(
+    signalId = id,
+    sessionId = sessionId,
+    userId = userId,
+    displayName = displayName,
+    type = type.name,
+    createdAt = createdAt
+)
+
+fun StatusSignalEntity.toStatePayload(
+    facilitatorUserId: String? = null,
+    clearedAt: Long? = this.clearedAt
+): SignalStatePayload = SignalStatePayload(
+    signalId = id,
+    sessionId = sessionId,
+    userId = userId,
+    facilitatorUserId = facilitatorUserId,
+    clearedAt = clearedAt
 )
 
 fun DisplayStatePayload.mode(): DisplayMode =

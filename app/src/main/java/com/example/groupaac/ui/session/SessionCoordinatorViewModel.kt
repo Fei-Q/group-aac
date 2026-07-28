@@ -349,7 +349,10 @@ class SessionCoordinatorViewModel(
             )
 
             runCatching {
-                sessionRepository.leaveSession(user.uid)
+                sessionRepository.leaveSession(
+                    userId = user.uid,
+                    sessionId = session.sessionId
+                )
             }.onSuccess {
                 _uiState.value = _uiState.value.copy(
                     connectionState =
@@ -371,8 +374,14 @@ class SessionCoordinatorViewModel(
 
         viewModelScope.launch {
             runCatching {
-                sessionRepository.endSession(session.sessionId)
-                sessionRepository.leaveSession(session.userId)
+                sessionRepository.endSession(
+                    sessionId = session.sessionId,
+                    actorUserId = session.userId
+                )
+                sessionRepository.leaveSession(
+                    userId = session.userId,
+                    sessionId = session.sessionId
+                )
             }.onSuccess {
                 _uiState.value = _uiState.value.copy(
                     connectionState =
@@ -395,7 +404,10 @@ class SessionCoordinatorViewModel(
         }
 
         viewModelScope.launch {
-            sessionRepository.leaveSession(session.userId)
+            sessionRepository.leaveSession(
+                userId = session.userId,
+                sessionId = session.sessionId
+            )
             _uiState.value = _uiState.value.copy(
                 connectionState =
                     SessionConnectionState.NotInSession

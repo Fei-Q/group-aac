@@ -14,6 +14,7 @@ import com.example.groupaac.model.OutboxDomainType
 import com.example.groupaac.model.OutboxEventState
 import com.example.groupaac.model.ParticipantDefaultTab
 import com.example.groupaac.model.SessionRole
+import com.example.groupaac.model.SessionStatus
 import com.example.groupaac.model.SignalState
 import com.example.groupaac.model.SignalType
 
@@ -47,6 +48,13 @@ class TypeConverters {
     @TypeConverter
     fun stringToSessionRole(value: String?): SessionRole =
         SessionRole.fromName(value)
+
+    @TypeConverter
+    fun sessionStatusToString(value: SessionStatus): String = value.name
+
+    @TypeConverter
+    fun stringToSessionStatus(value: String?): SessionStatus =
+        SessionStatus.fromName(value)
 
     @TypeConverter
     fun joinRequestStatusToString(value: JoinRequestStatus): String = value.name

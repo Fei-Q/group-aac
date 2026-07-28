@@ -14,6 +14,7 @@ import com.example.groupaac.data.realtime.protocol.RealtimeEventTypes
 import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.data.entity.MessageEntity
+import com.example.groupaac.data.entity.StatusSignalEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
@@ -27,6 +28,8 @@ import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.ActiveSession
 import com.example.groupaac.model.SessionRole
+import com.example.groupaac.model.SignalState
+import com.example.groupaac.model.SignalType
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +40,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -61,6 +65,7 @@ class DefaultSessionRealtimeSyncTest {
             sessionDao = database.sessionDao(),
             sessionJoinRequestDao = database.sessionJoinRequestDao(),
             messageDao = database.messageDao(),
+            statusSignalDao = database.statusSignalDao(),
             reliabilityDao = database.reliabilityDao(),
             reliabilityStore = RealtimeReliabilityStore(
                 database = database,
@@ -505,6 +510,195 @@ class DefaultSessionRealtimeSyncTest {
         }
     }
 
+    @Test
+    fun signalCreatedAndClearedSyncAcrossDatabases() = runTest {
+        val senderDb = inMemoryDatabase()
+        val receiverDb = inMemoryDatabase()
+        try {
+            val senderSync = syncFor(senderDb)
+            val receiverSync = syncFor(receiverDb)
+            seedSignalUsers(receiverDb)
+
+            val signal = StatusSignalEntity(
+                id = "signal-1",
+                sessionId = "session-signals",
+                userId = "participant",
+                type = SignalType.HELP,
+                state = SignalState.CURRENT,
+                createdAt = 100L
+            )
+            senderSync.publishSignalCreated(signal, "Participant")
+            val createdEvent = senderDb.reliabilityDao().getRetryableOutboxEvents(
+                now = Long.MAX_VALUE,
+                limit = 10
+            ).single { it.domainId == signal.id }
+            assertEquals(
+                RealtimeChannels.facilitator(signal.sessionId),
+                createdEvent.channel
+            )
+            assertTrue(
+                receiverSync.applyIncoming(
+                    ReceivedRealtimeEvent(
+                        channel = createdEvent.channel,
+                        timetoken = 600L,
+                        publisherUserId = "participant",
+                        event = RealtimeEventCodec.decode(createdEvent.serializedEvent)
+                    )
+                )
+            )
+            assertEquals(
+                SignalState.CURRENT,
+                receiverDb.statusSignalDao().getSignal(signal.id)?.state
+            )
+
+            senderSync.publishSignalCleared(
+                signal = signal.copy(
+                    state = SignalState.CLEARED,
+                    clearedAt = 125L
+                ),
+                actorUserId = "participant"
+            )
+            val clearedEvent = senderDb.reliabilityDao().getRetryableOutboxEvents(
+                now = Long.MAX_VALUE,
+                limit = 10
+            ).last()
+            assertTrue(
+                receiverSync.applyIncoming(
+                    ReceivedRealtimeEvent(
+                        channel = clearedEvent.channel,
+                        timetoken = 601L,
+                        publisherUserId = "participant",
+                        event = RealtimeEventCodec.decode(clearedEvent.serializedEvent)
+                    )
+                )
+            )
+            assertEquals(
+                SignalState.CLEARED,
+                receiverDb.statusSignalDao().getSignal(signal.id)?.state
+            )
+        } finally {
+            senderDb.close()
+            receiverDb.close()
+        }
+    }
+
+    @Test
+    fun snoozeDeliveryOnlyAffectsTargetFacilitator() = runTest {
+        val senderDb = inMemoryDatabase()
+        val receiverDb = inMemoryDatabase()
+        try {
+            val senderSync = syncFor(senderDb)
+            val receiverSync = syncFor(receiverDb)
+            seedSignalUsers(receiverDb)
+            receiverDb.statusSignalDao().upsertSignal(
+                StatusSignalEntity(
+                    id = "signal-private",
+                    sessionId = "session-signals",
+                    userId = "participant",
+                    type = SignalType.HELP,
+                    state = SignalState.CURRENT,
+                    createdAt = 100L
+                )
+            )
+
+            senderSync.publishSignalSnoozed(
+                signal = StatusSignalEntity(
+                    id = "signal-private",
+                    sessionId = "session-signals",
+                    userId = "participant",
+                    type = SignalType.HELP,
+                    state = SignalState.CURRENT,
+                    createdAt = 100L
+                ),
+                facilitatorUserId = "facilitator-1"
+            )
+            val snoozeEvent = senderDb.reliabilityDao().getRetryableOutboxEvents(
+                now = Long.MAX_VALUE,
+                limit = 10
+            ).single()
+            assertEquals(
+                RealtimeChannels.privateUser("session-signals", "facilitator-1"),
+                snoozeEvent.channel
+            )
+
+            assertTrue(
+                receiverSync.applyIncoming(
+                    ReceivedRealtimeEvent(
+                        channel = snoozeEvent.channel,
+                        timetoken = 700L,
+                        publisherUserId = "facilitator-1",
+                        event = RealtimeEventCodec.decode(snoozeEvent.serializedEvent)
+                    )
+                )
+            )
+
+            val hiddenForOne = receiverDb.statusSignalDao()
+                .observeActiveSignals("session-signals", "facilitator-1")
+                .first()
+                .single()
+            val visibleForTwo = receiverDb.statusSignalDao()
+                .observeActiveSignals("session-signals", "facilitator-2")
+                .first()
+                .single()
+
+            assertEquals(SignalState.SNOOZED, hiddenForOne.state)
+            assertEquals(SignalState.CURRENT, visibleForTwo.state)
+        } finally {
+            senderDb.close()
+            receiverDb.close()
+        }
+    }
+
+    @Test
+    fun duplicateLifecycleEventsAreIgnoredAfterFirstApply() = runTest {
+        val payload = buildJsonObject {
+            put(
+                "session",
+                Json.encodeToJsonElement(
+                    SessionPayload.serializer(),
+                    seededSession("session-lifecycle").copy(
+                        actualEndedAt = 150L
+                    ).toRealtimePayload()
+                )
+            )
+        }
+        val received = ReceivedRealtimeEvent(
+            channel = RealtimeChannels.public("session-lifecycle"),
+            timetoken = 800L,
+            publisherUserId = "host",
+            event = RealtimeEvent(
+                eventId = "evt-ended-1",
+                type = RealtimeEventTypes.SESSION_ENDED,
+                sessionId = "session-lifecycle",
+                actorUserId = "host",
+                occurredAt = 151L,
+                payload = payload
+            )
+        )
+
+        assertTrue(sync.applyIncoming(received))
+        assertFalse(sync.applyIncoming(received))
+        assertEquals(
+            800L,
+            database.reliabilityDao()
+                .getChannelCursor(received.channel)
+                ?.lastProcessedTimetoken
+        )
+    }
+
+    @Test
+    fun declaredEventTypesArePublishedAppliedOrReserved() {
+        val declared = RealtimeEventTypes::class.java.declaredFields
+            .filter { it.type == String::class.java }
+            .map { it.get(null) as String }
+            .toSet()
+        val covered = DefaultSessionRealtimeSync.PUBLISHED_EVENT_TYPES +
+            DefaultSessionRealtimeSync.APPLIED_EVENT_TYPES +
+            DefaultSessionRealtimeSync.RESERVED_EVENT_TYPES
+
+        assertEquals(declared, covered)
+    }
+
     private fun inMemoryDatabase(): AppDatabase {
         val context = ApplicationProvider.getApplicationContext<Context>()
         return Room.inMemoryDatabaseBuilder(
@@ -519,6 +713,7 @@ class DefaultSessionRealtimeSyncTest {
             sessionDao = database.sessionDao(),
             sessionJoinRequestDao = database.sessionJoinRequestDao(),
             messageDao = database.messageDao(),
+            statusSignalDao = database.statusSignalDao(),
             reliabilityDao = database.reliabilityDao(),
             reliabilityStore = RealtimeReliabilityStore(
                 database = database,
@@ -584,6 +779,21 @@ class DefaultSessionRealtimeSyncTest {
                 occurredAt = 200L,
                 payload = payload
             )
+        )
+    }
+
+    private suspend fun seedSignalUsers(database: AppDatabase) {
+        database.userDao().upsertUser(
+            UserEntity(uid = "participant", displayName = "Participant", createdAt = 1L)
+        )
+        database.userDao().upsertUser(
+            UserEntity(uid = "facilitator-1", displayName = "Facilitator One", createdAt = 1L)
+        )
+        database.userDao().upsertUser(
+            UserEntity(uid = "facilitator-2", displayName = "Facilitator Two", createdAt = 1L)
+        )
+        database.sessionDao().upsertSession(
+            seededSession("session-signals")
         )
     }
 }

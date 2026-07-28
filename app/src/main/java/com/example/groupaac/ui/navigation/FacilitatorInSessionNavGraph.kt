@@ -33,7 +33,7 @@ fun FacilitatorInSessionNavGraph(
     activeSession: ActiveSession,
     connectionState: SessionConnectionState,
     onLeaveSession: () -> Unit,
-    onEndSession: () -> Unit,
+    onEndSession: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     val container = LocalAppContainer.current

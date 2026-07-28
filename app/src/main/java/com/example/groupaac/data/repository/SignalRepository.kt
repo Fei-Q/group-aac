@@ -81,32 +81,67 @@ class SignalRepository(
         sessionId: String,
         userId: String
     ) {
-        signalDao.clearCurrentSignalsAndSnoozesForUser(
-            sessionId = sessionId,
-            userId = userId,
-            clearedAt = TimeUtils.now()
-        )
+        val now = TimeUtils.now()
+        transactionRunner.inTransaction {
+            val current = signalDao.getCurrentSignal(
+                sessionId = sessionId,
+                userId = userId
+            ) ?: return@inTransaction
+            signalDao.clearCurrentSignalsAndSnoozesForUser(
+                sessionId = sessionId,
+                userId = userId,
+                clearedAt = now
+            )
+            sessionRealtimeSync.publishSignalCleared(
+                signal = current.copy(
+                    state = SignalState.CLEARED,
+                    clearedAt = now
+                ),
+                actorUserId = userId
+            )
+        }
+        outboxDispatcher.requestImmediateDispatch()
     }
 
     suspend fun clearSignal(signalId: String) {
-        signalDao.clearSignal(
-            signalId = signalId,
-            clearedAt = TimeUtils.now()
-        )
-        signalDao.deleteSnoozesForSignal(signalId)
+        val now = TimeUtils.now()
+        transactionRunner.inTransaction {
+            val signal = signalDao.getSignal(signalId) ?: return@inTransaction
+            signalDao.clearSignal(
+                signalId = signalId,
+                clearedAt = now
+            )
+            signalDao.deleteSnoozesForSignal(signalId)
+            sessionRealtimeSync.publishSignalCleared(
+                signal = signal.copy(
+                    state = SignalState.CLEARED,
+                    clearedAt = now
+                ),
+                actorUserId = signal.userId
+            )
+        }
+        outboxDispatcher.requestImmediateDispatch()
     }
 
     suspend fun snoozeSignal(
         signalId: String,
         facilitatorUserId: String
     ) {
-        signalDao.upsertSnooze(
-            SignalSnoozeEntity(
-                signalId = signalId,
-                facilitatorUserId = facilitatorUserId,
-                createdAt = TimeUtils.now()
+        transactionRunner.inTransaction {
+            val signal = signalDao.getSignal(signalId) ?: return@inTransaction
+            signalDao.upsertSnooze(
+                SignalSnoozeEntity(
+                    signalId = signalId,
+                    facilitatorUserId = facilitatorUserId,
+                    createdAt = TimeUtils.now()
+                )
             )
-        )
+            sessionRealtimeSync.publishSignalSnoozed(
+                signal = signal,
+                facilitatorUserId = facilitatorUserId
+            )
+        }
+        outboxDispatcher.requestImmediateDispatch()
     }
 
     suspend fun unsnoozeSignal(

@@ -103,8 +103,7 @@ fun ActiveSessionHeader(
                         isFacilitator = isFacilitator,
                         leaveEnabled = !isLeaving,
                         endEnabled = canEndSession,
-                        showEndAction =
-                            isFacilitator && onEndSession != null,
+                        showEndAction = onEndSession != null,
                         onLeaveClick = {
                             pendingAction =
                                 PendingSessionAction.Leave
@@ -125,8 +124,7 @@ fun ActiveSessionHeader(
                         isFacilitator = isFacilitator,
                         leaveEnabled = !isLeaving,
                         endEnabled = canEndSession,
-                        showEndAction =
-                            isFacilitator && onEndSession != null,
+                        showEndAction = onEndSession != null,
                         onLeaveClick = {
                             pendingAction =
                                 PendingSessionAction.Leave
