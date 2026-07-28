@@ -1,0 +1,76 @@
+{
+  "showMessageCommand": {
+    "eventId": "cmd-show-001",
+    "type": "display.show_message",
+    "sessionId": "session-abc",
+    "actorUserId": "host_1",
+    "occurredAt": 1785259200000,
+    "payload": {
+      "display": {
+        "sessionId": "session-abc",
+        "displayMode": "AUTO_LATEST",
+        "isPinned": false,
+        "message": {
+          "id": "msg-100",
+          "sessionId": "session-abc",
+          "senderUserId": "participant_1",
+          "senderName": "Participant One",
+          "target": "GROUP",
+          "text": "Gardening on Sunday",
+          "attachmentId": null,
+          "createdAt": 1785259198000,
+          "status": "DISPLAYED",
+          "saved": false,
+          "displayedOnMonitor": true
+        }
+      }
+    }
+  },
+  "pinCommand": {
+    "eventId": "cmd-pin-001",
+    "type": "display.pin_message",
+    "sessionId": "session-abc",
+    "actorUserId": "host_1",
+    "occurredAt": 1785259205000,
+    "payload": {
+      "displayState": {
+        "sessionId": "session-abc",
+        "currentMessageId": "msg-100",
+        "isPinned": true,
+        "displayMode": "AUTO_LATEST"
+      }
+    }
+  },
+  "renderedAck": {
+    "eventId": "ack-rendered-001",
+    "type": "display.rendered",
+    "sessionId": "session-abc",
+    "actorUserId": "display-1",
+    "occurredAt": 1785259203000,
+    "inReplyToEventId": "cmd-show-001",
+    "payload": {
+      "displayState": {
+        "sessionId": "session-abc",
+        "currentMessageId": "msg-100",
+        "isPinned": false,
+        "displayMode": "AUTO_LATEST"
+      }
+    }
+  },
+  "clearedAck": {
+    "eventId": "ack-cleared-001",
+    "type": "display.cleared",
+    "sessionId": "session-abc",
+    "actorUserId": "display-1",
+    "occurredAt": 1785259210000,
+    "inReplyToEventId": "cmd-clear-001",
+    "payload": {
+      "displayState": {
+        "sessionId": "session-abc",
+        "currentMessageId": null,
+        "isPinned": false,
+        "displayMode": "AUTO_LATEST"
+      }
+    }
+  }
+}

@@ -382,3 +382,78 @@ Status: complete
 
 - New sessions already defaulted to `AUTO_LATEST` from stage 2, so this stage builds on that existing session-level default rather than changing it again.
 - The manual display controls now distinguish Show vs Restore based on message display history and place Pin/Unpin directly beside Clear in the currently showing pane.
+
+## Stage 10 - Verification and handoff
+
+Status: complete
+
+### Stage commits
+
+- Stage 4: `d25fae8` - `Lay PubNub realtime foundation`
+- Stage 5: `e26256f` - `Add realtime protocol contract`
+- Stage 6: `68dfd26` - `Add realtime reliability persistence`
+- Stage 7: `4f087ff` - `Add session realtime synchronization`
+- Stage 8: `34bdbe6` - `Refine AAC signal snooze semantics`
+- Stage 9: `2f3954b` - `Implement shared display controls`
+
+### Final verification
+
+- Emulator
+  - Serial: `emulator-5554`
+  - Boot state on Tuesday, July 28, 2026: `1`
+  - `adb -s emulator-5554 devices -l` reported:
+    - `emulator-5554 device product:sdk_gphone16k_arm64 model:sdk_gphone16k_arm64 device:emu64a16k`
+- `./gradlew :app:assembleDebug`
+  - Passed on Tuesday, July 28, 2026.
+- `./gradlew :app:testDebugUnitTest`
+  - Passed on Tuesday, July 28, 2026.
+- `./gradlew :app:connectedDebugAndroidTest --stacktrace`
+  - Failed on Tuesday, July 28, 2026.
+  - Instrumentation started `0` tests on `Resizable_Experimental(AVD) - 17`.
+  - The run crashed before executing tests because `androidx.test.runner.AndroidJUnitRunner` was not found in the test process classpath.
+  - Gradle report path:
+    - [`app/build/reports/androidTests/connected/debug/index.html`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/build/reports/androidTests/connected/debug/index.html)
+
+### Pi handoff artifacts
+
+- Raspberry Pi source is not present in this repository.
+- Added Android-to-Pi contract documentation in:
+  - [`docs/pi-display-protocol-contract.md`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/docs/pi-display-protocol-contract.md)
+  - [`docs/pi-display-protocol-fixtures.json`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/docs/pi-display-protocol-fixtures.json)
+
+### Unresolved issues
+
+- Connected Android tests currently fail before test execution because the instrumentation runner class is missing at runtime.
+- The realtime transport is still backed by the fake in-memory client, not a live PubNub session client.
+- The legacy `PiClient` compatibility layer is still present while repositories transition onto the broader realtime boundary.
+- There is still no Raspberry Pi consumer implementation in this repository to verify the full display command/acknowledgement loop against real device code.
+
+### Deferred deployment work
+
+- Implement the real PubNub-backed `SessionRealtimeClient` with subscription lifecycle, reconnect replay, and channel recovery.
+- Introduce backend-issued PubNub token/auth flows for production instead of local shared-key development setup.
+- Replace the fake Android-side display transport with a real Raspberry Pi consumer and acknowledgement publisher.
+- Repair the Android instrumentation packaging so connected tests can execute instead of crashing during runner startup.
+
+### Manual PubNub setup
+
+1. Create a root-level `pubnub.properties` file.
+2. Add:
+   - `PUBNUB_PUBLISH_KEY=pub-c-...`
+   - `PUBNUB_SUBSCRIBE_KEY=sub-c-...`
+3. Keep `pubnub.properties` out of version control.
+4. Rebuild with `./gradlew :app:assembleDebug`.
+
+### Manual smoke-test steps
+
+1. Confirm the emulator is booted:
+   - `adb -s emulator-5554 shell getprop sys.boot_completed`
+2. Launch two app instances with distinct local UIDs.
+3. Create or join the same session on both devices.
+4. Send a group message and confirm:
+   - it persists locally
+   - it appears in the session log
+   - it auto-displays only when the session is `AUTO_LATEST` and the display is not pinned
+5. Send a facilitator/private message and confirm it does not auto-display.
+6. Use Show, Restore, Pin/Unpin, and Clear in the facilitator log screen and confirm Room display state updates locally.
+7. Send an AAC signal from a participant and confirm one facilitator can snooze it without hiding it from another facilitator account.
