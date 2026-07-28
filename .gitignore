@@ -14,3 +14,4 @@ captures/
 
 # Android Studio / IntelliJ
 .navigation/
+pubnub.properties

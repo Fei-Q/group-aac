@@ -262,8 +262,7 @@ private fun SessionsHeader(
         )
 
         Text(
-            text = "Signed in as ${currentUser.displayName} • " +
-                    currentUser.role.label,
+            text = "Signed in as ${currentUser.displayName} • @${currentUser.id}",
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium
         )

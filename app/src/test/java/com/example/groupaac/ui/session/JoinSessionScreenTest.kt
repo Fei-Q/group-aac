@@ -5,7 +5,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import com.example.groupaac.data.entity.UserEntity
-import com.example.groupaac.model.UserRole
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -22,9 +21,8 @@ class JoinSessionScreenTest {
         composeRule.setContent {
             JoinSessionScreen(
                 currentUser = UserEntity(
-                    id = "user-1",
+                    id = "user_1",
                     displayName = "Alice",
-                    role = UserRole.PARTICIPANT,
                     createdAt = 0L
                 ),
                 isJoining = false,

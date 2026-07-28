@@ -34,6 +34,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.example.groupaac.data.account.CreateAccountResult
 import com.example.groupaac.model.HomeExperience
 import com.example.groupaac.ui.common.AppCard
 import com.example.groupaac.ui.common.PrimaryButton
@@ -49,9 +50,12 @@ import com.example.groupaac.model.UserRole
 @Composable
 fun CreateAccountScreen(
     onBack: () -> Unit,
-    onCreate: (String, HomeExperience) -> Unit
+    onCreate: (String, HomeExperience) -> Unit,
+    createAccountResult: CreateAccountResult? = null,
+    onConsumeCreateAccountResult: () -> Unit = {}
 ) {
-    var name by remember { mutableStateOf("") }
+    var uid by remember { mutableStateOf("") }
+    var displayName by remember { mutableStateOf("") }
     var homeExperience by remember {
         mutableStateOf(HomeExperience.SIMPLE)
     }
@@ -69,14 +73,44 @@ fun CreateAccountScreen(
             Spacer(Modifier.height(24.dp))
             AppCard {
                 Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
-                    Text("Username", style = MaterialTheme.typography.titleLarge)
+                    Text("Account", style = MaterialTheme.typography.titleLarge)
                     OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it },
-                        label = { Text("Name") },
+                        value = uid,
+                        onValueChange = { input ->
+                            uid = input.lowercase().filter { char ->
+                                char.isLowerCase() || char.isDigit() || char == '_'
+                            }
+                        },
+                        label = { Text("UID") },
+                        supportingText = {
+                            Text("3-24 chars, lowercase letters, digits, underscore.")
+                        },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    OutlinedTextField(
+                        value = displayName,
+                        onValueChange = { displayName = it },
+                        label = { Text("Display name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    when (val result = createAccountResult) {
+                        CreateAccountResult.AlreadyTaken -> Text(
+                            text = "That UID is already taken on this device.",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        is CreateAccountResult.Failure -> Text(
+                            text = result.message,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        is CreateAccountResult.Invalid -> Text(
+                            text = result.message,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        is CreateAccountResult.Success -> onConsumeCreateAccountResult()
+                        null -> Unit
+                    }
                     Text(
                         "How will you use this app?",
                         style = MaterialTheme.typography.titleLarge
@@ -141,9 +175,13 @@ fun CreateAccountScreen(
                     PrimaryButton(
                         text = "Create account",
                         onClick = {
-                            onCreate(name.trim(), homeExperience)
+                            onCreate(
+                                "${uid.trim()}|${displayName.trim()}",
+                                homeExperience
+                            )
                         },
-                        enabled = name.trim().isNotEmpty(),
+                        enabled = uid.trim().isNotEmpty() &&
+                            displayName.trim().isNotEmpty(),
                         modifier = Modifier.fillMaxWidth()
                     )
                 }

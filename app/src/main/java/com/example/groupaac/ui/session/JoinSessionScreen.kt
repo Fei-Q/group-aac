@@ -674,9 +674,8 @@ private fun JoinSessionScreenTabletPreview() {
     GroupAacTheme {
         JoinSessionScreen(
             currentUser = UserEntity(
-                id = "1",
+                id = "alice",
                 displayName = "Alice",
-                role = UserRole.PARTICIPANT,
                 createdAt = 0
             ),
             isJoining = false,
@@ -696,9 +695,8 @@ private fun JoinSessionScreenPhonePreview() {
     GroupAacTheme {
         JoinSessionScreen(
             currentUser = UserEntity(
-                id = "1",
+                id = "alice",
                 displayName = "Alice",
-                role = UserRole.PARTICIPANT,
                 createdAt = 0
             ),
             isJoining = false,

@@ -11,19 +11,20 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface UserDao {
-    @Query("SELECT * FROM users ORDER BY lastLoginAt DESC, createdAt DESC")
+    @Query("SELECT * FROM users ORDER BY createdAt DESC")
     fun observeUsers(): Flow<List<UserEntity>>
 
-    @Query("SELECT * FROM users WHERE id = :id LIMIT 1")
-    fun observeUser(id: String): Flow<UserEntity?>
+    @Query("SELECT * FROM users WHERE uid = :uid LIMIT 1")
+    fun observeUser(uid: String): Flow<UserEntity?>
 
-    @Query("SELECT * FROM users WHERE id = :id LIMIT 1")
-    suspend fun getUser(id: String): UserEntity?
+    @Query("SELECT * FROM users WHERE uid = :uid LIMIT 1")
+    suspend fun getUser(uid: String): UserEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertUser(user: UserEntity)
-    @Query("UPDATE users SET lastLoginAt = :timestamp WHERE id = :userId")
-    suspend fun updateLastLogin(userId: String, timestamp: Long)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertUser(user: UserEntity)
 
     @Query("SELECT * FROM user_settings WHERE userId = :userId LIMIT 1")
     fun observeSettings(userId: String): Flow<UserSettingsEntity?>

@@ -88,12 +88,18 @@ fun AppNavGraph(
                         onBack = {
                             navController.popBackStack()
                         },
-                        onCreate = { name, homeExperience ->
+                        onCreate = { payload, homeExperience ->
+                            val uid = payload.substringBefore('|')
+                            val displayName = payload.substringAfter('|')
                             accountViewModel.createUser(
-                                name,
+                                uid,
+                                displayName,
                                 homeExperience
                             )
-                        }
+                        },
+                        createAccountResult = accountState.createAccountResult,
+                        onConsumeCreateAccountResult =
+                            accountViewModel::clearCreateAccountResult
                     )
                 }
             }

@@ -2,6 +2,7 @@ package com.example.groupaac
 
 import android.content.Context
 import com.example.groupaac.data.AppDatabase
+import com.example.groupaac.data.account.LocalUserIdRegistry
 import com.example.groupaac.data.file.AttachmentStorage
 import com.example.groupaac.data.pi.MockPiClient
 import com.example.groupaac.data.pi.PiClient
@@ -22,11 +23,13 @@ class AppContainer(context: Context) {
     val preferences = AppPreferences(context)
     val attachmentStorage = AttachmentStorage(context)
     val piClient: PiClient = MockPiClient()
+    val userIdRegistry = LocalUserIdRegistry(database)
 
     val activeSessionStore: ActiveSessionStore =
         DataStoreActiveSessionStore(preferences)
 
     val accountRepository = AccountRepository(
+        userIdRegistry = userIdRegistry,
         userDao = database.userDao(),
         preferences = preferences
     )

@@ -2,6 +2,7 @@ package com.example.groupaac.data
 
 import androidx.room.TypeConverter
 import com.example.groupaac.model.CalendarViewMode
+import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.FacilitatorDefaultTab
 import com.example.groupaac.model.HomeExperience
 import com.example.groupaac.model.JoinRequestStatus
@@ -11,13 +12,8 @@ import com.example.groupaac.model.ParticipantDefaultTab
 import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SignalState
 import com.example.groupaac.model.SignalType
-import com.example.groupaac.model.UserRole
 
 class TypeConverters {
-    @TypeConverter fun userRoleToString(value: UserRole): String = value.name
-    @TypeConverter
-    fun stringToUserRole(value: String?): UserRole = UserRole.fromName(value)
-
     @TypeConverter
     fun homeExperienceToString(value: HomeExperience): String = value.name
 
@@ -33,6 +29,13 @@ class TypeConverters {
     fun stringToCalendarViewMode(value: String?): CalendarViewMode =
         CalendarViewMode.entries.firstOrNull { it.name == value }
             ?: CalendarViewMode.WEEK
+
+    @TypeConverter
+    fun displayModeToString(value: DisplayMode): String = value.name
+
+    @TypeConverter
+    fun stringToDisplayMode(value: String?): DisplayMode =
+        DisplayMode.fromName(value)
 
     @TypeConverter
     fun sessionRoleToString(value: SessionRole): String = value.name

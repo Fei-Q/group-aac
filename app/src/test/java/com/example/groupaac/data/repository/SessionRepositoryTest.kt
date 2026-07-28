@@ -19,7 +19,6 @@ import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.JoinSessionResult
 import com.example.groupaac.model.SessionRole
-import com.example.groupaac.model.UserRole
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -262,21 +261,18 @@ class SessionRepositoryTest {
         val piClient = RecordingPiClient()
 
         val host = UserEntity(
-            id = "host-1",
+            id = "host_1",
             displayName = "Host",
-            role = UserRole.PARTICIPANT,
             createdAt = 1L
         )
         val participant = UserEntity(
-            id = "participant-1",
+            id = "participant_1",
             displayName = "Participant",
-            role = UserRole.PARTICIPANT,
             createdAt = 2L
         )
         val facilitator = UserEntity(
-            id = "facilitator-1",
+            id = "facilitator_1",
             displayName = "Facilitator",
-            role = UserRole.PARTICIPANT,
             createdAt = 3L
         )
         userDao.seed(host, participant, facilitator)
@@ -648,18 +644,18 @@ private class FakeUserDao : UserDao {
     override fun observeUsers(): Flow<List<UserEntity>> =
         flowOf(users.values.toList())
 
-    override fun observeUser(id: String): Flow<UserEntity?> =
-        flowOf(users[id])
+    override fun observeUser(uid: String): Flow<UserEntity?> =
+        flowOf(users[uid])
 
-    override suspend fun getUser(id: String): UserEntity? = users[id]
+    override suspend fun getUser(uid: String): UserEntity? = users[uid]
 
     override suspend fun upsertUser(user: UserEntity) {
         users[user.id] = user
     }
 
-    override suspend fun updateLastLogin(userId: String, timestamp: Long) {
-        val user = users[userId] ?: return
-        users[userId] = user.copy(lastLoginAt = timestamp)
+    override suspend fun insertUser(user: UserEntity) {
+        check(users[user.id] == null) { "Duplicate user ${user.id}" }
+        users[user.id] = user
     }
 
     override fun observeSettings(userId: String): Flow<UserSettingsEntity?> =

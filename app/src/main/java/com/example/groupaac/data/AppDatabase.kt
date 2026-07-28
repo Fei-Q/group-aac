@@ -4,9 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.migration.Migration
 import androidx.room.TypeConverters
-import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.groupaac.data.dao.FacilitatorDao
 import com.example.groupaac.data.dao.MessageDao
 import com.example.groupaac.data.dao.SessionDao
@@ -37,8 +35,8 @@ import com.example.groupaac.data.entity.UserSettingsEntity
         FacilitatorNoteEntity::class,
         QuickLogEntity::class
     ],
-    version = 5,
-    exportSchema = false
+    version = 1,
+    exportSchema = true
 )
 @TypeConverters(com.example.groupaac.data.TypeConverters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -50,69 +48,12 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun facilitatorDao(): FacilitatorDao
 
     companion object {
-        val MIGRATION_3_4 = object : Migration(3, 4) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
-                    """
-                    ALTER TABLE user_settings
-                    ADD COLUMN homeExperience TEXT NOT NULL DEFAULT 'SIMPLE'
-                    """.trimIndent()
-                )
-                database.execSQL(
-                    """
-                    ALTER TABLE sessions
-                    ADD COLUMN hostUserId TEXT
-                    """.trimIndent()
-                )
-                database.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS session_join_requests (
-                        id TEXT NOT NULL,
-                        sessionId TEXT NOT NULL,
-                        userId TEXT NOT NULL,
-                        displayName TEXT NOT NULL,
-                        requestedRole TEXT NOT NULL,
-                        status TEXT NOT NULL,
-                        requestedAt INTEGER NOT NULL,
-                        decidedAt INTEGER,
-                        decidedByUserId TEXT,
-                        PRIMARY KEY(id)
-                    )
-                    """.trimIndent()
-                )
-                database.execSQL(
-                    """
-                    CREATE INDEX IF NOT EXISTS index_session_join_requests_sessionId_status
-                    ON session_join_requests(sessionId, status)
-                    """.trimIndent()
-                )
-                database.execSQL(
-                    """
-                    CREATE INDEX IF NOT EXISTS index_session_join_requests_userId
-                    ON session_join_requests(userId)
-                    """.trimIndent()
-                )
-            }
-        }
-
-        val MIGRATION_4_5 = object : Migration(4, 5) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
-                    """
-                    ALTER TABLE user_settings
-                    ADD COLUMN calendarViewMode TEXT NOT NULL DEFAULT 'WEEK'
-                    """.trimIndent()
-                )
-            }
-        }
-
         fun create(context: Context): AppDatabase = Room.databaseBuilder(
             context.applicationContext,
             AppDatabase::class.java,
             "group_aac.db"
         )
-            .addMigrations(MIGRATION_3_4)
-            .addMigrations(MIGRATION_4_5)
+            .fallbackToDestructiveMigration()
             .build()
     }
 }

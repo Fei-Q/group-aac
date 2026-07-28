@@ -85,3 +85,58 @@ Starting commit: `5be1ff5 Add PubNub SDK and configuration properties`
 - First repair target is the Kotlin/PubNub compatibility issue blocking all builds.
 - Stage 2 will require a schema reset, migration removal, identity rewrite, and foreign-key cleanup across entities, DAOs, repositories, and tests.
 - Stage 4 onward will replace direct Pi transport calls with a broader realtime client boundary and fake implementation.
+
+## Stage 2 - Fresh identity and Room schema
+
+Status: complete
+
+### Implemented
+
+- Reset Room to schema version `1` in [`AppDatabase`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/AppDatabase.kt).
+- Removed legacy migration chain and enabled destructive recreation for the development schema reset.
+- Reworked `users` to store the immutable account primary key in the `uid` database column while preserving a stable Kotlin `id` property for the rest of the codebase transition.
+- Removed deprecated account-role and last-login persistence from [`UserEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/UserEntity.kt).
+- Removed deprecated `defaultRole` compatibility state from [`UserSettingsEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/UserSettingsEntity.kt).
+- Added session-level [`DisplayMode`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/model/DisplayMode.kt) to [`SessionEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/SessionEntity.kt) with default `AUTO_LATEST`.
+- Updated Room queries and joins to use the new `uid` column in users.
+- Regenerated the exported schema at [`app/schemas/com.example.groupaac.data.AppDatabase/1.json`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/schemas/com.example.groupaac.data.AppDatabase/1.json).
+
+### Verification
+
+- `./gradlew :app:assembleDebug`
+  - Passed on Tuesday, July 28, 2026.
+- `./gradlew :app:testDebugUnitTest`
+  - Passed on Tuesday, July 28, 2026.
+
+### Notes
+
+- The Kotlin property name transition is intentionally incremental: the database primary key is now `uid`, while much of the existing app code still accesses the same value through `UserEntity.id`.
+- Date-sensitive home-screen tests were updated to use dates in the future relative to Tuesday, July 28, 2026.
+
+## Stage 3 - Registration abstraction
+
+Status: complete
+
+### Implemented
+
+- Added [`UserIdRegistry`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/account/UserIdRegistry.kt) with:
+  - `CreateAccountRequest`
+  - `CreateAccountResult`
+  - `LocalUserIdRegistry`
+- Enforced UID validation with the required regex: `^[a-z0-9][a-z0-9_]{2,23}$`.
+- Account creation now inserts `UserEntity` and `UserSettingsEntity` transactionally via `withTransaction`.
+- Duplicate primary-key insertion is converted to `AlreadyTaken`.
+- [`AccountRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/AccountRepository.kt) now depends on `UserIdRegistry` instead of creating IDs directly.
+- Updated account UI/view-model flow to collect a user-created UID plus display name and surface validation/duplicate-account errors.
+
+### Verification
+
+- `./gradlew :app:assembleDebug`
+  - Passed on Tuesday, July 28, 2026.
+- `./gradlew :app:testDebugUnitTest`
+  - Passed on Tuesday, July 28, 2026.
+
+### Notes
+
+- This is still a local-only registry implementation by design.
+- The interface boundary is now ready for a future remote UID registry and token/session authority work.

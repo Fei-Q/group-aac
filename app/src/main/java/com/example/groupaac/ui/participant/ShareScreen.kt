@@ -1318,7 +1318,6 @@ private fun previewShareUiState(): ParticipantUiState {
         user = UserEntity(
             id = currentUserId,
             displayName = "Alice",
-            role = UserRole.PARTICIPANT,
             createdAt = 0
         ),
         messages = mockMessages,

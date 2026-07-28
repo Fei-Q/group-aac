@@ -2,7 +2,6 @@ package com.example.groupaac.data.repository
 
 import com.example.groupaac.data.dao.UserDao
 import com.example.groupaac.data.entity.UserSettingsEntity
-import com.example.groupaac.model.UserRole
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -16,15 +15,10 @@ class SettingsRepository(
             }
     }
 
-    suspend fun ensureSettingsExist(userId: String, role: UserRole) {
+    suspend fun ensureSettingsExist(userId: String) {
         val existing = userDao.getSettings(userId)
         if (existing == null) {
-            userDao.upsertSettings(
-                UserSettingsEntity(
-                    userId = userId,
-                    defaultRole = role
-                )
-            )
+            userDao.upsertSettings(UserSettingsEntity(userId = userId))
         }
     }
 

@@ -66,7 +66,7 @@ interface MessageDao {
     @Query("""
         SELECT messages.*, COALESCE(users.displayName, session_members.displayName, 'Unknown') AS senderName
         FROM messages
-        LEFT JOIN users ON users.id = messages.senderUserId
+        LEFT JOIN users ON users.uid = messages.senderUserId
         LEFT JOIN session_members ON session_members.sessionId = messages.sessionId AND session_members.userId = messages.senderUserId
         WHERE messages.sessionId = :sessionId AND messages.status != 'DELETED'
         ORDER BY messages.createdAt DESC
@@ -77,7 +77,7 @@ interface MessageDao {
     @Query("""
         SELECT messages.*, COALESCE(users.displayName, session_members.displayName, 'Unknown') AS senderName
         FROM messages
-        LEFT JOIN users ON users.id = messages.senderUserId
+        LEFT JOIN users ON users.uid = messages.senderUserId
         LEFT JOIN session_members ON session_members.sessionId = messages.sessionId AND session_members.userId = messages.senderUserId
         WHERE messages.sessionId = :sessionId AND messages.status != 'DELETED'
         ORDER BY messages.createdAt DESC
@@ -89,7 +89,7 @@ interface MessageDao {
     @Query("""
         SELECT messages.*, COALESCE(users.displayName, session_members.displayName, 'Unknown') AS senderName
         FROM messages
-        LEFT JOIN users ON users.id = messages.senderUserId
+        LEFT JOIN users ON users.uid = messages.senderUserId
         LEFT JOIN session_members ON session_members.sessionId = messages.sessionId AND session_members.userId = messages.senderUserId
         WHERE messages.sessionId = :sessionId AND messages.displayedOnMonitor = 1 AND messages.status != 'DELETED'
         ORDER BY messages.createdAt DESC LIMIT 1
@@ -100,7 +100,7 @@ interface MessageDao {
     @Query("""
         SELECT messages.*, COALESCE(users.displayName, session_members.displayName, 'Unknown') AS senderName
         FROM messages
-        LEFT JOIN users ON users.id = messages.senderUserId
+        LEFT JOIN users ON users.uid = messages.senderUserId
         LEFT JOIN session_members ON session_members.sessionId = messages.sessionId AND session_members.userId = messages.senderUserId
         WHERE messages.sessionId = :sessionId AND messages.displayedOnMonitor = 1 AND messages.status != 'DELETED'
         ORDER BY messages.createdAt DESC LIMIT 1

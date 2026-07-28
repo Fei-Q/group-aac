@@ -50,7 +50,7 @@ interface FacilitatorDao {
                COALESCE(users.displayName, session_members.displayName, 'Session note') AS participantName, facilitator_notes.facilitatorUserId,
                facilitator_notes.text, facilitator_notes.createdAt
         FROM facilitator_notes
-        LEFT JOIN users ON users.id = facilitator_notes.participantUserId
+        LEFT JOIN users ON users.uid = facilitator_notes.participantUserId
         LEFT JOIN session_members ON session_members.sessionId = facilitator_notes.sessionId AND session_members.userId = facilitator_notes.participantUserId
         WHERE facilitator_notes.sessionId = :sessionId
         ORDER BY facilitator_notes.createdAt DESC
@@ -62,7 +62,7 @@ interface FacilitatorDao {
                COALESCE(users.displayName, session_members.displayName, 'Unknown') AS participantName, quick_logs.facilitatorUserId,
                quick_logs.label, quick_logs.createdAt
         FROM quick_logs
-        LEFT JOIN users ON users.id = quick_logs.participantUserId
+        LEFT JOIN users ON users.uid = quick_logs.participantUserId
         LEFT JOIN session_members ON session_members.sessionId = quick_logs.sessionId AND session_members.userId = quick_logs.participantUserId
         WHERE quick_logs.sessionId = :sessionId
         ORDER BY quick_logs.createdAt DESC
@@ -77,7 +77,7 @@ interface FacilitatorDao {
                MAX(messages.createdAt) AS lastMessageAt,
                MAX(status_signals.createdAt) AS lastSignalAt
         FROM session_members
-        LEFT JOIN users ON users.id = session_members.userId
+        LEFT JOIN users ON users.uid = session_members.userId
         LEFT JOIN messages ON messages.senderUserId = session_members.userId AND messages.sessionId = :sessionId AND messages.status != 'DELETED'
         LEFT JOIN status_signals ON status_signals.userId = session_members.userId AND status_signals.sessionId = :sessionId
         WHERE session_members.sessionId = :sessionId AND session_members.role = 'PARTICIPANT'

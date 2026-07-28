@@ -2,15 +2,15 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "cc15c95d1c79b6e927ed22cb5aa5b5b1",
+    "identityHash": "6f1072e28f66c5edd44a173938f30e2a",
     "entities": [
       {
         "tableName": "users",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `displayName` TEXT NOT NULL, `role` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `lastLoginAt` INTEGER, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`uid` TEXT NOT NULL, `displayName` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`uid`))",
         "fields": [
           {
             "fieldPath": "id",
-            "columnName": "id",
+            "columnName": "uid",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -21,36 +21,22 @@
             "notNull": true
           },
           {
-            "fieldPath": "role",
-            "columnName": "role",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
             "fieldPath": "createdAt",
             "columnName": "createdAt",
             "affinity": "INTEGER",
             "notNull": true
-          },
-          {
-            "fieldPath": "lastLoginAt",
-            "columnName": "lastLoginAt",
-            "affinity": "INTEGER",
-            "notNull": false
           }
         ],
         "primaryKey": {
           "autoGenerate": false,
           "columnNames": [
-            "id"
+            "uid"
           ]
-        },
-        "indices": [],
-        "foreignKeys": []
+        }
       },
       {
         "tableName": "user_settings",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `defaultRole` TEXT NOT NULL, `defaultSessionName` TEXT NOT NULL, `textScale` REAL NOT NULL, `highContrastEnabled` INTEGER NOT NULL, `soundEnabled` INTEGER NOT NULL, `reduceMotionEnabled` INTEGER NOT NULL, `keepScreenAwake` INTEGER NOT NULL, `participantDefaultTab` TEXT NOT NULL, `participantReadAloudEnabled` INTEGER NOT NULL, `participantReadAloudVoice` TEXT NOT NULL, `participantReadAloudRate` REAL NOT NULL, `participantSaveDraftsAutomatically` INTEGER NOT NULL, `participantDefaultShareTarget` TEXT NOT NULL, `facilitatorDefaultTab` TEXT NOT NULL, `facilitatorShowLowParticipationAlerts` INTEGER NOT NULL, `facilitatorLowParticipationThresholdMinutes` INTEGER NOT NULL, `facilitatorShowHelpAlerts` INTEGER NOT NULL, `facilitatorShowRepeatAlerts` INTEGER NOT NULL, `facilitatorShowWaitingAlerts` INTEGER NOT NULL, `facilitatorDefaultSnoozeMinutes` INTEGER NOT NULL, `facilitatorAutoClearResolvedAlerts` INTEGER NOT NULL, `facilitatorQuickLogEnabled` INTEGER NOT NULL, `facilitatorAutoSaveNotes` INTEGER NOT NULL, `facilitatorShowPrivateMessagesInLog` INTEGER NOT NULL, `facilitatorIncludeResolvedSignalsInSummary` INTEGER NOT NULL, `monitorAutoDisplayGroupMessages` INTEGER NOT NULL, `monitorRequireManualApproval` INTEGER NOT NULL, `monitorPlaySoundOnNewMessage` INTEGER NOT NULL, `monitorClearOnSessionEnd` INTEGER NOT NULL, `monitorShowSenderName` INTEGER NOT NULL, `monitorShowTimestamp` INTEGER NOT NULL, `monitorDefaultDisplaySeconds` INTEGER NOT NULL, `saveSessionHistory` INTEGER NOT NULL, `saveFacilitatorNotes` INTEGER NOT NULL, `saveAttachmentMetadata` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`userId`), FOREIGN KEY(`userId`) REFERENCES `users`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `defaultSessionName` TEXT NOT NULL, `homeExperience` TEXT NOT NULL, `calendarViewMode` TEXT NOT NULL, `textScale` REAL NOT NULL, `highContrastEnabled` INTEGER NOT NULL, `soundEnabled` INTEGER NOT NULL, `reduceMotionEnabled` INTEGER NOT NULL, `keepScreenAwake` INTEGER NOT NULL, `participantDefaultTab` TEXT NOT NULL, `participantReadAloudEnabled` INTEGER NOT NULL, `participantReadAloudVoice` TEXT NOT NULL, `participantReadAloudRate` REAL NOT NULL, `participantSaveDraftsAutomatically` INTEGER NOT NULL, `participantDefaultShareTarget` TEXT NOT NULL, `participantShowTypingStatus` INTEGER NOT NULL, `facilitatorDefaultTab` TEXT NOT NULL, `facilitatorShowLowParticipationAlerts` INTEGER NOT NULL, `facilitatorLowParticipationThresholdMinutes` INTEGER NOT NULL, `facilitatorShowHelpAlerts` INTEGER NOT NULL, `facilitatorShowRepeatAlerts` INTEGER NOT NULL, `facilitatorShowWaitingAlerts` INTEGER NOT NULL, `facilitatorDefaultSnoozeMinutes` INTEGER NOT NULL, `facilitatorAutoClearResolvedAlerts` INTEGER NOT NULL, `facilitatorQuickLogEnabled` INTEGER NOT NULL, `facilitatorAutoSaveNotes` INTEGER NOT NULL, `facilitatorShowPrivateMessagesInLog` INTEGER NOT NULL, `facilitatorIncludeResolvedSignalsInSummary` INTEGER NOT NULL, `monitorAutoDisplayGroupMessages` INTEGER NOT NULL, `monitorRequireManualApproval` INTEGER NOT NULL, `monitorPlaySoundOnNewMessage` INTEGER NOT NULL, `monitorClearOnSessionEnd` INTEGER NOT NULL, `monitorShowSenderName` INTEGER NOT NULL, `monitorShowTimestamp` INTEGER NOT NULL, `monitorDefaultDisplaySeconds` INTEGER NOT NULL, `saveSessionHistory` INTEGER NOT NULL, `saveFacilitatorNotes` INTEGER NOT NULL, `saveAttachmentMetadata` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`userId`), FOREIGN KEY(`userId`) REFERENCES `users`(`uid`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "userId",
@@ -59,14 +45,20 @@
             "notNull": true
           },
           {
-            "fieldPath": "defaultRole",
-            "columnName": "defaultRole",
+            "fieldPath": "defaultSessionName",
+            "columnName": "defaultSessionName",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "defaultSessionName",
-            "columnName": "defaultSessionName",
+            "fieldPath": "homeExperience",
+            "columnName": "homeExperience",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "calendarViewMode",
+            "columnName": "calendarViewMode",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -134,6 +126,12 @@
             "fieldPath": "participantDefaultShareTarget",
             "columnName": "participantDefaultShareTarget",
             "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "participantShowTypingStatus",
+            "columnName": "participantShowTypingStatus",
+            "affinity": "INTEGER",
             "notNull": true
           },
           {
@@ -307,14 +305,14 @@
               "userId"
             ],
             "referencedColumns": [
-              "id"
+              "uid"
             ]
           }
         ]
       },
       {
         "tableName": "sessions",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `joinCode` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `endedAt` INTEGER, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `joinCode` TEXT NOT NULL, `hostUserId` TEXT, `displayMode` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `scheduledStartAt` INTEGER, `scheduledDurationMinutes` INTEGER, `actualStartedAt` INTEGER, `actualEndedAt` INTEGER, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -335,16 +333,47 @@
             "notNull": true
           },
           {
+            "fieldPath": "hostUserId",
+            "columnName": "hostUserId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "displayMode",
+            "columnName": "displayMode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
             "fieldPath": "createdAt",
             "columnName": "createdAt",
             "affinity": "INTEGER",
             "notNull": true
           },
           {
-            "fieldPath": "endedAt",
-            "columnName": "endedAt",
+            "fieldPath": "scheduledStartAt",
+            "columnName": "scheduledStartAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "scheduledDurationMinutes",
+            "columnName": "scheduledDurationMinutes",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "actualStartedAt",
+            "columnName": "actualStartedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "actualEndedAt",
+            "columnName": "actualEndedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
             "affinity": "INTEGER",
-            "notNull": false
+            "notNull": true
           }
         ],
         "primaryKey": {
@@ -352,13 +381,11 @@
           "columnNames": [
             "id"
           ]
-        },
-        "indices": [],
-        "foreignKeys": []
+        }
       },
       {
         "tableName": "session_members",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sessionId` TEXT NOT NULL, `userId` TEXT NOT NULL, `role` TEXT NOT NULL, `joinedAt` INTEGER NOT NULL, PRIMARY KEY(`sessionId`, `userId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sessionId` TEXT NOT NULL, `userId` TEXT NOT NULL, `displayName` TEXT NOT NULL, `role` TEXT NOT NULL, `joinedAt` INTEGER NOT NULL, PRIMARY KEY(`sessionId`, `userId`))",
         "fields": [
           {
             "fieldPath": "sessionId",
@@ -369,6 +396,12 @@
           {
             "fieldPath": "userId",
             "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -391,9 +424,92 @@
             "sessionId",
             "userId"
           ]
+        }
+      },
+      {
+        "tableName": "session_join_requests",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `sessionId` TEXT NOT NULL, `userId` TEXT NOT NULL, `displayName` TEXT NOT NULL, `requestedRole` TEXT NOT NULL, `status` TEXT NOT NULL, `requestedAt` INTEGER NOT NULL, `decidedAt` INTEGER, `decidedByUserId` TEXT, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionId",
+            "columnName": "sessionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayName",
+            "columnName": "displayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requestedRole",
+            "columnName": "requestedRole",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "requestedAt",
+            "columnName": "requestedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "decidedAt",
+            "columnName": "decidedAt",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "decidedByUserId",
+            "columnName": "decidedByUserId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
         },
-        "indices": [],
-        "foreignKeys": []
+        "indices": [
+          {
+            "name": "index_session_join_requests_sessionId_status",
+            "unique": false,
+            "columnNames": [
+              "sessionId",
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_session_join_requests_sessionId_status` ON `${TABLE_NAME}` (`sessionId`, `status`)"
+          },
+          {
+            "name": "index_session_join_requests_userId",
+            "unique": false,
+            "columnNames": [
+              "userId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_session_join_requests_userId` ON `${TABLE_NAME}` (`userId`)"
+          }
+        ]
       },
       {
         "tableName": "messages",
@@ -426,14 +542,12 @@
           {
             "fieldPath": "text",
             "columnName": "text",
-            "affinity": "TEXT",
-            "notNull": false
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "attachmentId",
             "columnName": "attachmentId",
-            "affinity": "TEXT",
-            "notNull": false
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "createdAt",
@@ -465,9 +579,7 @@
           "columnNames": [
             "id"
           ]
-        },
-        "indices": [],
-        "foreignKeys": []
+        }
       },
       {
         "tableName": "status_signals",
@@ -512,8 +624,7 @@
           {
             "fieldPath": "resolvedAt",
             "columnName": "resolvedAt",
-            "affinity": "INTEGER",
-            "notNull": false
+            "affinity": "INTEGER"
           }
         ],
         "primaryKey": {
@@ -521,13 +632,11 @@
           "columnNames": [
             "id"
           ]
-        },
-        "indices": [],
-        "foreignKeys": []
+        }
       },
       {
         "tableName": "attachments",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `ownerUserId` TEXT NOT NULL, `sessionId` TEXT, `mimeType` TEXT NOT NULL, `localPath` TEXT NOT NULL, `displayName` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `messageId` TEXT NOT NULL, `localUri` TEXT NOT NULL, `mimeType` TEXT NOT NULL, `originalName` TEXT, `sortOrder` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `remoteUri` TEXT, `syncStatus` TEXT NOT NULL, PRIMARY KEY(`id`), FOREIGN KEY(`messageId`) REFERENCES `messages`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -536,16 +645,16 @@
             "notNull": true
           },
           {
-            "fieldPath": "ownerUserId",
-            "columnName": "ownerUserId",
+            "fieldPath": "messageId",
+            "columnName": "messageId",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "sessionId",
-            "columnName": "sessionId",
+            "fieldPath": "localUri",
+            "columnName": "localUri",
             "affinity": "TEXT",
-            "notNull": false
+            "notNull": true
           },
           {
             "fieldPath": "mimeType",
@@ -554,21 +663,31 @@
             "notNull": true
           },
           {
-            "fieldPath": "localPath",
-            "columnName": "localPath",
-            "affinity": "TEXT",
-            "notNull": true
+            "fieldPath": "originalName",
+            "columnName": "originalName",
+            "affinity": "TEXT"
           },
           {
-            "fieldPath": "displayName",
-            "columnName": "displayName",
-            "affinity": "TEXT",
-            "notNull": false
+            "fieldPath": "sortOrder",
+            "columnName": "sortOrder",
+            "affinity": "INTEGER",
+            "notNull": true
           },
           {
             "fieldPath": "createdAt",
             "columnName": "createdAt",
             "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteUri",
+            "columnName": "remoteUri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "syncStatus",
+            "affinity": "TEXT",
             "notNull": true
           }
         ],
@@ -578,8 +697,30 @@
             "id"
           ]
         },
-        "indices": [],
-        "foreignKeys": []
+        "indices": [
+          {
+            "name": "index_attachments_messageId",
+            "unique": false,
+            "columnNames": [
+              "messageId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_attachments_messageId` ON `${TABLE_NAME}` (`messageId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "messages",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "messageId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
       },
       {
         "tableName": "facilitator_notes",
@@ -600,8 +741,7 @@
           {
             "fieldPath": "participantUserId",
             "columnName": "participantUserId",
-            "affinity": "TEXT",
-            "notNull": false
+            "affinity": "TEXT"
           },
           {
             "fieldPath": "facilitatorUserId",
@@ -627,9 +767,7 @@
           "columnNames": [
             "id"
           ]
-        },
-        "indices": [],
-        "foreignKeys": []
+        }
       },
       {
         "tableName": "quick_logs",
@@ -677,15 +815,12 @@
           "columnNames": [
             "id"
           ]
-        },
-        "indices": [],
-        "foreignKeys": []
+        }
       }
     ],
-    "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'cc15c95d1c79b6e927ed22cb5aa5b5b1')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '6f1072e28f66c5edd44a173938f30e2a')"
     ]
   }
 }

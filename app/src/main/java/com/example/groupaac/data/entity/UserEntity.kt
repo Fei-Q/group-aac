@@ -1,15 +1,14 @@
 package com.example.groupaac.data.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import com.example.groupaac.model.UserRole
 
 @Entity(tableName = "users")
 data class UserEntity(
-    @PrimaryKey val id: String,
+    @PrimaryKey
+    @ColumnInfo(name = "uid")
+    val id: String,
     val displayName: String,
-    @Deprecated("Account-level roles are retained only for Room compatibility.")
-    val role: UserRole,
-    val createdAt: Long,
-    val lastLoginAt: Long? = null
+    val createdAt: Long
 )

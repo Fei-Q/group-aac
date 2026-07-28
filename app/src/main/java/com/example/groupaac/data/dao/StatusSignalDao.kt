@@ -28,7 +28,7 @@ interface StatusSignalDao {
     @Query("""
         SELECT status_signals.*, COALESCE(users.displayName, session_members.displayName, 'Unknown') AS displayName
         FROM status_signals
-        LEFT JOIN users ON users.id = status_signals.userId
+        LEFT JOIN users ON users.uid = status_signals.userId
         LEFT JOIN session_members 
             ON session_members.sessionId = status_signals.sessionId 
             AND session_members.userId = status_signals.userId

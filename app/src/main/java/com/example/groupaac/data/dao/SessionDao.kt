@@ -172,7 +172,7 @@ interface SessionDao {
                session_members.joinedAt
         FROM session_members
         LEFT JOIN users
-            ON users.id = session_members.userId
+            ON users.uid = session_members.userId
         WHERE session_members.sessionId = :sessionId
         ORDER BY session_members.joinedAt ASC
         """
@@ -193,7 +193,7 @@ interface SessionDao {
                session_members.joinedAt
         FROM session_members
         LEFT JOIN users
-            ON users.id = session_members.userId
+            ON users.uid = session_members.userId
         WHERE session_members.sessionId = :sessionId
           AND session_members.userId = :userId
         LIMIT 1
@@ -216,7 +216,7 @@ interface SessionDao {
                session_members.joinedAt
         FROM session_members
         LEFT JOIN users
-            ON users.id = session_members.userId
+            ON users.uid = session_members.userId
         WHERE session_members.sessionId = :sessionId
           AND session_members.userId = :userId
         LIMIT 1

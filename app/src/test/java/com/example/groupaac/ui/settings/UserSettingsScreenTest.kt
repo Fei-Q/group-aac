@@ -12,7 +12,6 @@ import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
 import com.example.groupaac.model.CalendarViewMode
 import com.example.groupaac.model.HomeExperience
-import com.example.groupaac.model.UserRole
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -157,9 +156,8 @@ class UserSettingsScreenTest {
     }
 
     private fun sampleUser() = UserEntity(
-        id = "user-1",
+        id = "user_1",
         displayName = "Alice Baker",
-        role = UserRole.PARTICIPANT,
         createdAt = 0L
     )
 }

@@ -15,7 +15,6 @@ import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SignalState
 import com.example.groupaac.model.SignalType
-import com.example.groupaac.model.UserRole
 import com.example.groupaac.util.TimeUtils
 import kotlinx.coroutines.flow.Flow
 
@@ -169,18 +168,11 @@ class DebugRepository(
             UserEntity(
                 id = userId,
                 displayName = displayName,
-                role = UserRole.PARTICIPANT,
-                createdAt = existingUser?.createdAt ?: now,
-                lastLoginAt = now
+                createdAt = existingUser?.createdAt ?: now
             )
         )
 
-        userDao.upsertSettings(
-            UserSettingsEntity(
-                userId = userId,
-                defaultRole = UserRole.PARTICIPANT
-            )
-        )
+        userDao.upsertSettings(UserSettingsEntity(userId = userId))
 
         sessionDao.upsertMember(
             SessionMemberEntity(

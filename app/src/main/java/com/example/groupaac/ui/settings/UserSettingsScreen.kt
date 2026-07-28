@@ -39,7 +39,6 @@ import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
 import com.example.groupaac.model.CalendarViewMode
 import com.example.groupaac.model.HomeExperience
-import com.example.groupaac.model.UserRole
 import com.example.groupaac.ui.common.AppCard
 import com.example.groupaac.ui.common.PrimaryButton
 import com.example.groupaac.ui.common.SecondaryButton
@@ -531,12 +530,11 @@ private fun UserSettingsScreenSimplePreview() {
     GroupAacTheme {
         UserSettingsScreen(
             user = UserEntity(
-                id = "1",
+                id = "alice",
                 displayName = "Alice Baker",
-                role = UserRole.PARTICIPANT,
                 createdAt = 0L
             ),
-            settings = UserSettingsEntity(userId = "1"),
+            settings = UserSettingsEntity(userId = "alice"),
             onUpdateSettings = {},
             onClearLocalHistory = {},
             onExportSummary = {}
@@ -550,13 +548,12 @@ private fun UserSettingsScreenAdvancedPreview() {
     GroupAacTheme {
         UserSettingsScreen(
             user = UserEntity(
-                id = "1",
+                id = "alice",
                 displayName = "Alice Baker",
-                role = UserRole.PARTICIPANT,
                 createdAt = 0L
             ),
             settings = UserSettingsEntity(
-                userId = "1",
+                userId = "alice",
                 homeExperience = HomeExperience.ADVANCED
             ),
             onUpdateSettings = {},
