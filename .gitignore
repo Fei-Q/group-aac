@@ -20,4 +20,5 @@ backend/.pytest_cache/
 backend/__pycache__/
 backend/**/__pycache__/
 backend/**/*.pyc
+backend/*.egg-info/
 group_aac_backend.db

@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -625,6 +626,7 @@ private fun CurrentlyDisplayedPane(
                             label = if (isPinned) "Unpin Message" else "Pin Message",
                             enabled = true,
                             emphasis = ActionEmphasis.Secondary,
+                            modifier = Modifier.testTag("display_pin_toggle"),
                             onClick = {
                                 if (isPinned) {
                                     onUnpinDisplayedMessage()
@@ -636,6 +638,7 @@ private fun CurrentlyDisplayedPane(
                         SmallActionButton(
                             label = "Clear Screen",
                             emphasis = ActionEmphasis.Secondary,
+                            modifier = Modifier.testTag("display_clear"),
                             onClick = onClearDisplay
                         )
                     }
@@ -650,6 +653,7 @@ private fun SmallActionButton(
     label: String,
     enabled: Boolean = true,
     emphasis: ActionEmphasis,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(8.dp)
@@ -662,7 +666,7 @@ private fun SmallActionButton(
                 enabled = enabled,
                 shape = shape,
                 contentPadding = contentPadding,
-                modifier = Modifier.heightIn(min = 36.dp)
+                modifier = modifier.heightIn(min = 36.dp)
             ) {
                 Text(
                     text = label,
@@ -679,7 +683,7 @@ private fun SmallActionButton(
                 shape = shape,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                 contentPadding = contentPadding,
-                modifier = Modifier.heightIn(min = 36.dp)
+                modifier = modifier.heightIn(min = 36.dp)
             ) {
                 Text(
                     text = label,
@@ -699,7 +703,7 @@ private fun SmallActionButton(
                     contentColor = MaterialTheme.colorScheme.error
                 ),
                 contentPadding = contentPadding,
-                modifier = Modifier.heightIn(min = 36.dp)
+                modifier = modifier.heightIn(min = 36.dp)
             ) {
                 Text(
                     text = label,

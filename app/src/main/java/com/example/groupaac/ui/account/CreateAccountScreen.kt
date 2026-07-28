@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -109,7 +110,9 @@ fun CreateAccountScreen(
                         },
                         isError = uid.isNotBlank() && uidValidation is UserIdValidationResult.Invalid,
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("create_account_uid")
                     )
                     OutlinedTextField(
                         value = displayName,
@@ -122,7 +125,9 @@ fun CreateAccountScreen(
                         },
                         isError = displayName.isNotBlank() && displayNameError != null,
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("create_account_display_name")
                     )
                     when (val result = createAccountResult) {
                         CreateAccountResult.AlreadyTaken -> Text(
@@ -211,7 +216,9 @@ fun CreateAccountScreen(
                             )
                         },
                         enabled = canCreate,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("create_account_submit")
                     )
                 }
             }

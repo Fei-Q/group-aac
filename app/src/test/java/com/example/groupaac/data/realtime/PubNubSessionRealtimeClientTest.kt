@@ -112,6 +112,21 @@ class PubNubSessionRealtimeClientTest {
             client.observeConnectionState().value
         )
     }
+
+    @Test
+    fun closeUnsubscribesTransportAndMarksDisconnected() = runTest {
+        val transport = FakePubNubTransport()
+        val client = PubNubSessionRealtimeClient("alice", transport)
+
+        client.observeChannel("session.demo.public")
+        client.close()
+
+        assertTrue(transport.closed)
+        assertEquals(
+            RealtimeConnectionState.Disconnected,
+            client.observeConnectionState().value
+        )
+    }
 }
 
 private class FakePubNubTransport(

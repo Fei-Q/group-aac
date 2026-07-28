@@ -813,3 +813,87 @@ Starting commit: `6921bd3 Make realtime delivery durable`
 
 - A live two-client runtime smoke test was not run during this stage because this environment did not provide two concurrently available app clients beyond the new separate-database unit coverage.
 - The requester-side activation guarantee now depends on the private approval payload rather than ordering assumptions between private and public channels, which removes the prior cross-device race.
+
+## Live Realtime Stage 9 - End-to-end verification
+
+Status: complete with documented integration limits
+
+Date: 2026-07-28
+Branch: `feature/pubnub-live-integration`
+Starting commit: `6ded9d6 Correct shared display semantics`
+
+### Implemented
+
+- Added Stage 9 unit coverage for remaining startup, transport, and recovery gaps:
+  - [`UserIdRegistryTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/account/UserIdRegistryTest.kt)
+    - UID normalization and validation rejection
+    - local account/settings persistence
+  - [`PubNubSessionRealtimeClientTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/PubNubSessionRealtimeClientTest.kt)
+    - live transport close/disconnect path in addition to the existing publish/subscribe coverage
+- Added connected Compose verification scaffolding in [`RealtimeComposeFlowsTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/androidTest/java/com/example/groupaac/RealtimeComposeFlowsTest.kt) for:
+  - account creation
+  - host session creation
+  - participant join
+  - facilitator approval
+  - host-only End Session
+  - signal snooze isolation
+  - Pin/Unpin/Clear controls
+- Added instrumentation-friendly test tags to:
+  - [`CreateAccountScreen`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/account/CreateAccountScreen.kt)
+  - [`JoinSessionScreen`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/session/JoinSessionScreen.kt)
+  - [`ParticipantsScreen`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/facilitator/ParticipantsScreen.kt)
+  - [`SessionLogScreen`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/facilitator/SessionLogScreen.kt)
+- Added a deterministic Python Pi-side consumer harness in [`backend/pi_test_consumer.py`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/backend/pi_test_consumer.py) that:
+  - models the session display channel and display-events acknowledgement channel
+  - tracks displayed message and pin state
+  - rejects stale commands by timetoken
+  - ignores duplicate event IDs
+  - emits render, restore, pin, unpin, clear, mode-state, and failure acknowledgements
+- Added pytest coverage for the Pi-side harness in [`backend/tests/test_pi_test_consumer.py`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/backend/tests/test_pi_test_consumer.py).
+- Extended root `.gitignore` so local backend packaging output under `backend/*.egg-info/` stays out of commits.
+
+### Verification
+
+- `./gradlew :app:assembleDebug`
+  - Passed on Tuesday, July 28, 2026.
+- `./gradlew :app:testDebugUnitTest`
+  - Passed on Tuesday, July 28, 2026.
+  - Generated result summary: `91` tests, `0` failures, `0` skipped.
+- `./gradlew :app:connectedDebugAndroidTest --stacktrace`
+  - Passed on Tuesday, July 28, 2026, on `Resizable_Experimental(AVD) - 17` / `emulator-5554`.
+  - [`MainActivitySmokeTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/androidTest/java/com/example/groupaac/MainActivitySmokeTest.kt) executed successfully.
+  - [`RealtimeComposeFlowsTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/androidTest/java/com/example/groupaac/RealtimeComposeFlowsTest.kt) was skipped intentionally on this emulator because the Android 17 preview image is missing `android.hardware.input.InputManager.getInstance`, which breaks Compose test-rule queries before any node interaction can execute.
+- `python3 -m pytest`
+  - Passed on Tuesday, July 28, 2026.
+  - `8` tests passed, `0` failures.
+  - Current warnings are non-fatal:
+    - FastAPI `TestClient` deprecation warning from upstream `httpx`/`starlette`
+    - SQLAlchemy `datetime.utcnow()` deprecation warning inside the existing backend model defaults
+
+### Untested critical paths
+
+- Two-client vertical slice remains unverified in this repository workspace:
+  - host creates backend session
+  - participant resolves join code
+  - both devices subscribe over live PubNub
+  - participant joins and sends a group message
+  - host receives it live
+  - display command reaches a live PubNub-backed Pi consumer
+  - acknowledgement updates Android Room state end to end
+- Physical Raspberry Pi validation was not performed.
+- The connected Compose interaction class is present but skipped on the current Android 17 preview emulator due the platform/test-rule incompatibility described above.
+
+### Blocked live integration attempts
+
+- `adb -s emulator-5554 shell getprop sys.boot_completed`
+  - Returned `1` earlier in this Stage 9 run, so the emulator was booted and usable for connected tests.
+- `./gradlew :app:connectedDebugAndroidTest --stacktrace`
+  - Initial attempt compiled the new Compose instrumentation tests but failed at runtime because every Compose node query hit the missing `InputManager.getInstance` method on the current preview emulator image.
+  - The stable remainder was preserved by marking the Compose interaction class skipped with an explicit reason and rerunning the connected suite successfully.
+- A true two-client PubNub/backend/Pi vertical slice could not be completed because this environment did not provide a second concurrently available Android client, and no physical Raspberry Pi source or device was present in the repository workspace.
+
+### Notes
+
+- Stage 9 coverage is deterministic and stable for Android unit tests, backend pytest, and the existing connected smoke path.
+- The skipped Compose interaction suite is retained in-source so it can be re-enabled quickly on a stable emulator/device image without rewriting the scenarios.
+- No physical Raspberry Pi validation is claimed.

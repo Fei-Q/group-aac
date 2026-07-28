@@ -439,7 +439,9 @@ private fun ProfileCard(
                 value = displayName,
                 onValueChange = onDisplayNameChange,
                 enabled = enabled,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("join_session_display_name"),
                 singleLine = true,
                 placeholder = {
                     Text("Name")
@@ -567,6 +569,7 @@ private fun CenteredCodeInputField(
         ),
         modifier = modifier
             .heightIn(min = 56.dp)
+            .testTag("join_session_code")
             .border(
                 width = 1.dp,
                 color = AacBorder,

@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
@@ -109,12 +110,16 @@ private fun FacilitatorRequestCard(
                 SecondaryButton(
                     text = "Approve",
                     onClick = onApprove,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("facilitator_request_approve_${request.id}")
                 )
                 SecondaryButton(
                     text = "Decline",
                     onClick = onDecline,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("facilitator_request_decline_${request.id}")
                 )
             }
         }
