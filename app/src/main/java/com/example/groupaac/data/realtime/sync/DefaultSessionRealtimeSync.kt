@@ -1,6 +1,7 @@
 package com.example.groupaac.data.realtime.sync
 
 import com.example.groupaac.data.dao.MessageDao
+import com.example.groupaac.data.dao.ReliabilityDao
 import com.example.groupaac.data.dao.SessionDao
 import com.example.groupaac.data.dao.SessionJoinRequestDao
 import com.example.groupaac.data.entity.MessageEntity
@@ -12,6 +13,7 @@ import com.example.groupaac.data.realtime.protocol.RealtimeChannels
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEventTypes
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
+import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.util.IdUtils
 import kotlinx.serialization.serializer
@@ -25,6 +27,7 @@ class DefaultSessionRealtimeSync(
     private val sessionDao: SessionDao,
     private val sessionJoinRequestDao: SessionJoinRequestDao,
     private val messageDao: MessageDao,
+    private val reliabilityDao: ReliabilityDao,
     private val reliabilityStore: RealtimeReliabilityStore,
     private val realtimeClientManager: RealtimeClientManager
 ) : SessionRealtimeSync {
@@ -254,6 +257,95 @@ class DefaultSessionRealtimeSync(
         )
     }
 
+    override suspend fun publishDisplayShowMessage(
+        session: SessionEntity,
+        message: MessageEntity,
+        senderName: String,
+        actorUserId: String,
+        restore: Boolean
+    ) {
+        val payload = DisplayMessagePayload(
+            sessionId = session.id,
+            message = message.toRealtimePayload(senderName),
+            displayMode = session.displayMode.name,
+            isPinned = false
+        )
+        publish(
+            channel = RealtimeChannels.display(session.id),
+            event = event(
+                type = if (restore) {
+                    RealtimeEventTypes.DISPLAY_RESTORE_MESSAGE
+                } else {
+                    RealtimeEventTypes.DISPLAY_SHOW_MESSAGE
+                },
+                sessionId = session.id,
+                actorUserId = actorUserId,
+                payload = payload(
+                    "display" to json.encodeToJsonElement(
+                        DisplayMessagePayload.serializer(),
+                        payload
+                    )
+                )
+            )
+        )
+    }
+
+    override suspend fun publishDisplayPinState(
+        sessionId: String,
+        messageId: String,
+        actorUserId: String,
+        pinned: Boolean
+    ) {
+        publish(
+            channel = RealtimeChannels.display(sessionId),
+            event = event(
+                type = if (pinned) {
+                    RealtimeEventTypes.DISPLAY_PIN_MESSAGE
+                } else {
+                    RealtimeEventTypes.DISPLAY_UNPIN_MESSAGE
+                },
+                sessionId = sessionId,
+                actorUserId = actorUserId,
+                payload = payload(
+                    "displayState" to json.encodeToJsonElement(
+                        DisplayStatePayload.serializer(),
+                        DisplayStatePayload(
+                            sessionId = sessionId,
+                            currentMessageId = messageId,
+                            isPinned = pinned,
+                            displayMode = DisplayMode.AUTO_LATEST.name
+                        )
+                    )
+                )
+            )
+        )
+    }
+
+    override suspend fun publishDisplayClear(
+        sessionId: String,
+        actorUserId: String
+    ) {
+        publish(
+            channel = RealtimeChannels.display(sessionId),
+            event = event(
+                type = RealtimeEventTypes.DISPLAY_CLEAR,
+                sessionId = sessionId,
+                actorUserId = actorUserId,
+                payload = payload(
+                    "displayState" to json.encodeToJsonElement(
+                        DisplayStatePayload.serializer(),
+                        DisplayStatePayload(
+                            sessionId = sessionId,
+                            currentMessageId = null,
+                            isPinned = false,
+                            displayMode = DisplayMode.AUTO_LATEST.name
+                        )
+                    )
+                )
+            )
+        )
+    }
+
     override suspend fun applyIncoming(received: com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent): Boolean {
         if (reliabilityStore.hasProcessed(received.event.eventId)) {
             return false
@@ -294,6 +386,29 @@ class DefaultSessionRealtimeSync(
                 } ?: return false
             }
 
+            RealtimeEventTypes.DISPLAY_RENDERED,
+            RealtimeEventTypes.DISPLAY_RESTORED,
+            RealtimeEventTypes.DISPLAY_CLEARED,
+            RealtimeEventTypes.DISPLAY_PINNED,
+            RealtimeEventTypes.DISPLAY_UNPINNED,
+            RealtimeEventTypes.DISPLAY_STATE -> {
+                val state = payload<DisplayStatePayload>(
+                    received.event.payload,
+                    "displayState"
+                ) ?: return false
+                messageDao.clearDisplayedMessages(state.sessionId)
+                state.currentMessageId?.let { messageDao.markDisplayed(it) }
+                reliabilityStore.applyDisplayStateIfNewer(
+                    sessionId = state.sessionId,
+                    eventId = received.event.inReplyToEventId ?: received.event.eventId,
+                    currentMessageId = state.currentMessageId,
+                    isPinned = state.isPinned,
+                    displayMode = state.mode(),
+                    commandTimetoken = received.timetoken,
+                    now = System.currentTimeMillis()
+                )
+            }
+
             RealtimeEventTypes.SESSION_SNAPSHOT -> {
                 val snapshot = payload<SessionSnapshotPayload>(
                     received.event.payload,
@@ -321,6 +436,39 @@ class DefaultSessionRealtimeSync(
         reliabilityStore.markSending(event.eventId, attemptCount = 1, now = now)
         val timetoken = client.publish(channel, event)
         reliabilityStore.markSent(event.eventId, timetoken)
+        if (channel == RealtimeChannels.display(event.sessionId)) {
+            val existing = reliabilityDao.getDisplayState(event.sessionId)
+            val displayMode = existing?.displayMode ?: DisplayMode.AUTO_LATEST
+            val currentMessageId = when (event.type) {
+                RealtimeEventTypes.DISPLAY_SHOW_MESSAGE,
+                RealtimeEventTypes.DISPLAY_RESTORE_MESSAGE -> {
+                    payload<DisplayMessagePayload>(event.payload, "display")
+                        ?.message
+                        ?.id
+                }
+                RealtimeEventTypes.DISPLAY_PIN_MESSAGE,
+                RealtimeEventTypes.DISPLAY_UNPIN_MESSAGE -> {
+                    payload<DisplayStatePayload>(event.payload, "displayState")
+                        ?.currentMessageId
+                }
+                else -> null
+            }
+            val pinned = when (event.type) {
+                RealtimeEventTypes.DISPLAY_PIN_MESSAGE -> true
+                RealtimeEventTypes.DISPLAY_UNPIN_MESSAGE,
+                RealtimeEventTypes.DISPLAY_CLEAR -> false
+                else -> existing?.isPinned ?: false
+            }
+            reliabilityStore.applyDisplayStateIfNewer(
+                sessionId = event.sessionId,
+                eventId = event.eventId,
+                currentMessageId = currentMessageId,
+                isPinned = pinned,
+                displayMode = displayMode,
+                commandTimetoken = timetoken ?: System.currentTimeMillis(),
+                now = System.currentTimeMillis()
+            )
+        }
     }
 
     private fun event(

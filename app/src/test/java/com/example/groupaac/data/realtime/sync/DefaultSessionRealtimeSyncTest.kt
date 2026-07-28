@@ -55,6 +55,7 @@ class DefaultSessionRealtimeSyncTest {
             sessionDao = database.sessionDao(),
             sessionJoinRequestDao = database.sessionJoinRequestDao(),
             messageDao = database.messageDao(),
+            reliabilityDao = database.reliabilityDao(),
             reliabilityStore = RealtimeReliabilityStore(
                 database = database,
                 reliabilityDao = database.reliabilityDao()
@@ -172,5 +173,44 @@ class DefaultSessionRealtimeSyncTest {
                 .getChannelCursor(received.channel)
                 ?.lastProcessedTimetoken
         )
+    }
+
+    @Test
+    fun displayAcknowledgementUpdatesDisplayState() = runTest {
+        val payload = buildJsonObject {
+            put(
+                "displayState",
+                Json.encodeToJsonElement(
+                    DisplayStatePayload.serializer(),
+                    DisplayStatePayload(
+                        sessionId = "session-1",
+                        currentMessageId = "msg-1",
+                        isPinned = true,
+                        displayMode = "AUTO_LATEST"
+                    )
+                )
+            )
+        }
+        val received = ReceivedRealtimeEvent(
+            channel = RealtimeChannels.displayEvents("session-1"),
+            timetoken = 25L,
+            publisherUserId = "display-1",
+            event = RealtimeEvent(
+                eventId = "evt-display-1",
+                type = RealtimeEventTypes.DISPLAY_PINNED,
+                sessionId = "session-1",
+                actorUserId = "display-1",
+                occurredAt = 200L,
+                inReplyToEventId = "cmd-1",
+                payload = payload
+            )
+        )
+
+        assertTrue(sync.applyIncoming(received))
+        val displayState = database.reliabilityDao().getDisplayState("session-1")
+        assertNotNull(displayState)
+        assertEquals("msg-1", displayState?.currentMessageId)
+        assertEquals(true, displayState?.isPinned)
+        assertEquals("cmd-1", displayState?.lastAppliedCommandEventId)
     }
 }

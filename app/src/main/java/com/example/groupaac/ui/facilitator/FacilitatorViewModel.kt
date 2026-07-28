@@ -144,6 +144,12 @@ class FacilitatorViewModel(
             }
 
             launch {
+                messageRepository.observeDisplayState(sessionId).collect { displayState ->
+                    uiState.update { it.copy(displayState = displayState) }
+                }
+            }
+
+            launch {
                 facilitatorRepository.observeNotes(sessionId).collect { notes ->
                     uiState.update { it.copy(notes = notes) }
                 }
@@ -348,13 +354,15 @@ class FacilitatorViewModel(
         val sessionId = uiState.value.sessionId ?: return
 
         viewModelScope.launch {
-            val settings = uiState.value.settings
+            messageRepository.displayMessage(sessionId, messageId)
+        }
+    }
 
-            if (settings?.monitorRequireManualApproval == true) {
-                messageRepository.displayMessage(sessionId, messageId)
-            } else {
-                messageRepository.displayMessage(sessionId, messageId)
-            }
+    fun restoreMessage(messageId: String) {
+        val sessionId = uiState.value.sessionId ?: return
+
+        viewModelScope.launch {
+            messageRepository.restoreMessage(sessionId, messageId)
         }
     }
 
@@ -369,6 +377,22 @@ class FacilitatorViewModel(
 
         viewModelScope.launch {
             messageRepository.clearDisplay(sessionId)
+        }
+    }
+
+    fun pinDisplayedMessage() {
+        val sessionId = uiState.value.sessionId ?: return
+
+        viewModelScope.launch {
+            messageRepository.pinDisplayedMessage(sessionId)
+        }
+    }
+
+    fun unpinDisplayedMessage() {
+        val sessionId = uiState.value.sessionId ?: return
+
+        viewModelScope.launch {
+            messageRepository.unpinDisplayedMessage(sessionId)
         }
     }
 

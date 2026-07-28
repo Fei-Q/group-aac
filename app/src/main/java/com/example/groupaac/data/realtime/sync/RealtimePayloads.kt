@@ -5,6 +5,7 @@ import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.model.JoinRequestStatus
+import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageStatus
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.SessionRole
@@ -68,6 +69,22 @@ data class SessionSnapshotPayload(
     val members: List<SessionMemberPayload>,
     val requests: List<SessionJoinRequestPayload>,
     val messages: List<MessagePayload>
+)
+
+@Serializable
+data class DisplayMessagePayload(
+    val sessionId: String,
+    val message: MessagePayload,
+    val displayMode: String,
+    val isPinned: Boolean
+)
+
+@Serializable
+data class DisplayStatePayload(
+    val sessionId: String,
+    val currentMessageId: String? = null,
+    val isPinned: Boolean,
+    val displayMode: String
 )
 
 fun SessionEntity.toRealtimePayload(): SessionPayload = SessionPayload(
@@ -166,3 +183,6 @@ fun MessagePayload.toEntity(): MessageEntity = MessageEntity(
     saved = saved,
     displayedOnMonitor = displayedOnMonitor
 )
+
+fun DisplayStatePayload.mode(): DisplayMode =
+    DisplayMode.fromName(displayMode)

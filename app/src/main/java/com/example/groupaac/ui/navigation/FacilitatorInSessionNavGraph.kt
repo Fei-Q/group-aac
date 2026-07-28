@@ -121,10 +121,16 @@ fun FacilitatorInSessionNavGraph(
                     uiState = uiState,
                     onSave =
                         facilitatorViewModel::saveMessage,
-                    onDisplay =
+                    onShow =
                         facilitatorViewModel::displayMessage,
+                    onRestore =
+                        facilitatorViewModel::restoreMessage,
                     onDelete =
                         facilitatorViewModel::deleteMessage,
+                    onPinDisplayedMessage =
+                        facilitatorViewModel::pinDisplayedMessage,
+                    onUnpinDisplayedMessage =
+                        facilitatorViewModel::unpinDisplayedMessage,
                     onClearDisplay =
                         facilitatorViewModel::clearDisplay,
                     modifier = Modifier.fillMaxSize()

@@ -332,3 +332,53 @@ Status: complete
 
 - The deprecated `ACTIVE` enum entry remains only as a defensive fallback for older local rows during development, but current signal writes and queries now use `CURRENT`, `SNOOZED`, and `CLEARED`.
 - Resolve has been removed from the signal DAO/repository/view-model flow, but the facilitator participant UI still expresses the action as snooze vs clear behavior rather than introducing additional new controls at this stage.
+
+## Stage 9 - Shared display
+
+Status: complete
+
+### Implemented
+
+- Expanded [`DisplayCommand`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/pi/DisplayCommand.kt) to cover:
+  - `ShowMessage`
+  - `RestoreMessage`
+  - `PinMessage`
+  - `UnpinMessage`
+  - `Clear`
+- Extended the realtime display contract in:
+  - [`SessionRealtimeSync`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/SessionRealtimeSync.kt)
+  - [`RealtimePayloads`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/RealtimePayloads.kt)
+  - [`DefaultSessionRealtimeSync`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSync.kt)
+- Added shared-display payload handling for:
+  - explicit `display.show_message` and `display.restore_message` commands
+  - `display.pin_message` and `display.unpin_message`
+  - `display.clear`
+  - Pi acknowledgement/state events updating Room display state via `inReplyToEventId`
+- Reworked [`MessageRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/MessageRepository.kt) so that:
+  - eligible group messages auto-display only when the session is `AUTO_LATEST`
+  - facilitator/private messages are not auto-displayed
+  - pinned display state blocks automatic replacement
+  - Clear also removes the pin
+  - display state is observable from Room
+  - manual Show, Restore, Pin/Unpin, and Clear all route through explicit display commands
+- Updated facilitator display state/UI wiring in:
+  - [`FacilitatorUiState`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/facilitator/FacilitatorUiState.kt)
+  - [`FacilitatorViewModel`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/facilitator/FacilitatorViewModel.kt)
+  - [`FacilitatorHomeScreen`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/facilitator/FacilitatorHomeScreen.kt)
+  - [`FacilitatorInSessionNavGraph`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/navigation/FacilitatorInSessionNavGraph.kt)
+  - [`SessionLogScreen`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/facilitator/SessionLogScreen.kt)
+- Added shared-display tests:
+  - [`DefaultSessionRealtimeSyncTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSyncTest.kt) now covers Pi display acknowledgements updating Room display state.
+  - [`MessageRepositoryDisplayTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/repository/MessageRepositoryDisplayTest.kt) covers auto-display eligibility and Clear removing pin state.
+
+### Verification
+
+- `./gradlew :app:assembleDebug`
+  - Passed on Tuesday, July 28, 2026.
+- `./gradlew :app:testDebugUnitTest`
+  - Passed on Tuesday, July 28, 2026.
+
+### Notes
+
+- New sessions already defaulted to `AUTO_LATEST` from stage 2, so this stage builds on that existing session-level default rather than changing it again.
+- The manual display controls now distinguish Show vs Restore based on message display history and place Pin/Unpin directly beside Clear in the currently showing pane.

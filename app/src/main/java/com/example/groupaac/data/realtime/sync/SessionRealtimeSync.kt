@@ -5,6 +5,7 @@ import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
+import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageTarget
 
 interface SessionRealtimeSync {
@@ -68,6 +69,26 @@ interface SessionRealtimeSync {
         actorUserId: String
     )
 
+    suspend fun publishDisplayShowMessage(
+        session: SessionEntity,
+        message: MessageEntity,
+        senderName: String,
+        actorUserId: String,
+        restore: Boolean
+    )
+
+    suspend fun publishDisplayPinState(
+        sessionId: String,
+        messageId: String,
+        actorUserId: String,
+        pinned: Boolean
+    )
+
+    suspend fun publishDisplayClear(
+        sessionId: String,
+        actorUserId: String
+    )
+
     suspend fun applyIncoming(received: ReceivedRealtimeEvent): Boolean
 }
 
@@ -88,6 +109,23 @@ object NoOpSessionRealtimeSync : SessionRealtimeSync {
         requests: List<SessionJoinRequestEntity>,
         messages: List<MessageEntity>,
         requesterUserId: String,
+        actorUserId: String
+    ) = Unit
+    override suspend fun publishDisplayShowMessage(
+        session: SessionEntity,
+        message: MessageEntity,
+        senderName: String,
+        actorUserId: String,
+        restore: Boolean
+    ) = Unit
+    override suspend fun publishDisplayPinState(
+        sessionId: String,
+        messageId: String,
+        actorUserId: String,
+        pinned: Boolean
+    ) = Unit
+    override suspend fun publishDisplayClear(
+        sessionId: String,
         actorUserId: String
     ) = Unit
 

@@ -4,6 +4,7 @@ import com.example.groupaac.data.dao.MessageWithSenderAndAttachments
 import com.example.groupaac.data.dao.NoteWithParticipant
 import com.example.groupaac.data.dao.QuickLogWithParticipant
 import com.example.groupaac.data.dao.SignalWithUser
+import com.example.groupaac.data.entity.DisplayStateEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.UserEntity
@@ -22,6 +23,7 @@ data class FacilitatorUiState(
     val activeSignals: List<SignalWithUser> = emptyList(),
     val messages: List<MessageWithSenderAndAttachments> = emptyList(),
     val displayedMessage: MessageWithSenderAndAttachments? = null,
+    val displayState: DisplayStateEntity? = null,
     val notes: List<NoteWithParticipant> = emptyList(),
     val quickLogs: List<QuickLogWithParticipant> = emptyList(),
     val selectedParticipantId: String? = null,

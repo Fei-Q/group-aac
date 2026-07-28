@@ -45,6 +45,7 @@ class AppContainer(context: Context) {
         sessionDao = database.sessionDao(),
         sessionJoinRequestDao = database.sessionJoinRequestDao(),
         messageDao = database.messageDao(),
+        reliabilityDao = database.reliabilityDao(),
         reliabilityStore = realtimeReliabilityStore,
         realtimeClientManager = realtimeClientManager
     )
@@ -77,6 +78,8 @@ class AppContainer(context: Context) {
         sessionDao = database.sessionDao(),
         userDao = database.userDao(),
         piClient = piClient,
+        reliabilityDao = database.reliabilityDao(),
+        reliabilityStore = realtimeReliabilityStore,
         sessionRealtimeSync = sessionRealtimeSync
     )
 
