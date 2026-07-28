@@ -8,6 +8,7 @@ import com.example.groupaac.model.HomeExperience
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.MessageStatus
 import com.example.groupaac.model.MessageTarget
+import com.example.groupaac.model.OutboxEventState
 import com.example.groupaac.model.ParticipantDefaultTab
 import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SignalState
@@ -80,6 +81,13 @@ class TypeConverters {
     fun stringToMessageStatus(value: String): MessageStatus =
         MessageStatus.entries.firstOrNull { it.name == value }
             ?: MessageStatus.SENT
+
+    @TypeConverter
+    fun outboxEventStateToString(value: OutboxEventState): String = value.name
+
+    @TypeConverter
+    fun stringToOutboxEventState(value: String?): OutboxEventState =
+        OutboxEventState.fromName(value)
 
     @TypeConverter fun signalTypeToString(value: SignalType): String = value.name
     @TypeConverter

@@ -216,3 +216,42 @@ Status: complete
 
 - The protocol layer intentionally does not introduce `schemaVersion`, app-generated sequence numbers, `message.edited`, `message.received`, `aac.signal.updated`, `aac.signal.resolved`, or `display.take_down`.
 - Timetoken ordering metadata is represented through `ReceivedRealtimeEvent`; actual cursor/deduplication logic follows in stage 6.
+
+## Stage 6 - Reliability
+
+Status: complete
+
+### Implemented
+
+- Added persistence for realtime reliability state in Room schema version `2`:
+  - [`OutboxEventEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/OutboxEventEntity.kt)
+  - [`ProcessedEventEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/ProcessedEventEntity.kt)
+  - [`ChannelCursorEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/ChannelCursorEntity.kt)
+  - [`DisplayStateEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/DisplayStateEntity.kt)
+- Added [`OutboxEventState`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/model/OutboxEventState.kt) and Room converters for outbox lifecycle storage.
+- Added [`ReliabilityDao`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/dao/ReliabilityDao.kt) with transactional processed-event and cursor recording.
+- Added [`RealtimeReliabilityStore`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/reliability/RealtimeReliabilityStore.kt) to provide:
+  - local-first outbox persistence
+  - bounded retry/backoff scheduling
+  - processed-event deduplication by `eventId`
+  - channel cursor updates from PubNub timetokens
+  - display-command ordering and stale-command rejection
+- Added recovery interfaces for future persisted history/snapshot replay in [`RealtimeRecoverySources`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/reliability/RealtimeRecoverySources.kt).
+- Added reliability unit coverage in [`RealtimeReliabilityStoreTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/reliability/RealtimeReliabilityStoreTest.kt) for:
+  - retry backoff caps
+  - processed-event deduplication
+  - stale display-command rejection
+  - expired outbox exclusion
+
+### Verification
+
+- `./gradlew :app:assembleDebug`
+  - Passed on Tuesday, July 28, 2026.
+- `./gradlew :app:testDebugUnitTest`
+  - Failed first because the new Room-backed reliability test was missing the Robolectric runner during `ApplicationProvider` setup.
+  - Passed on Tuesday, July 28, 2026, after aligning the new test with the repo's existing Robolectric unit-test pattern.
+
+### Notes
+
+- The reliability layer is now persisted locally, but repositories are not yet publishing through it; stage 7 wires the session flows onto these primitives.
+- Display-command freshness is currently enforced through PubNub timetoken ordering, which matches the implementation plan's received-order metadata requirement.

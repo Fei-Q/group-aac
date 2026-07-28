@@ -7,13 +7,18 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.example.groupaac.data.dao.FacilitatorDao
 import com.example.groupaac.data.dao.MessageDao
+import com.example.groupaac.data.dao.ReliabilityDao
 import com.example.groupaac.data.dao.SessionDao
 import com.example.groupaac.data.dao.SessionJoinRequestDao
 import com.example.groupaac.data.dao.StatusSignalDao
 import com.example.groupaac.data.dao.UserDao
 import com.example.groupaac.data.entity.AttachmentEntity
+import com.example.groupaac.data.entity.ChannelCursorEntity
+import com.example.groupaac.data.entity.DisplayStateEntity
 import com.example.groupaac.data.entity.FacilitatorNoteEntity
 import com.example.groupaac.data.entity.MessageEntity
+import com.example.groupaac.data.entity.OutboxEventEntity
+import com.example.groupaac.data.entity.ProcessedEventEntity
 import com.example.groupaac.data.entity.QuickLogEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
@@ -31,11 +36,15 @@ import com.example.groupaac.data.entity.UserSettingsEntity
         SessionJoinRequestEntity::class,
         MessageEntity::class,
         StatusSignalEntity::class,
+        OutboxEventEntity::class,
+        ProcessedEventEntity::class,
+        ChannelCursorEntity::class,
+        DisplayStateEntity::class,
         AttachmentEntity::class,
         FacilitatorNoteEntity::class,
         QuickLogEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 @TypeConverters(com.example.groupaac.data.TypeConverters::class)
@@ -46,6 +55,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun statusSignalDao(): StatusSignalDao
     abstract fun facilitatorDao(): FacilitatorDao
+    abstract fun reliabilityDao(): ReliabilityDao
 
     companion object {
         fun create(context: Context): AppDatabase = Room.databaseBuilder(
