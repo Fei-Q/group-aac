@@ -32,6 +32,12 @@ class InactiveSessionRealtimeClient(
         throw IllegalStateException(message)
     }
 
+    override suspend fun fetchHistory(
+        channel: String,
+        afterTimetoken: Long?,
+        limit: Int
+    ): List<ReceivedRealtimeEvent> = emptyList()
+
     override fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent> =
         emptyFlow()
 

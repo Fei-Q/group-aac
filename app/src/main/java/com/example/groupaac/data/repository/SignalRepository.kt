@@ -6,8 +6,9 @@ import com.example.groupaac.data.dao.StatusSignalDao
 import com.example.groupaac.data.dao.UserDao
 import com.example.groupaac.data.entity.SignalSnoozeEntity
 import com.example.groupaac.data.entity.StatusSignalEntity
-import com.example.groupaac.data.pi.PiClient
-import com.example.groupaac.data.pi.PiSignalPayload
+import com.example.groupaac.data.realtime.reliability.OutboxDispatching
+import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
+import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.model.SignalState
 import com.example.groupaac.model.SignalType
 import com.example.groupaac.util.IdUtils
@@ -15,10 +16,12 @@ import com.example.groupaac.util.TimeUtils
 import kotlinx.coroutines.flow.Flow
 
 class SignalRepository(
+    private val transactionRunner: TransactionRunner,
     private val signalDao: StatusSignalDao,
     private val sessionDao: SessionDao,
     private val userDao: UserDao,
-    private val piClient: PiClient
+    private val outboxDispatcher: OutboxDispatching,
+    private val sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
 ) {
     fun observeActiveSignals(
         sessionId: String,
@@ -46,43 +49,31 @@ class SignalRepository(
         type: SignalType
     ): String {
         val now = TimeUtils.now()
-
-        // One current signal per participant per session.
-        // Tapping a new signal clears the previous one.
-        signalDao.clearCurrentSignalsAndSnoozesForUser(
-            sessionId = sessionId,
-            userId = userId,
-            clearedAt = now
-        )
-
         val id = IdUtils.newId()
+        transactionRunner.inTransaction {
+            signalDao.clearCurrentSignalsAndSnoozesForUser(
+                sessionId = sessionId,
+                userId = userId,
+                clearedAt = now
+            )
 
-        val signal = StatusSignalEntity(
-            id = id,
-            sessionId = sessionId,
-            userId = userId,
-            type = type,
-            state = SignalState.CURRENT,
-            createdAt = now
-        )
-
-        signalDao.upsertSignal(signal)
-
-        val displayName = sessionDao.getMember(sessionId, userId)?.displayName
-            ?: userDao.getUser(userId)?.displayName
-            ?: "Unknown"
-
-        piClient.sendSignal(
-            PiSignalPayload(
+            val signal = StatusSignalEntity(
                 id = id,
                 sessionId = sessionId,
                 userId = userId,
-                displayName = displayName,
                 type = type,
+                state = SignalState.CURRENT,
                 createdAt = now
             )
-        )
 
+            signalDao.upsertSignal(signal)
+
+            val displayName = sessionDao.getMember(sessionId, userId)?.displayName
+                ?: userDao.getUser(userId)?.displayName
+                ?: "Unknown"
+            sessionRealtimeSync.publishSignalCreated(signal, displayName)
+        }
+        outboxDispatcher.requestImmediateDispatch()
         return id
     }
 

@@ -7,6 +7,9 @@ import com.example.groupaac.data.AppDatabase
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.UserEntity
+import com.example.groupaac.data.realtime.reliability.NoOpOutboxDispatcher
+import com.example.groupaac.data.repository.ImmediateTransactionRunner
+import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SignalState
 import com.example.groupaac.model.SignalType
@@ -33,10 +36,12 @@ class SignalRepositoryTest {
             AppDatabase::class.java
         ).allowMainThreadQueries().build()
         repository = SignalRepository(
+            transactionRunner = ImmediateTransactionRunner,
             signalDao = database.statusSignalDao(),
             sessionDao = database.sessionDao(),
             userDao = database.userDao(),
-            piClient = com.example.groupaac.data.pi.MockPiClient()
+            outboxDispatcher = NoOpOutboxDispatcher,
+            sessionRealtimeSync = NoOpSessionRealtimeSync
         )
 
         database.userDao().upsertUser(

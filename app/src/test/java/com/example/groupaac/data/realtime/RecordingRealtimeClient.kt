@@ -45,6 +45,12 @@ class RecordingRealtimeClient : SessionRealtimeClient {
         return timetoken
     }
 
+    override suspend fun fetchHistory(
+        channel: String,
+        afterTimetoken: Long?,
+        limit: Int
+    ): List<ReceivedRealtimeEvent> = emptyList()
+
     override fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent> {
         return emptyFlow()
     }

@@ -36,6 +36,16 @@ interface ReliabilityDao {
 
     @Query(
         """
+        SELECT * FROM outbox_events
+        WHERE state = 'SENDING'
+          AND nextAttemptAt <= :now
+        ORDER BY nextAttemptAt ASC, createdAt ASC
+        """
+    )
+    suspend fun getStaleSendingOutboxEvents(now: Long): List<OutboxEventEntity>
+
+    @Query(
+        """
         UPDATE outbox_events
         SET state = :state,
             attemptCount = :attemptCount,
@@ -63,6 +73,21 @@ interface ReliabilityDao {
         acceptedTimetoken: Long?
     )
 
+    @Query(
+        """
+        UPDATE outbox_events
+        SET state = 'PENDING',
+            attemptCount = 0,
+            acceptedTimetoken = NULL,
+            nextAttemptAt = :now
+        WHERE eventId = :eventId
+        """
+    )
+    suspend fun retryOutboxEvent(
+        eventId: String,
+        now: Long
+    )
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertProcessedEvent(event: ProcessedEventEntity): Long
 
@@ -74,6 +99,24 @@ interface ReliabilityDao {
 
     @Query("SELECT * FROM channel_cursors WHERE channel = :channel LIMIT 1")
     suspend fun getChannelCursor(channel: String): ChannelCursorEntity?
+
+    @Query(
+        """
+        UPDATE channel_cursors
+        SET lastProcessedTimetoken = CASE
+                WHEN lastProcessedTimetoken > :timetoken
+                    THEN lastProcessedTimetoken
+                ELSE :timetoken
+            END,
+            updatedAt = :updatedAt
+        WHERE channel = :channel
+        """
+    )
+    suspend fun advanceExistingChannelCursor(
+        channel: String,
+        timetoken: Long,
+        updatedAt: Long
+    ): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertDisplayState(state: DisplayStateEntity)
@@ -93,7 +136,15 @@ interface ReliabilityDao {
         if (inserted == -1L) {
             return false
         }
-        upsertChannelCursor(cursor)
+        if (
+            advanceExistingChannelCursor(
+                channel = cursor.channel,
+                timetoken = cursor.lastProcessedTimetoken,
+                updatedAt = cursor.updatedAt
+            ) == 0
+        ) {
+            upsertChannelCursor(cursor)
+        }
         return true
     }
 }

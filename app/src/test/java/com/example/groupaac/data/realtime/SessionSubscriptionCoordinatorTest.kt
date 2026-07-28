@@ -267,6 +267,39 @@ class SessionSubscriptionCoordinatorTest {
             fixture.close()
         }
     }
+
+    @Test
+    fun startupReplaysHistoryAfterStoredCursorBeforeLiveCollection() = runTest {
+        val fixture = coordinatorFixture(
+            cursorByChannel = mapOf(
+                RealtimeChannels.public("session-1") to 50L
+            )
+        )
+        try {
+            val replayed = receivedEvent(
+                channel = RealtimeChannels.public("session-1"),
+                sessionId = "session-1",
+                eventId = "evt-history",
+                timetoken = 75L
+            )
+            fixture.client.history[RealtimeChannels.public("session-1")] = listOf(replayed)
+            fixture.activeUserId.value = "participant_1"
+            fixture.activeSessions["participant_1"]?.value = activeSession(
+                userId = "participant_1",
+                role = SessionRole.PARTICIPANT
+            )
+
+            advanceUntilIdle()
+
+            assertEquals(listOf(replayed), fixture.sync.applied)
+            assertEquals(
+                50L,
+                fixture.client.fetchedAfterTimetokens[RealtimeChannels.public("session-1")]
+            )
+        } finally {
+            fixture.close()
+        }
+    }
 }
 
 private data class CoordinatorFixture(
@@ -284,7 +317,9 @@ private data class CoordinatorFixture(
     }
 }
 
-private fun kotlinx.coroutines.test.TestScope.coordinatorFixture(): CoordinatorFixture {
+private fun kotlinx.coroutines.test.TestScope.coordinatorFixture(
+    cursorByChannel: Map<String, Long> = emptyMap()
+): CoordinatorFixture {
     val activeUserId = MutableStateFlow<String?>(null)
     val activeSessions = mutableMapOf(
         "participant_1" to MutableStateFlow<ActiveSession?>(null),
@@ -304,6 +339,7 @@ private fun kotlinx.coroutines.test.TestScope.coordinatorFixture(): CoordinatorF
         },
         realtimeClientManager = clientManager,
         sessionRealtimeSync = sync,
+        channelCursorProvider = { channel -> cursorByChannel[channel] },
         scope = scope
     )
     return CoordinatorFixture(
@@ -329,6 +365,8 @@ private class TestRealtimeClientManager(
 
 private class TrackingRealtimeClient : SessionRealtimeClient {
     val activeChannels = linkedSetOf<String>()
+    val history = linkedMapOf<String, List<ReceivedRealtimeEvent>>()
+    val fetchedAfterTimetokens = linkedMapOf<String, Long?>()
     val connectionState = MutableStateFlow<RealtimeConnectionState>(
         RealtimeConnectionState.Connected
     )
@@ -370,6 +408,15 @@ private class TrackingRealtimeClient : SessionRealtimeClient {
         connectionState.asStateFlow()
 
     override fun observeSessionEvents(sessionId: String) = emptyFlow<com.example.groupaac.data.pi.PiSessionEvent>()
+
+    override suspend fun fetchHistory(
+        channel: String,
+        afterTimetoken: Long?,
+        limit: Int
+    ): List<ReceivedRealtimeEvent> {
+        fetchedAfterTimetokens[channel] = afterTimetoken
+        return history[channel].orEmpty()
+    }
 
     override suspend fun close() = Unit
 
@@ -432,6 +479,11 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync {
         target: MessageTarget
     ) = Unit
 
+    override suspend fun publishSignalCreated(
+        signal: com.example.groupaac.data.entity.StatusSignalEntity,
+        displayName: String
+    ) = Unit
+
     override suspend fun publishSnapshot(
         session: SessionEntity,
         members: List<SessionMemberEntity>,
@@ -484,13 +536,15 @@ private fun activeSession(
 
 private fun receivedEvent(
     channel: String,
-    sessionId: String
+    sessionId: String,
+    eventId: String = "evt-$sessionId",
+    timetoken: Long = 99L
 ): ReceivedRealtimeEvent = ReceivedRealtimeEvent(
     channel = channel,
-    timetoken = 99L,
+    timetoken = timetoken,
     publisherUserId = "publisher",
     event = RealtimeEvent(
-        eventId = "evt-$sessionId",
+        eventId = eventId,
         type = "message.created",
         sessionId = sessionId,
         actorUserId = "publisher",

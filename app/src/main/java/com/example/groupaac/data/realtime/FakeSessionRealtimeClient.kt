@@ -46,6 +46,20 @@ class FakeSessionRealtimeClient : SessionRealtimeClient {
         return timetoken
     }
 
+    override suspend fun fetchHistory(
+        channel: String,
+        afterTimetoken: Long?,
+        limit: Int
+    ): List<ReceivedRealtimeEvent> {
+        return publishedEvents
+            .asSequence()
+            .filter { it.channel == channel }
+            .filter { afterTimetoken == null || it.timetoken > afterTimetoken }
+            .sortedBy { it.timetoken }
+            .take(limit)
+            .toList()
+    }
+
     override fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent> {
         return events
             .filter { it.channel == channel }

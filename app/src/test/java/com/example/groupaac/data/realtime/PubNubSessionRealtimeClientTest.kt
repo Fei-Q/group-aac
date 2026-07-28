@@ -141,6 +141,12 @@ private class FakePubNubTransport(
         statusListener = listener
     }
 
+    override suspend fun fetchHistory(
+        channel: String,
+        afterTimetoken: Long?,
+        limit: Int
+    ): List<PubNubIncomingMessage> = emptyList()
+
     override suspend fun close() {
         closed = true
         subscribers.clear()

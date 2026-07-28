@@ -44,7 +44,9 @@ import com.example.groupaac.data.dao.MessageWithSenderAndAttachments
 import com.example.groupaac.data.entity.AttachmentEntity
 import com.example.groupaac.data.entity.DisplayStateEntity
 import com.example.groupaac.data.entity.SessionEntity
+import com.example.groupaac.model.MessageDisplayStatus
 import com.example.groupaac.model.MessageStatus
+import com.example.groupaac.model.MessageTransportStatus
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.ui.common.AppCard
 import com.example.groupaac.ui.theme.AacBackground
@@ -338,10 +340,11 @@ private fun MessageTableRow(
     onDelete: (String) -> Unit
 ) {
     val message = row.message
-    val isSaved = message.status == MessageStatus.SAVED || message.saved
+    val isSaved = message.saved
     val isDisplayed = message.id == currentlyDisplayedMessageId ||
         message.displayedOnMonitor
-    val canRestore = !isDisplayed && message.status == MessageStatus.DISPLAYED
+    val canRestore = !isDisplayed &&
+        message.displayStatus == MessageDisplayStatus.DISPLAYED
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -730,7 +733,9 @@ fun SessionLogScreenPreview() {
                 "I went to the farmers market with my sister this weekend.",
                 null,
                 now - 23 * 60_000,
-                MessageStatus.SENT,
+                MessageStatus.ACTIVE,
+                MessageTransportStatus.SENT,
+                MessageDisplayStatus.HIDDEN,
                 false,
                 false
             ),
@@ -746,7 +751,9 @@ fun SessionLogScreenPreview() {
                 null,
                 null,
                 now - 13 * 60_000,
-                MessageStatus.SENT,
+                MessageStatus.ACTIVE,
+                MessageTransportStatus.SENT,
+                MessageDisplayStatus.HIDDEN,
                 false,
                 false
             ),
@@ -762,7 +769,9 @@ fun SessionLogScreenPreview() {
                 "I like cooking at home.",
                 null,
                 now - 10 * 60_000,
-                MessageStatus.SENT,
+                MessageStatus.ACTIVE,
+                MessageTransportStatus.SENT,
+                MessageDisplayStatus.HIDDEN,
                 false,
                 false
             ),
@@ -778,7 +787,9 @@ fun SessionLogScreenPreview() {
                 "Please show my last message again.",
                 null,
                 now - 6 * 60_000,
-                MessageStatus.SAVED,
+                MessageStatus.ACTIVE,
+                MessageTransportStatus.SENT,
+                MessageDisplayStatus.HIDDEN,
                 true,
                 false
             ),
@@ -794,7 +805,9 @@ fun SessionLogScreenPreview() {
                 "Gardening on Sunday",
                 null,
                 now,
-                MessageStatus.DISPLAYED,
+                MessageStatus.ACTIVE,
+                MessageTransportStatus.SENT,
+                MessageDisplayStatus.DISPLAYED,
                 false,
                 true
             ),

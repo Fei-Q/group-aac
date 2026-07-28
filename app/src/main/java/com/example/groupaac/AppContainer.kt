@@ -17,11 +17,13 @@ import com.example.groupaac.data.realtime.PubNubSessionRealtimeClientFactory
 import com.example.groupaac.data.realtime.RealtimeClientManager
 import com.example.groupaac.data.realtime.RealtimeStartupInitializer
 import com.example.groupaac.data.realtime.SessionSubscriptionCoordinator
+import com.example.groupaac.data.realtime.reliability.OutboxDispatcher
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.data.realtime.sync.DefaultSessionRealtimeSync
 import com.example.groupaac.data.repository.AccountRepository
 import com.example.groupaac.data.repository.AttachmentRepository
 import com.example.groupaac.data.repository.DebugRepository
+import com.example.groupaac.data.repository.RoomTransactionRunner
 import com.example.groupaac.data.repository.FacilitatorRepository
 import com.example.groupaac.data.repository.MessageRepository
 import com.example.groupaac.data.repository.SessionRepository
@@ -77,8 +79,14 @@ class AppContainer(context: Context) {
         sessionJoinRequestDao = database.sessionJoinRequestDao(),
         messageDao = database.messageDao(),
         reliabilityDao = database.reliabilityDao(),
+        reliabilityStore = realtimeReliabilityStore
+    )
+    val outboxDispatcher = OutboxDispatcher(
+        context = context.applicationContext,
+        database = database,
         reliabilityStore = realtimeReliabilityStore,
-        realtimeClientManager = realtimeClientManager
+        realtimeClientManager = realtimeClientManager,
+        scope = applicationScope
     )
 
     val activeSessionStore: ActiveSessionStore =
@@ -104,11 +112,13 @@ class AppContainer(context: Context) {
     )
 
     val sessionRepository = SessionRepository(
+        transactionRunner = RoomTransactionRunner(database),
         sessionDao = database.sessionDao(),
         sessionJoinRequestDao = database.sessionJoinRequestDao(),
         userDao = database.userDao(),
         activeSessionStore = activeSessionStore,
         sessionDirectory = sessionDirectory,
+        outboxDispatcher = outboxDispatcher,
         sessionRealtimeSync = sessionRealtimeSync
     )
     val sessionSubscriptionCoordinator = SessionSubscriptionCoordinator(
@@ -118,23 +128,30 @@ class AppContainer(context: Context) {
         },
         realtimeClientManager = realtimeClientManager,
         sessionRealtimeSync = sessionRealtimeSync,
+        channelCursorProvider = { channel ->
+            realtimeReliabilityStore.getChannelCursor(channel)?.lastProcessedTimetoken
+        },
         scope = applicationScope
     )
 
     val messageRepository = MessageRepository(
+        transactionRunner = RoomTransactionRunner(database),
         messageDao = database.messageDao(),
         sessionDao = database.sessionDao(),
         userDao = database.userDao(),
         reliabilityDao = database.reliabilityDao(),
         reliabilityStore = realtimeReliabilityStore,
+        outboxDispatcher = outboxDispatcher,
         sessionRealtimeSync = sessionRealtimeSync
     )
 
     val signalRepository = SignalRepository(
+        transactionRunner = RoomTransactionRunner(database),
         signalDao = database.statusSignalDao(),
         sessionDao = database.sessionDao(),
         userDao = database.userDao(),
-        piClient = piClient
+        outboxDispatcher = outboxDispatcher,
+        sessionRealtimeSync = sessionRealtimeSync
     )
 
     val facilitatorRepository = FacilitatorRepository(
@@ -160,5 +177,6 @@ class AppContainer(context: Context) {
                 realtimeClientManager = realtimeClientManager
             ).initialize()
         }
+        outboxDispatcher.requestImmediateDispatch()
     }
 }

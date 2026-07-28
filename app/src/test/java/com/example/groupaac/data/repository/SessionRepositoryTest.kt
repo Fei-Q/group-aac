@@ -9,6 +9,7 @@ import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
+import com.example.groupaac.data.realtime.reliability.NoOpOutboxDispatcher
 import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
 import com.example.groupaac.data.sessiondirectory.RemoteSessionRecord
@@ -333,11 +334,14 @@ class SessionRepositoryTest {
         )
 
         val repository = SessionRepository(
+            transactionRunner = ImmediateTransactionRunner,
             sessionDao = sessionDao,
             sessionJoinRequestDao = joinRequestDao,
             userDao = userDao,
             activeSessionStore = activeSessionStore,
             sessionDirectory = sessionDirectory
+            ,
+            outboxDispatcher = NoOpOutboxDispatcher
         )
 
         return SessionFixture(

@@ -32,6 +32,7 @@ class SessionSubscriptionCoordinator(
     private val activeSessionProvider: (String) -> Flow<ActiveSession?>,
     private val realtimeClientManager: RealtimeClientManager,
     private val sessionRealtimeSync: SessionRealtimeSync,
+    private val channelCursorProvider: suspend (String) -> Long? = { null },
     private val scope: CoroutineScope
 ) {
     private val pendingFacilitatorRequest =
@@ -136,6 +137,14 @@ class SessionSubscriptionCoordinator(
         }
 
         channels.forEach { channel ->
+            replayHistory(
+                realtimeClient = realtimeClient,
+                channel = channel,
+                context = context
+            )
+        }
+
+        channels.forEach { channel ->
             launch {
                 realtimeClient.observeChannel(channel).collect { received ->
                     if (shouldApplyIncoming(context, received)) {
@@ -146,6 +155,23 @@ class SessionSubscriptionCoordinator(
         }
 
         awaitCancellation()
+    }
+
+    private suspend fun replayHistory(
+        realtimeClient: SessionRealtimeClient,
+        channel: String,
+        context: SubscriptionContext
+    ) {
+        val afterTimetoken = channelCursorProvider(channel)
+        realtimeClient.fetchHistory(
+            channel = channel,
+            afterTimetoken = afterTimetoken
+        ).sortedBy { it.timetoken }
+            .forEach { received ->
+                if (shouldApplyIncoming(context, received)) {
+                    sessionRealtimeSync.applyIncoming(received)
+                }
+            }
     }
 
     private fun channelsFor(

@@ -5,19 +5,21 @@ import com.example.groupaac.data.dao.ReliabilityDao
 import com.example.groupaac.data.dao.SessionDao
 import com.example.groupaac.data.dao.SessionJoinRequestDao
 import com.example.groupaac.data.entity.MessageEntity
+import com.example.groupaac.data.entity.StatusSignalEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
-import com.example.groupaac.data.realtime.RealtimeClientManager
 import com.example.groupaac.data.realtime.protocol.RealtimeChannels
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEventTypes
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageTarget
+import com.example.groupaac.model.OutboxDomainType
 import com.example.groupaac.util.IdUtils
 import kotlinx.serialization.serializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonObject
@@ -28,8 +30,7 @@ class DefaultSessionRealtimeSync(
     private val sessionJoinRequestDao: SessionJoinRequestDao,
     private val messageDao: MessageDao,
     private val reliabilityDao: ReliabilityDao,
-    private val reliabilityStore: RealtimeReliabilityStore,
-    private val realtimeClientManager: RealtimeClientManager
+    private val reliabilityStore: RealtimeReliabilityStore
 ) : SessionRealtimeSync {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -38,6 +39,8 @@ class DefaultSessionRealtimeSync(
         actorUserId: String
     ) {
         publish(
+            domainType = OutboxDomainType.SESSION,
+            domainId = session.id,
             channel = RealtimeChannels.public(session.id),
             event = event(
                 type = RealtimeEventTypes.SESSION_STARTED,
@@ -55,6 +58,8 @@ class DefaultSessionRealtimeSync(
         actorUserId: String
     ) {
         publish(
+            domainType = OutboxDomainType.SESSION,
+            domainId = session.id,
             channel = RealtimeChannels.public(session.id),
             event = event(
                 type = RealtimeEventTypes.SESSION_UPDATED,
@@ -72,6 +77,8 @@ class DefaultSessionRealtimeSync(
         actorUserId: String
     ) {
         publish(
+            domainType = OutboxDomainType.SESSION,
+            domainId = session.id,
             channel = RealtimeChannels.public(session.id),
             event = event(
                 type = RealtimeEventTypes.SESSION_ENDED,
@@ -89,6 +96,8 @@ class DefaultSessionRealtimeSync(
         actorUserId: String
     ) {
         publish(
+            domainType = OutboxDomainType.SESSION,
+            domainId = session.id,
             channel = RealtimeChannels.public(session.id),
             event = event(
                 type = RealtimeEventTypes.SESSION_CANCELLED,
@@ -106,6 +115,8 @@ class DefaultSessionRealtimeSync(
         member: SessionMemberEntity
     ) {
         publish(
+            domainType = OutboxDomainType.MEMBER,
+            domainId = "${member.sessionId}:${member.userId}",
             channel = RealtimeChannels.public(session.id),
             event = event(
                 type = RealtimeEventTypes.MEMBER_JOINED,
@@ -126,6 +137,8 @@ class DefaultSessionRealtimeSync(
         actorUserId: String
     ) {
         publish(
+            domainType = OutboxDomainType.FACILITATOR_REQUEST,
+            domainId = request.id,
             channel = RealtimeChannels.facilitator(request.sessionId),
             event = event(
                 type = RealtimeEventTypes.FACILITATOR_REQUESTED,
@@ -146,6 +159,8 @@ class DefaultSessionRealtimeSync(
         actorUserId: String
     ) {
         publish(
+            domainType = OutboxDomainType.FACILITATOR_REQUEST,
+            domainId = request.id,
             channel = RealtimeChannels.privateUser(request.sessionId, request.userId),
             event = event(
                 type = RealtimeEventTypes.FACILITATOR_APPROVED,
@@ -166,6 +181,8 @@ class DefaultSessionRealtimeSync(
         actorUserId: String
     ) {
         publish(
+            domainType = OutboxDomainType.FACILITATOR_REQUEST,
+            domainId = request.id,
             channel = RealtimeChannels.privateUser(request.sessionId, request.userId),
             event = event(
                 type = RealtimeEventTypes.FACILITATOR_DECLINED,
@@ -186,6 +203,8 @@ class DefaultSessionRealtimeSync(
         actorUserId: String
     ) {
         publish(
+            domainType = OutboxDomainType.FACILITATOR_REQUEST,
+            domainId = request.id,
             channel = RealtimeChannels.facilitator(request.sessionId),
             event = event(
                 type = RealtimeEventTypes.FACILITATOR_CANCELLED,
@@ -212,6 +231,8 @@ class DefaultSessionRealtimeSync(
             MessageTarget.PRIVATE -> RealtimeChannels.facilitator(message.sessionId)
         }
         publish(
+            domainType = OutboxDomainType.MESSAGE,
+            domainId = message.id,
             channel = channel,
             event = event(
                 type = RealtimeEventTypes.MESSAGE_CREATED,
@@ -222,6 +243,29 @@ class DefaultSessionRealtimeSync(
                         MessagePayload.serializer(),
                         message.toRealtimePayload(senderName)
                     )
+                )
+            )
+        )
+    }
+
+    override suspend fun publishSignalCreated(
+        signal: StatusSignalEntity,
+        displayName: String
+    ) {
+        publish(
+            domainType = OutboxDomainType.SIGNAL,
+            domainId = signal.id,
+            channel = RealtimeChannels.public(signal.sessionId),
+            event = event(
+                type = RealtimeEventTypes.AAC_SIGNAL_CREATED,
+                sessionId = signal.sessionId,
+                actorUserId = signal.userId,
+                payload = payload(
+                    "signalId" to JsonPrimitive(signal.id),
+                    "userId" to JsonPrimitive(signal.userId),
+                    "displayName" to JsonPrimitive(displayName),
+                    "type" to JsonPrimitive(signal.type.name),
+                    "createdAt" to JsonPrimitive(signal.createdAt)
                 )
             )
         )
@@ -242,6 +286,8 @@ class DefaultSessionRealtimeSync(
             messages = messages.map { it.toRealtimePayload(senderName = "") }
         )
         publish(
+            domainType = OutboxDomainType.SESSION,
+            domainId = session.id,
             channel = RealtimeChannels.privateUser(session.id, requesterUserId),
             event = event(
                 type = RealtimeEventTypes.SESSION_SNAPSHOT,
@@ -271,6 +317,8 @@ class DefaultSessionRealtimeSync(
             isPinned = false
         )
         publish(
+            domainType = OutboxDomainType.DISPLAY,
+            domainId = message.id,
             channel = RealtimeChannels.display(session.id),
             event = event(
                 type = if (restore) {
@@ -297,6 +345,8 @@ class DefaultSessionRealtimeSync(
         pinned: Boolean
     ) {
         publish(
+            domainType = OutboxDomainType.DISPLAY,
+            domainId = messageId,
             channel = RealtimeChannels.display(sessionId),
             event = event(
                 type = if (pinned) {
@@ -326,6 +376,8 @@ class DefaultSessionRealtimeSync(
         actorUserId: String
     ) {
         publish(
+            domainType = OutboxDomainType.DISPLAY,
+            domainId = sessionId,
             channel = RealtimeChannels.display(sessionId),
             event = event(
                 type = RealtimeEventTypes.DISPLAY_CLEAR,
@@ -429,46 +481,20 @@ class DefaultSessionRealtimeSync(
         )
     }
 
-    private suspend fun publish(channel: String, event: RealtimeEvent) {
+    private suspend fun publish(
+        domainType: OutboxDomainType,
+        domainId: String,
+        channel: String,
+        event: RealtimeEvent
+    ) {
         val now = System.currentTimeMillis()
-        reliabilityStore.enqueueOutboxEvent(channel, event, now)
-        val client = realtimeClientManager.requireClient()
-        reliabilityStore.markSending(event.eventId, attemptCount = 1, now = now)
-        val timetoken = client.publish(channel, event)
-        reliabilityStore.markSent(event.eventId, timetoken)
-        if (channel == RealtimeChannels.display(event.sessionId)) {
-            val existing = reliabilityDao.getDisplayState(event.sessionId)
-            val displayMode = existing?.displayMode ?: DisplayMode.AUTO_LATEST
-            val currentMessageId = when (event.type) {
-                RealtimeEventTypes.DISPLAY_SHOW_MESSAGE,
-                RealtimeEventTypes.DISPLAY_RESTORE_MESSAGE -> {
-                    payload<DisplayMessagePayload>(event.payload, "display")
-                        ?.message
-                        ?.id
-                }
-                RealtimeEventTypes.DISPLAY_PIN_MESSAGE,
-                RealtimeEventTypes.DISPLAY_UNPIN_MESSAGE -> {
-                    payload<DisplayStatePayload>(event.payload, "displayState")
-                        ?.currentMessageId
-                }
-                else -> null
-            }
-            val pinned = when (event.type) {
-                RealtimeEventTypes.DISPLAY_PIN_MESSAGE -> true
-                RealtimeEventTypes.DISPLAY_UNPIN_MESSAGE,
-                RealtimeEventTypes.DISPLAY_CLEAR -> false
-                else -> existing?.isPinned ?: false
-            }
-            reliabilityStore.applyDisplayStateIfNewer(
-                sessionId = event.sessionId,
-                eventId = event.eventId,
-                currentMessageId = currentMessageId,
-                isPinned = pinned,
-                displayMode = displayMode,
-                commandTimetoken = timetoken ?: System.currentTimeMillis(),
-                now = System.currentTimeMillis()
-            )
-        }
+        reliabilityStore.enqueueOutboxEvent(
+            domainType = domainType,
+            domainId = domainId,
+            channel = channel,
+            event = event,
+            now = now
+        )
     }
 
     private fun event(

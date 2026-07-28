@@ -6,7 +6,9 @@ import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.DisplayMode
+import com.example.groupaac.model.MessageDisplayStatus
 import com.example.groupaac.model.MessageStatus
+import com.example.groupaac.model.MessageTransportStatus
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.SessionRole
 import kotlinx.serialization.Serializable
@@ -59,6 +61,8 @@ data class MessagePayload(
     val attachmentId: String? = null,
     val createdAt: Long,
     val status: String,
+    val transportStatus: String,
+    val displayStatus: String,
     val saved: Boolean,
     val displayedOnMonitor: Boolean
 )
@@ -165,6 +169,8 @@ fun MessageEntity.toRealtimePayload(senderName: String): MessagePayload = Messag
     attachmentId = attachmentId,
     createdAt = createdAt,
     status = status.name,
+    transportStatus = transportStatus.name,
+    displayStatus = displayStatus.name,
     saved = saved,
     displayedOnMonitor = displayedOnMonitor
 )
@@ -179,7 +185,15 @@ fun MessagePayload.toEntity(): MessageEntity = MessageEntity(
     attachmentId = attachmentId,
     createdAt = createdAt,
     status = MessageStatus.entries.firstOrNull { it.name == status }
-        ?: MessageStatus.SENT,
+        ?: MessageStatus.ACTIVE,
+    transportStatus =
+        MessageTransportStatus.entries.firstOrNull {
+            it.name == transportStatus
+        } ?: MessageTransportStatus.SENT,
+    displayStatus =
+        MessageDisplayStatus.entries.firstOrNull {
+            it.name == displayStatus
+        } ?: MessageDisplayStatus.HIDDEN,
     saved = saved,
     displayedOnMonitor = displayedOnMonitor
 )

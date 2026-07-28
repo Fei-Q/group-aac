@@ -7,6 +7,7 @@ import com.example.groupaac.data.dao.UserDao
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
+import com.example.groupaac.data.realtime.reliability.OutboxDispatching
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.data.session.ActiveSessionStore
@@ -35,11 +36,13 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 
 class SessionRepository(
+    private val transactionRunner: TransactionRunner,
     private val sessionDao: SessionDao,
     private val sessionJoinRequestDao: SessionJoinRequestDao,
     private val userDao: UserDao,
     private val activeSessionStore: ActiveSessionStore,
     private val sessionDirectory: SessionDirectory,
+    private val outboxDispatcher: OutboxDispatching,
     private val sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
 ) {
     fun observeSession(
@@ -158,18 +161,20 @@ class SessionRepository(
             joinedAt = now
         )
 
-        sessionDao.createOrJoinSession(
-            session = session,
-            member = member
-        )
+        transactionRunner.inTransaction {
+            sessionDao.createOrJoinSession(
+                session = session,
+                member = member
+            )
 
+            sessionRealtimeSync.publishSessionStarted(session, ownerUserId)
+            sessionRealtimeSync.publishMemberJoined(session, member)
+        }
         activeSessionStore.setActiveSession(
             userId = ownerUserId,
             sessionId = session.id
         )
-
-        sessionRealtimeSync.publishSessionStarted(session, ownerUserId)
-        sessionRealtimeSync.publishMemberJoined(session, member)
+        outboxDispatcher.requestImmediateDispatch()
 
         return ActiveSession(
             sessionId = session.id,
@@ -214,11 +219,14 @@ class SessionRepository(
             joinedAt = now
         )
 
-        sessionDao.createOrJoinSession(
-            session = session,
-            member = member
-        )
-        sessionRealtimeSync.publishSessionUpdated(session, ownerUserId)
+        transactionRunner.inTransaction {
+            sessionDao.createOrJoinSession(
+                session = session,
+                member = member
+            )
+            sessionRealtimeSync.publishSessionUpdated(session, ownerUserId)
+        }
+        outboxDispatcher.requestImmediateDispatch()
 
         return session
     }
@@ -258,8 +266,11 @@ class SessionRepository(
             UpdateRemoteSessionResult.Ended -> error("This session has already ended.")
             is UpdateRemoteSessionResult.Failure -> error(result.message)
         }
-        sessionDao.upsertSession(updated)
-        sessionRealtimeSync.publishSessionUpdated(updated, ownerUserId)
+        transactionRunner.inTransaction {
+            sessionDao.upsertSession(updated)
+            sessionRealtimeSync.publishSessionUpdated(updated, ownerUserId)
+        }
+        outboxDispatcher.requestImmediateDispatch()
         return updated
     }
 
@@ -374,14 +385,20 @@ class SessionRepository(
             )
         ) {
             is CancelRemoteSessionResult.Cancelled -> {
-                sessionJoinRequestDao.deleteRequestsForSession(sessionId)
-                sessionDao.deleteMembersForSession(sessionId)
-                val deleted = sessionDao.deleteHostedSession(sessionId, ownerUserId) > 0
+                val deleted = transactionRunner.inTransaction {
+                    sessionJoinRequestDao.deleteRequestsForSession(sessionId)
+                    sessionDao.deleteMembersForSession(sessionId)
+                    val deleted = sessionDao.deleteHostedSession(sessionId, ownerUserId) > 0
+                    if (deleted) {
+                        sessionRealtimeSync.publishSessionCancelled(
+                            result.session.toSessionEntity(existing = session),
+                            ownerUserId
+                        )
+                    }
+                    deleted
+                }
                 if (deleted) {
-                    sessionRealtimeSync.publishSessionCancelled(
-                        result.session.toSessionEntity(existing = session),
-                        ownerUserId
-                    )
+                    outboxDispatcher.requestImmediateDispatch()
                 }
                 deleted
             }
@@ -443,14 +460,15 @@ class SessionRepository(
                     joinedAt = now
                 )
 
-                sessionDao.upsertMember(member)
-
+                transactionRunner.inTransaction {
+                    sessionDao.upsertMember(member)
+                    sessionRealtimeSync.publishMemberJoined(session, member)
+                }
                 activeSessionStore.setActiveSession(
                     userId = userId,
                     sessionId = session.id
                 )
-
-                sessionRealtimeSync.publishMemberJoined(session, member)
+                outboxDispatcher.requestImmediateDispatch()
 
                 JoinSessionResult.Joined(
                     activeSession = ActiveSession(
@@ -523,8 +541,11 @@ class SessionRepository(
             status = JoinRequestStatus.PENDING,
             requestedAt = now
         )
-        sessionJoinRequestDao.upsertRequest(request)
-        sessionRealtimeSync.publishFacilitatorRequested(request, userId)
+        transactionRunner.inTransaction {
+            sessionJoinRequestDao.upsertRequest(request)
+            sessionRealtimeSync.publishFacilitatorRequested(request, userId)
+        }
+        outboxDispatcher.requestImmediateDispatch()
         return request
     }
 
@@ -551,35 +572,41 @@ class SessionRepository(
         check(session.hostUserId == decidedByUserId) {
             "Only the session host may approve facilitator requests."
         }
-        val updated = sessionJoinRequestDao.approveRequest(
-            requestId = requestId,
-            decidedByUserId = decidedByUserId,
-            decidedAt = TimeUtils.now()
-        )
-        if (updated == 0) {
-            return false
-        }
-
         val existingMember = sessionDao.getMember(
             sessionId = request.sessionId,
             userId = request.userId
         )
-        sessionDao.upsertMember(
-            SessionMemberEntity(
-                sessionId = request.sessionId,
-                userId = request.userId,
-                displayName = request.displayName,
-                role = request.requestedRole,
-                joinedAt = existingMember?.joinedAt ?: request.requestedAt
+        val now = TimeUtils.now()
+        val approved = transactionRunner.inTransaction {
+            val updated = sessionJoinRequestDao.approveRequest(
+                requestId = requestId,
+                decidedByUserId = decidedByUserId,
+                decidedAt = now
             )
-        )
-        val updatedRequest = sessionJoinRequestDao.getRequestById(requestId)
-            ?: request.copy(
-                status = JoinRequestStatus.APPROVED,
-                decidedAt = TimeUtils.now(),
-                decidedByUserId = decidedByUserId
-            )
-        sessionRealtimeSync.publishFacilitatorApproved(updatedRequest, decidedByUserId)
+            if (updated == 0) {
+                false
+            } else {
+                sessionDao.upsertMember(
+                    SessionMemberEntity(
+                        sessionId = request.sessionId,
+                        userId = request.userId,
+                        displayName = request.displayName,
+                        role = request.requestedRole,
+                        joinedAt = existingMember?.joinedAt ?: request.requestedAt
+                    )
+                )
+                val updatedRequest = sessionJoinRequestDao.getRequestById(requestId)
+                    ?: request.copy(
+                        status = JoinRequestStatus.APPROVED,
+                        decidedAt = now,
+                        decidedByUserId = decidedByUserId
+                    )
+                sessionRealtimeSync.publishFacilitatorApproved(updatedRequest, decidedByUserId)
+                true
+            }
+        }
+        if (!approved) return false
+        outboxDispatcher.requestImmediateDispatch()
         return true
     }
 
@@ -594,19 +621,28 @@ class SessionRepository(
         check(session.hostUserId == decidedByUserId) {
             "Only the session host may decline facilitator requests."
         }
-        val declined = sessionJoinRequestDao.declineRequest(
-            requestId = requestId,
-            decidedByUserId = decidedByUserId,
-            decidedAt = TimeUtils.now()
-        ) > 0
+        val now = TimeUtils.now()
+        val declined = transactionRunner.inTransaction {
+            val updated = sessionJoinRequestDao.declineRequest(
+                requestId = requestId,
+                decidedByUserId = decidedByUserId,
+                decidedAt = now
+            )
+            if (updated == 0) {
+                false
+            } else {
+                val updatedRequest = sessionJoinRequestDao.getRequestById(requestId)
+                    ?: request.copy(
+                        status = JoinRequestStatus.DECLINED,
+                        decidedAt = now,
+                        decidedByUserId = decidedByUserId
+                    )
+                sessionRealtimeSync.publishFacilitatorDeclined(updatedRequest, decidedByUserId)
+                true
+            }
+        }
         if (declined) {
-            val updatedRequest = sessionJoinRequestDao.getRequestById(requestId)
-                ?: request.copy(
-                    status = JoinRequestStatus.DECLINED,
-                    decidedAt = TimeUtils.now(),
-                    decidedByUserId = decidedByUserId
-                )
-            sessionRealtimeSync.publishFacilitatorDeclined(updatedRequest, decidedByUserId)
+            outboxDispatcher.requestImmediateDispatch()
         }
         return declined
     }
@@ -614,17 +650,26 @@ class SessionRepository(
     suspend fun cancelJoinRequest(requestId: String): Boolean {
         val request = sessionJoinRequestDao.getRequestById(requestId)
             ?: return false
-        val cancelled = sessionJoinRequestDao.cancelRequest(
-            requestId = requestId,
-            decidedAt = TimeUtils.now()
-        ) > 0
+        val now = TimeUtils.now()
+        val cancelled = transactionRunner.inTransaction {
+            val updated = sessionJoinRequestDao.cancelRequest(
+                requestId = requestId,
+                decidedAt = now
+            )
+            if (updated == 0) {
+                false
+            } else {
+                val updatedRequest = sessionJoinRequestDao.getRequestById(requestId)
+                    ?: request.copy(
+                        status = JoinRequestStatus.CANCELLED,
+                        decidedAt = now
+                    )
+                sessionRealtimeSync.publishFacilitatorCancelled(updatedRequest, request.userId)
+                true
+            }
+        }
         if (cancelled) {
-            val updatedRequest = sessionJoinRequestDao.getRequestById(requestId)
-                ?: request.copy(
-                    status = JoinRequestStatus.CANCELLED,
-                    decidedAt = TimeUtils.now()
-                )
-            sessionRealtimeSync.publishFacilitatorCancelled(updatedRequest, request.userId)
+            outboxDispatcher.requestImmediateDispatch()
         }
         return cancelled
     }
@@ -680,8 +725,11 @@ class SessionRepository(
         ) {
             is EndRemoteSessionResult.Ended -> {
                 val updated = result.session.toSessionEntity(existing = session)
-                sessionDao.upsertSession(updated)
-                sessionRealtimeSync.publishSessionEnded(updated, actorUserId)
+                transactionRunner.inTransaction {
+                    sessionDao.upsertSession(updated)
+                    sessionRealtimeSync.publishSessionEnded(updated, actorUserId)
+                }
+                outboxDispatcher.requestImmediateDispatch()
             }
             EndRemoteSessionResult.NotFound -> error("Session not found.")
             EndRemoteSessionResult.Cancelled -> error("This session has been cancelled.")

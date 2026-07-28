@@ -8,8 +8,10 @@ import com.example.groupaac.data.entity.MessageEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.UserEntity
+import com.example.groupaac.data.realtime.reliability.NoOpOutboxDispatcher
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
+import com.example.groupaac.data.repository.ImmediateTransactionRunner
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.SessionRole
@@ -73,6 +75,7 @@ class MessageRepositoryDisplayTest {
         )
 
         repository = MessageRepository(
+            transactionRunner = ImmediateTransactionRunner,
             messageDao = database.messageDao(),
             sessionDao = database.sessionDao(),
             userDao = database.userDao(),
@@ -81,6 +84,7 @@ class MessageRepositoryDisplayTest {
                 database = database,
                 reliabilityDao = database.reliabilityDao()
             ),
+            outboxDispatcher = NoOpOutboxDispatcher,
             sessionRealtimeSync = NoOpSessionRealtimeSync
         )
     }

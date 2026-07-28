@@ -3,6 +3,7 @@ package com.example.groupaac.data.entity
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.example.groupaac.model.OutboxDomainType
 import com.example.groupaac.model.OutboxEventState
 
 @Entity(
@@ -14,6 +15,8 @@ import com.example.groupaac.model.OutboxEventState
 )
 data class OutboxEventEntity(
     @PrimaryKey val eventId: String,
+    val domainType: OutboxDomainType,
+    val domainId: String,
     val actorUserId: String?,
     val sessionId: String,
     val channel: String,

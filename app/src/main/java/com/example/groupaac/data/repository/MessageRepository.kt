@@ -8,22 +8,27 @@ import com.example.groupaac.data.dao.SessionDao
 import com.example.groupaac.data.dao.UserDao
 import com.example.groupaac.data.entity.DisplayStateEntity
 import com.example.groupaac.data.entity.MessageEntity
+import com.example.groupaac.data.realtime.reliability.OutboxDispatching
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.model.DisplayMode
+import com.example.groupaac.model.MessageDisplayStatus
 import com.example.groupaac.model.MessageStatus
+import com.example.groupaac.model.MessageTransportStatus
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.util.IdUtils
 import com.example.groupaac.util.TimeUtils
 import kotlinx.coroutines.flow.Flow
 
 class MessageRepository(
+    private val transactionRunner: TransactionRunner,
     private val messageDao: MessageDao,
     private val sessionDao: SessionDao,
     private val userDao: UserDao,
     private val reliabilityDao: ReliabilityDao,
     private val reliabilityStore: RealtimeReliabilityStore,
+    private val outboxDispatcher: OutboxDispatching,
     private val sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
 ) {
     fun observeMessages(sessionId: String): Flow<List<MessageWithSender>> =
@@ -54,53 +59,57 @@ class MessageRepository(
     ): String {
         val cleanText = text.trim()
         val sentAt = TimeUtils.now()
-        val draft = sourceDraftId?.let { messageDao.getMessage(it) }
+        val messageId = transactionRunner.inTransaction {
+            val draft = sourceDraftId?.let { messageDao.getMessage(it) }
+            val resolvedMessageId = if (
+                draft != null &&
+                draft.sessionId == sessionId &&
+                draft.senderUserId == senderUserId &&
+                draft.status == MessageStatus.DRAFT
+            ) {
+                messageDao.markDraftAsSent(
+                    messageId = draft.id,
+                    sessionId = sessionId,
+                    senderUserId = senderUserId,
+                    target = target,
+                    text = cleanText,
+                    sentAt = sentAt
+                )
+                draft.id
+            } else {
+                val message = MessageEntity(
+                    id = IdUtils.newId(),
+                    sessionId = sessionId,
+                    senderUserId = senderUserId,
+                    target = target,
+                    text = cleanText.ifBlank { null },
+                    createdAt = sentAt,
+                    status = MessageStatus.ACTIVE,
+                    transportStatus = MessageTransportStatus.PENDING,
+                    displayStatus = MessageDisplayStatus.HIDDEN
+                )
+                messageDao.upsertMessage(message)
+                message.id
+            }
 
-        val messageId = if (
-            draft != null &&
-            draft.sessionId == sessionId &&
-            draft.senderUserId == senderUserId &&
-            draft.status == MessageStatus.DRAFT
-        ) {
-            messageDao.markDraftAsSent(
-                messageId = draft.id,
-                sessionId = sessionId,
-                senderUserId = senderUserId,
-                target = target,
-                text = cleanText,
-                sentAt = sentAt
-            )
-            draft.id
-        } else {
-            val message = MessageEntity(
-                id = IdUtils.newId(),
-                sessionId = sessionId,
-                senderUserId = senderUserId,
-                target = target,
-                text = cleanText.ifBlank { null },
-                createdAt = sentAt,
-                status = MessageStatus.SENT
-            )
-            messageDao.upsertMessage(message)
-            message.id
+            val storedMessage = messageDao.getMessage(resolvedMessageId)
+            if (storedMessage != null) {
+                val senderName = sessionDao.getMember(sessionId, senderUserId)?.displayName
+                    ?: userDao.getUser(senderUserId)?.displayName
+                    ?: "Unknown"
+                sessionRealtimeSync.publishMessageCreated(
+                    message = storedMessage,
+                    senderName = senderName,
+                    target = target
+                )
+                maybeAutoDisplayMessage(
+                    message = storedMessage,
+                    senderName = senderName
+                )
+            }
+            resolvedMessageId
         }
-
-        val storedMessage = messageDao.getMessage(messageId)
-        if (storedMessage != null) {
-            val senderName = sessionDao.getMember(sessionId, senderUserId)?.displayName
-                ?: userDao.getUser(senderUserId)?.displayName
-                ?: "Unknown"
-            sessionRealtimeSync.publishMessageCreated(
-                message = storedMessage,
-                senderName = senderName,
-                target = target
-            )
-            maybeAutoDisplayMessage(
-                message = storedMessage,
-                senderName = senderName
-            )
-        }
-
+        outboxDispatcher.requestImmediateDispatch()
         return messageId
     }
 
@@ -153,87 +162,102 @@ class MessageRepository(
         messageDao.saveMessage(messageId)
 
     suspend fun displayMessage(sessionId: String, messageId: String) {
-        showOrRestoreMessage(
-            sessionId = sessionId,
-            messageId = messageId,
-            restore = false
-        )
+        transactionRunner.inTransaction {
+            showOrRestoreMessage(
+                sessionId = sessionId,
+                messageId = messageId,
+                restore = false
+            )
+        }
+        outboxDispatcher.requestImmediateDispatch()
     }
 
     suspend fun restoreMessage(sessionId: String, messageId: String) {
-        showOrRestoreMessage(
-            sessionId = sessionId,
-            messageId = messageId,
-            restore = true
-        )
+        transactionRunner.inTransaction {
+            showOrRestoreMessage(
+                sessionId = sessionId,
+                messageId = messageId,
+                restore = true
+            )
+        }
+        outboxDispatcher.requestImmediateDispatch()
     }
 
     suspend fun pinDisplayedMessage(sessionId: String) {
-        val current = reliabilityDao.getDisplayState(sessionId)
-        val messageId = current?.currentMessageId ?: return
-        messageDao.clearDisplayedMessages(sessionId)
-        messageDao.markDisplayed(messageId)
-        reliabilityStore.applyDisplayStateIfNewer(
-            sessionId = sessionId,
-            eventId = IdUtils.newId(),
-            currentMessageId = messageId,
-            isPinned = true,
-            displayMode = current.displayMode,
-            commandTimetoken = System.currentTimeMillis(),
-            now = TimeUtils.now()
-        )
-        val session = sessionDao.getSession(sessionId) ?: return
-        val actorUserId = session.hostUserId ?: messageDao.getMessage(messageId)?.senderUserId ?: return
-        sessionRealtimeSync.publishDisplayPinState(
-            sessionId = sessionId,
-            messageId = messageId,
-            actorUserId = actorUserId,
-            pinned = true
-        )
+        transactionRunner.inTransaction {
+            val current = reliabilityDao.getDisplayState(sessionId)
+            val messageId = current?.currentMessageId ?: return@inTransaction
+            messageDao.hideDisplayedMessages(sessionId)
+            messageDao.markDisplayed(messageId)
+            reliabilityStore.applyDisplayStateIfNewer(
+                sessionId = sessionId,
+                eventId = IdUtils.newId(),
+                currentMessageId = messageId,
+                isPinned = true,
+                displayMode = current.displayMode,
+                commandTimetoken = System.currentTimeMillis(),
+                now = TimeUtils.now()
+            )
+            val session = sessionDao.getSession(sessionId) ?: return@inTransaction
+            val actorUserId = session.hostUserId ?: messageDao.getMessage(messageId)?.senderUserId ?: return@inTransaction
+            sessionRealtimeSync.publishDisplayPinState(
+                sessionId = sessionId,
+                messageId = messageId,
+                actorUserId = actorUserId,
+                pinned = true
+            )
+        }
+        outboxDispatcher.requestImmediateDispatch()
     }
 
     suspend fun unpinDisplayedMessage(sessionId: String) {
-        val current = reliabilityDao.getDisplayState(sessionId)
-        val messageId = current?.currentMessageId ?: return
-        messageDao.clearDisplayedMessages(sessionId)
-        messageDao.markDisplayed(messageId)
-        reliabilityStore.applyDisplayStateIfNewer(
-            sessionId = sessionId,
-            eventId = IdUtils.newId(),
-            currentMessageId = messageId,
-            isPinned = false,
-            displayMode = current.displayMode,
-            commandTimetoken = System.currentTimeMillis(),
-            now = TimeUtils.now()
-        )
-        val session = sessionDao.getSession(sessionId) ?: return
-        val actorUserId = session.hostUserId ?: messageDao.getMessage(messageId)?.senderUserId ?: return
-        sessionRealtimeSync.publishDisplayPinState(
-            sessionId = sessionId,
-            messageId = messageId,
-            actorUserId = actorUserId,
-            pinned = false
-        )
+        transactionRunner.inTransaction {
+            val current = reliabilityDao.getDisplayState(sessionId)
+            val messageId = current?.currentMessageId ?: return@inTransaction
+            messageDao.hideDisplayedMessages(sessionId)
+            messageDao.markDisplayed(messageId)
+            reliabilityStore.applyDisplayStateIfNewer(
+                sessionId = sessionId,
+                eventId = IdUtils.newId(),
+                currentMessageId = messageId,
+                isPinned = false,
+                displayMode = current.displayMode,
+                commandTimetoken = System.currentTimeMillis(),
+                now = TimeUtils.now()
+            )
+            val session = sessionDao.getSession(sessionId) ?: return@inTransaction
+            val actorUserId = session.hostUserId ?: messageDao.getMessage(messageId)?.senderUserId ?: return@inTransaction
+            sessionRealtimeSync.publishDisplayPinState(
+                sessionId = sessionId,
+                messageId = messageId,
+                actorUserId = actorUserId,
+                pinned = false
+            )
+        }
+        outboxDispatcher.requestImmediateDispatch()
     }
 
     suspend fun clearDisplay(sessionId: String) {
-        val current = reliabilityDao.getDisplayState(sessionId)
-        messageDao.clearDisplayedMessages(sessionId)
-        reliabilityStore.applyDisplayStateIfNewer(
-            sessionId = sessionId,
-            eventId = IdUtils.newId(),
-            currentMessageId = null,
-            isPinned = false,
-            displayMode = current?.displayMode ?: DisplayMode.AUTO_LATEST,
-            commandTimetoken = System.currentTimeMillis(),
-            now = TimeUtils.now()
-        )
-        val session = sessionDao.getSession(sessionId) ?: return
-        val actorUserId = session.hostUserId ?: return
-        sessionRealtimeSync.publishDisplayClear(
-            sessionId = sessionId,
-            actorUserId = actorUserId
-        )
+        transactionRunner.inTransaction {
+            val current = reliabilityDao.getDisplayState(sessionId)
+            messageDao.hideDisplayedMessages(sessionId)
+            reliabilityStore.applyDisplayStateIfNewer(
+                sessionId = sessionId,
+                eventId = IdUtils.newId(),
+                currentMessageId = null,
+                isPinned = false,
+                displayMode = current?.displayMode ?: DisplayMode.AUTO_LATEST,
+                commandTimetoken = System.currentTimeMillis(),
+                now = TimeUtils.now()
+            )
+            val session = sessionDao.getSession(sessionId) ?: return@inTransaction
+            val actorUserId = session.hostUserId ?: return@inTransaction
+            sessionRealtimeSync.publishDisplayClear(
+                sessionId = sessionId,
+                actorUserId = actorUserId
+            )
+        }
+        outboxDispatcher.requestImmediateDispatch()
     }
 
     suspend fun deleteMessage(messageId: String) =
@@ -304,8 +328,11 @@ class MessageRepository(
         isPinned: Boolean,
         displayMode: DisplayMode
     ) {
-        messageDao.clearDisplayedMessages(sessionId)
-        messageDao.markDisplayed(messageId)
+        messageDao.hideDisplayedMessages(sessionId)
+        messageDao.updateDisplaySelection(
+            messageId = messageId,
+            displayStatus = MessageDisplayStatus.PENDING
+        )
         reliabilityStore.applyDisplayStateIfNewer(
             sessionId = sessionId,
             eventId = IdUtils.newId(),

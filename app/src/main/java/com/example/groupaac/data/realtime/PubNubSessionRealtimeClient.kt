@@ -81,6 +81,25 @@ class PubNubSessionRealtimeClient internal constructor(
         return transport.publish(channel, encodedEvent)
     }
 
+    override suspend fun fetchHistory(
+        channel: String,
+        afterTimetoken: Long?,
+        limit: Int
+    ): List<ReceivedRealtimeEvent> {
+        return transport.fetchHistory(channel, afterTimetoken, limit)
+            .mapNotNull { incoming ->
+                runCatching {
+                    ReceivedRealtimeEvent(
+                        channel = incoming.channel,
+                        timetoken = incoming.timetoken,
+                        publisherUserId = incoming.publisherUserId,
+                        event = RealtimeEventCodec.decode(incoming.payload)
+                    )
+                }.getOrNull()
+            }
+            .sortedBy { it.timetoken }
+    }
+
     override fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent> {
         val flow = channelEvents.getOrPut(channel) {
             MutableSharedFlow<ReceivedRealtimeEvent>(
@@ -191,6 +210,11 @@ internal data class PubNubIncomingMessage(
 
 internal interface PubNubTransport {
     suspend fun publish(channel: String, payload: String): Long
+    suspend fun fetchHistory(
+        channel: String,
+        afterTimetoken: Long?,
+        limit: Int
+    ): List<PubNubIncomingMessage>
     fun subscribe(channel: String, onMessageReceived: (PubNubIncomingMessage) -> Unit)
     fun setStatusListener(listener: (PubNubTransportState) -> Unit)
     suspend fun close()
@@ -252,6 +276,12 @@ private class SdkPubNubTransport(
                     }
                 }
         }
+
+    override suspend fun fetchHistory(
+        channel: String,
+        afterTimetoken: Long?,
+        limit: Int
+    ): List<PubNubIncomingMessage> = emptyList()
 
     override fun subscribe(
         channel: String,

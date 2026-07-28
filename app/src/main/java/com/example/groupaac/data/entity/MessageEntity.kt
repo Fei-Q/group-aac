@@ -2,7 +2,9 @@ package com.example.groupaac.data.entity
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.example.groupaac.model.MessageDisplayStatus
 import com.example.groupaac.model.MessageStatus
+import com.example.groupaac.model.MessageTransportStatus
 import com.example.groupaac.model.MessageTarget
 
 @Entity(tableName = "messages")
@@ -14,7 +16,10 @@ data class MessageEntity(
     val text: String? = null,
     val attachmentId: String? = null,
     val createdAt: Long,
-    val status: MessageStatus = MessageStatus.SENT,
+    val status: MessageStatus = MessageStatus.ACTIVE,
+    val transportStatus: MessageTransportStatus =
+        MessageTransportStatus.SENT,
+    val displayStatus: MessageDisplayStatus = MessageDisplayStatus.HIDDEN,
     val saved: Boolean = false,
     val displayedOnMonitor: Boolean = false
 )

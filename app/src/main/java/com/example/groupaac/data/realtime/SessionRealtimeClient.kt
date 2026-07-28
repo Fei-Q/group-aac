@@ -24,6 +24,11 @@ interface SessionRealtimeClient {
     suspend fun sendSignal(payload: PiSignalPayload)
     suspend fun sendDisplayCommand(command: DisplayCommand)
     suspend fun publish(channel: String, event: RealtimeEvent): Long?
+    suspend fun fetchHistory(
+        channel: String,
+        afterTimetoken: Long?,
+        limit: Int = 100
+    ): List<ReceivedRealtimeEvent>
     fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent>
     fun observeConnectionState(): StateFlow<RealtimeConnectionState>
     fun observeSessionEvents(sessionId: String): Flow<PiSessionEvent>

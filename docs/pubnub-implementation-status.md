@@ -674,3 +674,80 @@ Branch: `feature/pubnub-live-integration`
 - Local `pubnub.properties` credentials were present on Tuesday, July 28, 2026.
 - A PubNub Debug Console publish/receive smoke test was not executed in this noninteractive environment because it requires direct access to the PubNub web console and external service interaction beyond the local automated test path.
 - `pubnub.properties` remains ignored, and no secret key was added to Android configuration.
+
+## Live Realtime Stage 5 - Durable realtime delivery
+
+Status: complete
+
+Date: 2026-07-28
+Branch: `feature/pubnub-live-integration`
+Starting commit: `216270b Add runtime session subscriptions`
+
+### Implemented
+
+- Split message persistence into separate concerns:
+  - content lifecycle remains in [`MessageStatus`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/model/MessageStatus.kt)
+  - transport delivery now lives in [`MessageTransportStatus`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/model/MessageTransportStatus.kt)
+  - display delivery now lives in [`MessageDisplayStatus`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/model/MessageDisplayStatus.kt)
+- Changed newly sent messages to begin in transport state `PENDING` instead of `SENT`, while saved-message behavior remains its own boolean flag.
+- Added durable outbox domain typing through [`OutboxDomainType`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/model/OutboxDomainType.kt) and updated [`OutboxEventEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/OutboxEventEntity.kt) to persist:
+  - domain type
+  - domain id
+  - transport state
+  - attempts
+  - retry timing
+  - accepted timetoken
+- Moved message, session, facilitator-request, signal, membership, and display publications onto a local-first transaction pattern:
+  - repositories now write the domain mutation and outbox row in one transaction through [`TransactionRunner`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/RepositorySupport.kt)
+  - publication is deferred until after commit through [`OutboxDispatcher`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/reliability/OutboxDispatcher.kt)
+- Added repository support helpers:
+  - [`RoomTransactionRunner`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/RepositorySupport.kt)
+  - [`ImmediateTransactionRunner`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/RepositorySupport.kt)
+  - [`OutboxDispatching`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/reliability/OutboxDispatcher.kt)
+- Added bounded retry, stale-send recovery, and explicit retry support in [`RealtimeReliabilityStore`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/reliability/RealtimeReliabilityStore.kt) and [`ReliabilityDao`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/dao/ReliabilityDao.kt):
+  - `PENDING`, `SENDING`, `SENT`, `FAILED`
+  - exponential backoff capped at 30 seconds
+  - stale `SENDING` recovery after interruption
+  - manual retry reset for max-attempt rows
+  - monotonic channel cursor updates that never move backward
+- Added application-scope immediate dispatch plus WorkManager fallback scheduling in [`OutboxDispatcher`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/reliability/OutboxDispatcher.kt), with fallback scheduling treated as best-effort when WorkManager is unavailable during tests.
+- Updated [`SessionSubscriptionCoordinator`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/SessionSubscriptionCoordinator.kt) to replay channel history after the stored cursor before live collection starts.
+- Kept Room as the UI source of truth by projecting outgoing and delivery updates back into persisted message/display state rather than relying on ephemeral transport callbacks.
+
+### Added tests
+
+- [`OutboxDispatcherTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/reliability/OutboxDispatcherTest.kt)
+  - atomic message plus outbox insertion
+  - failure marks `FAILED`
+  - stale `SENDING` recovery
+  - backoff behavior
+  - max-attempt cutoff
+  - manual retry
+  - truthful pending/failed/sent projection into message state
+- [`RealtimeReliabilityStoreTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/reliability/RealtimeReliabilityStoreTest.kt)
+  - processed-event deduplication
+  - expired outbox exclusion
+  - stale display-command rejection
+  - monotonic cursor advancement
+- [`DefaultSessionRealtimeSyncTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSyncTest.kt)
+  - outbox staging for outgoing message events
+  - duplicate history/live event-id deduplication
+- [`SessionSubscriptionCoordinatorTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/SessionSubscriptionCoordinatorTest.kt)
+  - replay-after-cursor startup behavior
+
+### Verification
+
+- `./gradlew :app:assembleDebug`
+  - Passed on Tuesday, July 28, 2026.
+- `./gradlew :app:testDebugUnitTest`
+  - Failed first on Tuesday, July 28, 2026, because WorkManager fallback initialization was crashing Robolectric test startup after the new fallback scheduler was introduced.
+  - Failed second on Tuesday, July 28, 2026, due to two incorrect Stage 5 test assumptions:
+    - auto-display adds a second outbox row for eligible group messages
+    - explicit retry records one fresh send attempt before transitioning to `SENT`
+  - Passed on Tuesday, July 28, 2026, after making WorkManager fallback best-effort in tests/non-initialized environments and correcting the two test expectations.
+  - Final unit-test run completed `64` tests with `0` failures.
+
+### Notes
+
+- The live PubNub history adapter path is still a placeholder in [`PubNubSessionRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/PubNubSessionRealtimeClient.kt): subscription replay is wired and unit-tested through fake/history-capable clients, but real PubNub fetch-after-cursor behavior still needs transport implementation in a later stage.
+- The legacy `PiClient` compatibility boundary still exists while the rest of the session and display flows continue migrating onto the realtime/outbox model.

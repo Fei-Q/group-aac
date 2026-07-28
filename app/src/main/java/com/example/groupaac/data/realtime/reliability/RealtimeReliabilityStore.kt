@@ -11,6 +11,7 @@ import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEventCodec
 import com.example.groupaac.model.DisplayMode
+import com.example.groupaac.model.OutboxDomainType
 import com.example.groupaac.model.OutboxEventState
 
 class RealtimeReliabilityStore(
@@ -18,6 +19,8 @@ class RealtimeReliabilityStore(
     private val reliabilityDao: ReliabilityDao
 ) {
     suspend fun enqueueOutboxEvent(
+        domainType: OutboxDomainType,
+        domainId: String,
         channel: String,
         event: RealtimeEvent,
         now: Long
@@ -25,6 +28,8 @@ class RealtimeReliabilityStore(
         reliabilityDao.upsertOutboxEvent(
             OutboxEventEntity(
                 eventId = event.eventId,
+                domainType = domainType,
+                domainId = domainId,
                 actorUserId = event.actorUserId,
                 sessionId = event.sessionId,
                 channel = channel,
@@ -62,6 +67,26 @@ class RealtimeReliabilityStore(
         reliabilityDao.markOutboxSent(eventId, acceptedTimetoken)
     }
 
+    suspend fun recoverStaleSending(now: Long): List<OutboxEventEntity> {
+        val stale = reliabilityDao.getStaleSendingOutboxEvents(now)
+            .filterNot { event ->
+                event.expiresAt != null && event.expiresAt <= now
+            }
+        stale.forEach { event ->
+            reliabilityDao.updateOutboxAttempt(
+                eventId = event.eventId,
+                state = OutboxEventState.FAILED,
+                attemptCount = event.attemptCount,
+                nextAttemptAt = now
+            )
+        }
+        return stale
+    }
+
+    suspend fun retryNow(eventId: String, now: Long) {
+        reliabilityDao.retryOutboxEvent(eventId, now)
+    }
+
     suspend fun getRetryableEvents(
         now: Long,
         limit: Int
@@ -94,6 +119,13 @@ class RealtimeReliabilityStore(
     suspend fun hasProcessed(eventId: String): Boolean {
         return reliabilityDao.getProcessedEvent(eventId) != null
     }
+
+    suspend fun getChannelCursor(channel: String): ChannelCursorEntity? =
+        reliabilityDao.getChannelCursor(channel)
+
+    suspend fun decodeOutboxEvent(
+        entry: OutboxEventEntity
+    ): RealtimeEvent = RealtimeEventCodec.decode(entry.serializedEvent)
 
     suspend fun applyDisplayStateIfNewer(
         sessionId: String,
@@ -129,6 +161,8 @@ class RealtimeReliabilityStore(
     }
 
     companion object {
+        const val MAX_ATTEMPTS = 5
+
         fun nextRetryDelayMillis(attemptCount: Int): Long {
             return when (attemptCount.coerceAtLeast(1)) {
                 1 -> 1_000L

@@ -1,6 +1,7 @@
 package com.example.groupaac.data.realtime.sync
 
 import com.example.groupaac.data.entity.MessageEntity
+import com.example.groupaac.data.entity.StatusSignalEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
@@ -60,6 +61,11 @@ interface SessionRealtimeSync {
         target: MessageTarget
     )
 
+    suspend fun publishSignalCreated(
+        signal: StatusSignalEntity,
+        displayName: String
+    )
+
     suspend fun publishSnapshot(
         session: SessionEntity,
         members: List<SessionMemberEntity>,
@@ -103,6 +109,7 @@ object NoOpSessionRealtimeSync : SessionRealtimeSync {
     override suspend fun publishFacilitatorDeclined(request: SessionJoinRequestEntity, actorUserId: String) = Unit
     override suspend fun publishFacilitatorCancelled(request: SessionJoinRequestEntity, actorUserId: String) = Unit
     override suspend fun publishMessageCreated(message: MessageEntity, senderName: String, target: MessageTarget) = Unit
+    override suspend fun publishSignalCreated(signal: StatusSignalEntity, displayName: String) = Unit
     override suspend fun publishSnapshot(
         session: SessionEntity,
         members: List<SessionMemberEntity>,

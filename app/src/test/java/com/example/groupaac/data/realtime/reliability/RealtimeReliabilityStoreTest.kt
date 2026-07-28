@@ -7,6 +7,7 @@ import com.example.groupaac.data.AppDatabase
 import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import com.example.groupaac.model.DisplayMode
+import com.example.groupaac.model.OutboxDomainType
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -101,11 +102,15 @@ class RealtimeReliabilityStoreTest {
     @Test
     fun expiredEventsAreExcludedFromRetryableResults() = runTest {
         store.enqueueOutboxEvent(
+            domainType = OutboxDomainType.MESSAGE,
+            domainId = "msg-live",
             channel = "session.session123.public",
             event = event("evt-live", expiresAt = null),
             now = 1_000L
         )
         store.enqueueOutboxEvent(
+            domainType = OutboxDomainType.MESSAGE,
+            domainId = "msg-expired",
             channel = "session.session123.public",
             event = event("evt-expired", expiresAt = 900L),
             now = 1_000L
@@ -114,6 +119,19 @@ class RealtimeReliabilityStoreTest {
         val retryable = store.getRetryableEvents(now = 1_000L, limit = 10)
 
         assertEquals(listOf("evt-live"), retryable.map { it.eventId })
+    }
+
+    @Test
+    fun channelCursorOnlyAdvancesToMaximumTimetoken() = runTest {
+        assertTrue(store.recordProcessedEvent(receivedEvent("evt-100", 100L), now = 200L))
+        assertTrue(store.recordProcessedEvent(receivedEvent("evt-90", 90L), now = 201L))
+
+        assertEquals(
+            100L,
+            database.reliabilityDao()
+                .getChannelCursor("session.session123.public")
+                ?.lastProcessedTimetoken
+        )
     }
 
     private fun event(eventId: String, expiresAt: Long?): RealtimeEvent {

@@ -4,8 +4,6 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.groupaac.data.AppDatabase
-import com.example.groupaac.data.realtime.FakeSessionRealtimeClient
-import com.example.groupaac.data.realtime.RealtimeClientManager
 import com.example.groupaac.data.realtime.protocol.RealtimeChannels
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEventTypes
@@ -17,8 +15,10 @@ import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.MessageStatus
+import com.example.groupaac.model.OutboxDomainType
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.SessionRole
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -35,7 +35,6 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class DefaultSessionRealtimeSyncTest {
     private lateinit var database: AppDatabase
-    private lateinit var client: FakeSessionRealtimeClient
     private lateinit var sync: DefaultSessionRealtimeSync
 
     @Before
@@ -45,12 +44,6 @@ class DefaultSessionRealtimeSyncTest {
             context,
             AppDatabase::class.java
         ).allowMainThreadQueries().build()
-        client = FakeSessionRealtimeClient()
-        val manager = object : RealtimeClientManager {
-            override suspend fun activateUser(uid: String) = Unit
-            override suspend fun deactivateUser() = Unit
-            override fun requireClient() = client
-        }
         sync = DefaultSessionRealtimeSync(
             sessionDao = database.sessionDao(),
             sessionJoinRequestDao = database.sessionJoinRequestDao(),
@@ -59,8 +52,7 @@ class DefaultSessionRealtimeSyncTest {
             reliabilityStore = RealtimeReliabilityStore(
                 database = database,
                 reliabilityDao = database.reliabilityDao()
-            ),
-            realtimeClientManager = manager
+            )
         )
     }
 
@@ -80,7 +72,7 @@ class DefaultSessionRealtimeSyncTest {
             target = MessageTarget.GROUP,
             text = "Hello",
             createdAt = 100L,
-            status = MessageStatus.SENT
+            status = MessageStatus.ACTIVE
         )
 
         sync.publishMessageCreated(
@@ -89,13 +81,14 @@ class DefaultSessionRealtimeSyncTest {
             target = MessageTarget.GROUP
         )
 
-        val published = client.publishedEvents.single()
-        val stored = database.reliabilityDao().getOutboxEvent(
-            published.event.eventId
-        )
+        val stored = database.reliabilityDao().getRetryableOutboxEvents(
+            now = Long.MAX_VALUE,
+            limit = 1
+        ).single()
         assertNotNull(stored)
         assertEquals(RealtimeChannels.public("session-1"), stored?.channel)
-        assertEquals(1_000L, stored?.acceptedTimetoken)
+        assertEquals(OutboxDomainType.MESSAGE, stored?.domainType)
+        assertEquals("msg-1", stored?.domainId)
     }
 
     @Test
@@ -212,5 +205,42 @@ class DefaultSessionRealtimeSyncTest {
         assertEquals("msg-1", displayState?.currentMessageId)
         assertEquals(true, displayState?.isPinned)
         assertEquals("cmd-1", displayState?.lastAppliedCommandEventId)
+    }
+
+    @Test
+    fun duplicateHistoryAndLiveEventsAreDeduplicatedByEventId() = runTest {
+        val payload = buildJsonObject {
+            put(
+                "message",
+                Json.encodeToJsonElement(
+                    MessagePayload.serializer(),
+                    MessageEntity(
+                        id = "msg-dup",
+                        sessionId = "session-1",
+                        senderUserId = "alice",
+                        target = MessageTarget.GROUP,
+                        text = "Hello",
+                        createdAt = 102L
+                    ).toRealtimePayload("Alice")
+                )
+            )
+        }
+        val received = ReceivedRealtimeEvent(
+            channel = RealtimeChannels.public("session-1"),
+            timetoken = 10L,
+            publisherUserId = "alice",
+            event = RealtimeEvent(
+                eventId = "evt-dup",
+                type = RealtimeEventTypes.MESSAGE_CREATED,
+                sessionId = "session-1",
+                actorUserId = "alice",
+                occurredAt = 105L,
+                payload = payload
+            )
+        )
+
+        assertTrue(sync.applyIncoming(received))
+        assertEquals(false, sync.applyIncoming(received))
+        assertEquals(1, database.messageDao().observeMessages("session-1").first().size)
     }
 }
