@@ -12,6 +12,8 @@ import com.example.groupaac.data.realtime.FakeSessionRealtimeClient
 import com.example.groupaac.data.realtime.PubNubConfigProvider
 import com.example.groupaac.data.realtime.PubNubRuntimeConfig
 import com.example.groupaac.data.realtime.RealtimeClientManager
+import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
+import com.example.groupaac.data.realtime.sync.DefaultSessionRealtimeSync
 import com.example.groupaac.data.repository.AccountRepository
 import com.example.groupaac.data.repository.AttachmentRepository
 import com.example.groupaac.data.repository.DebugRepository
@@ -35,6 +37,17 @@ class AppContainer(context: Context) {
         )
     val piClient: PiClient = DelegatingPiClient(realtimeClientManager)
     val userIdRegistry = LocalUserIdRegistry(database)
+    val realtimeReliabilityStore = RealtimeReliabilityStore(
+        database = database,
+        reliabilityDao = database.reliabilityDao()
+    )
+    val sessionRealtimeSync = DefaultSessionRealtimeSync(
+        sessionDao = database.sessionDao(),
+        sessionJoinRequestDao = database.sessionJoinRequestDao(),
+        messageDao = database.messageDao(),
+        reliabilityStore = realtimeReliabilityStore,
+        realtimeClientManager = realtimeClientManager
+    )
 
     val activeSessionStore: ActiveSessionStore =
         DataStoreActiveSessionStore(preferences)
@@ -55,14 +68,16 @@ class AppContainer(context: Context) {
         sessionJoinRequestDao = database.sessionJoinRequestDao(),
         userDao = database.userDao(),
         activeSessionStore = activeSessionStore,
-        piClient = piClient
+        piClient = piClient,
+        sessionRealtimeSync = sessionRealtimeSync
     )
 
     val messageRepository = MessageRepository(
         messageDao = database.messageDao(),
         sessionDao = database.sessionDao(),
         userDao = database.userDao(),
-        piClient = piClient
+        piClient = piClient,
+        sessionRealtimeSync = sessionRealtimeSync
     )
 
     val signalRepository = SignalRepository(

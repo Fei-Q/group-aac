@@ -4,6 +4,7 @@ import com.example.groupaac.data.dao.SignalWithUser
 import com.example.groupaac.data.dao.SessionDao
 import com.example.groupaac.data.dao.StatusSignalDao
 import com.example.groupaac.data.dao.UserDao
+import com.example.groupaac.data.entity.SignalSnoozeEntity
 import com.example.groupaac.data.entity.StatusSignalEntity
 import com.example.groupaac.data.pi.PiClient
 import com.example.groupaac.data.pi.PiSignalPayload
@@ -19,8 +20,14 @@ class SignalRepository(
     private val userDao: UserDao,
     private val piClient: PiClient
 ) {
-    fun observeActiveSignals(sessionId: String): Flow<List<SignalWithUser>> {
-        return signalDao.observeActiveSignals(sessionId)
+    fun observeActiveSignals(
+        sessionId: String,
+        facilitatorUserId: String?
+    ): Flow<List<SignalWithUser>> {
+        return signalDao.observeActiveSignals(
+            sessionId = sessionId,
+            facilitatorUserId = facilitatorUserId
+        )
     }
 
     fun observeCurrentSignal(
@@ -42,7 +49,7 @@ class SignalRepository(
 
         // One current signal per participant per session.
         // Tapping a new signal clears the previous one.
-        signalDao.clearCurrentSignalsForUser(
+        signalDao.clearCurrentSignalsAndSnoozesForUser(
             sessionId = sessionId,
             userId = userId,
             clearedAt = now
@@ -83,7 +90,7 @@ class SignalRepository(
         sessionId: String,
         userId: String
     ) {
-        signalDao.clearCurrentSignalsForUser(
+        signalDao.clearCurrentSignalsAndSnoozesForUser(
             sessionId = sessionId,
             userId = userId,
             clearedAt = TimeUtils.now()
@@ -95,31 +102,26 @@ class SignalRepository(
             signalId = signalId,
             clearedAt = TimeUtils.now()
         )
+        signalDao.deleteSnoozesForSignal(signalId)
     }
 
-    suspend fun resolveSignal(signalId: String) {
-        signalDao.resolveSignal(
-            signalId = signalId,
-            resolvedAt = TimeUtils.now()
-        )
-    }
-
-    suspend fun snoozeSignal(signalId: String) {
-        signalDao.snoozeSignal(signalId)
-    }
-
-    suspend fun unsnoozeSignal(signalId: String) {
-        signalDao.unsnoozeSignal(signalId)
-    }
-
-    suspend fun resolveSignalsForUser(
-        sessionId: String,
-        userId: String
+    suspend fun snoozeSignal(
+        signalId: String,
+        facilitatorUserId: String
     ) {
-        signalDao.resolveSignalsForUser(
-            sessionId = sessionId,
-            userId = userId,
-            resolvedAt = TimeUtils.now()
+        signalDao.upsertSnooze(
+            SignalSnoozeEntity(
+                signalId = signalId,
+                facilitatorUserId = facilitatorUserId,
+                createdAt = TimeUtils.now()
+            )
         )
+    }
+
+    suspend fun unsnoozeSignal(
+        signalId: String,
+        facilitatorUserId: String
+    ) {
+        signalDao.deleteSnooze(signalId, facilitatorUserId)
     }
 }

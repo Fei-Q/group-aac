@@ -23,6 +23,7 @@ import com.example.groupaac.data.entity.QuickLogEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
+import com.example.groupaac.data.entity.SignalSnoozeEntity
 import com.example.groupaac.data.entity.StatusSignalEntity
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
@@ -36,6 +37,7 @@ import com.example.groupaac.data.entity.UserSettingsEntity
         SessionJoinRequestEntity::class,
         MessageEntity::class,
         StatusSignalEntity::class,
+        SignalSnoozeEntity::class,
         OutboxEventEntity::class,
         ProcessedEventEntity::class,
         ChannelCursorEntity::class,
@@ -44,7 +46,7 @@ import com.example.groupaac.data.entity.UserSettingsEntity
         FacilitatorNoteEntity::class,
         QuickLogEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(com.example.groupaac.data.TypeConverters::class)

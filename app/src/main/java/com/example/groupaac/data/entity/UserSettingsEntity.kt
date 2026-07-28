@@ -55,11 +55,9 @@ data class UserSettingsEntity(
     val facilitatorShowRepeatAlerts: Boolean = true,
     val facilitatorShowWaitingAlerts: Boolean = true,
     val facilitatorDefaultSnoozeMinutes: Int = 3,
-    val facilitatorAutoClearResolvedAlerts: Boolean = true,
     val facilitatorQuickLogEnabled: Boolean = true,
     val facilitatorAutoSaveNotes: Boolean = true,
     val facilitatorShowPrivateMessagesInLog: Boolean = true,
-    val facilitatorIncludeResolvedSignalsInSummary: Boolean = true,
 
     // Shared monitor command preferences
     val monitorAutoDisplayGroupMessages: Boolean = false,

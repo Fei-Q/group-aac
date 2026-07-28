@@ -290,3 +290,45 @@ Status: complete
 
 - Local Room behavior remains the UI source of truth and still works when realtime synchronization is a no-op.
 - Live subscription collectors and reconnect replay orchestration are still intentionally thin at this stage; the new sync service provides the publish/apply foundation that stages 8 and 9 now build on.
+
+## Stage 8 - AAC signals
+
+Status: complete
+
+### Implemented
+
+- Reworked signal persistence to the create/snooze/clear-only model:
+  - [`StatusSignalEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/StatusSignalEntity.kt) now stores `clearedAt` instead of `resolvedAt`.
+  - [`SignalState`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/model/SignalState.kt) no longer includes `RESOLVED`.
+  - Added facilitator-scoped snooze persistence in [`SignalSnoozeEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/SignalSnoozeEntity.kt).
+- Rebuilt signal queries and mutations in [`StatusSignalDao`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/dao/StatusSignalDao.kt) so that:
+  - active signals are based on underlying `CURRENT` rows only
+  - facilitator-specific snooze state is projected through a join on `signal_snoozes`
+  - clearing a participant signal also removes related snoozes
+- Updated [`SignalRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SignalRepository.kt) to:
+  - observe active signals per facilitator UID
+  - replace global snooze with facilitator-specific snooze/unsnooze
+  - remove all resolve paths
+  - clear snoozes when a signal is cleared
+- Updated facilitator flow in [`FacilitatorViewModel`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/ui/facilitator/FacilitatorViewModel.kt) so snooze toggles are scoped to the active facilitator and participant clearing uses the clear-only path.
+- Removed leftover resolved-signal settings from [`UserSettingsEntity`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/entity/UserSettingsEntity.kt).
+- Wired the previously built realtime sync layer into runtime construction in [`AppContainer`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/AppContainer.kt) using:
+  - [`RealtimeReliabilityStore`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/reliability/RealtimeReliabilityStore.kt)
+  - [`DefaultSessionRealtimeSync`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSync.kt)
+- Added stage-8 repository coverage in [`SignalRepositoryTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/repository/SignalRepositoryTest.kt) for:
+  - facilitator-specific snooze visibility
+  - clearing signals removing snoozes
+- Regenerated the exported Room schema at [`app/schemas/com.example.groupaac.data.AppDatabase/3.json`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/schemas/com.example.groupaac.data.AppDatabase/3.json).
+
+### Verification
+
+- `./gradlew :app:assembleDebug`
+  - Failed first because [`SignalRepository`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/repository/SignalRepository.kt) still needed the `SignalState` import after the signal cleanup.
+  - Passed on Tuesday, July 28, 2026, after restoring that import.
+- `./gradlew :app:testDebugUnitTest`
+  - Passed on Tuesday, July 28, 2026.
+
+### Notes
+
+- The deprecated `ACTIVE` enum entry remains only as a defensive fallback for older local rows during development, but current signal writes and queries now use `CURRENT`, `SNOOZED`, and `CLEARED`.
+- Resolve has been removed from the signal DAO/repository/view-model flow, but the facilitator participant UI still expresses the action as snooze vs clear behavior rather than introducing additional new controls at this stage.

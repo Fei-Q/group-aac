@@ -112,7 +112,12 @@ class FacilitatorViewModel(
             launch {
                 combine(
                     facilitatorRepository.observeParticipantStats(sessionId),
-                    signalRepository.observeActiveSignals(sessionId),
+                    accountRepository.activeUserId.flatMapLatest { facilitatorId ->
+                        signalRepository.observeActiveSignals(
+                            sessionId = sessionId,
+                            facilitatorUserId = facilitatorId
+                        )
+                    },
                     messageRepository.observeMessagesWithAttachments(sessionId)
                 ) { stats, signals, messages ->
                     buildOverview(stats, signals, messages) to signals
@@ -252,27 +257,33 @@ class FacilitatorViewModel(
         uiState.update { it.copy(selectedParticipantId = userId) }
     }
 
-    fun resolveParticipant(userId: String) {
+    fun clearParticipantSignal(userId: String) {
         val sessionId = uiState.value.sessionId ?: return
 
         viewModelScope.launch {
-            signalRepository.resolveSignalsForUser(sessionId, userId)
+            signalRepository.clearCurrentSignal(sessionId, userId)
         }
     }
 
-    @Suppress("DEPRECATION")
     fun toggleSnoozeParticipant(userId: String) {
+        val facilitatorId = uiState.value.facilitator?.id ?: return
         val signal = uiState.value.activeSignals
             .firstOrNull {
                 it.userId == userId &&
-                        (it.state == SignalState.CURRENT || it.state == SignalState.SNOOZED || it.state == SignalState.ACTIVE)
+                        (it.state == SignalState.CURRENT || it.state == SignalState.SNOOZED)
             }
             ?: return
 
         viewModelScope.launch {
             when (signal.state) {
-                SignalState.SNOOZED -> signalRepository.unsnoozeSignal(signal.id)
-                else -> signalRepository.snoozeSignal(signal.id)
+                SignalState.SNOOZED -> signalRepository.unsnoozeSignal(
+                    signal.id,
+                    facilitatorId
+                )
+                else -> signalRepository.snoozeSignal(
+                    signal.id,
+                    facilitatorId
+                )
             }
         }
     }
