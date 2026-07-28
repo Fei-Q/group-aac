@@ -140,3 +140,41 @@ Status: complete
 
 - This is still a local-only registry implementation by design.
 - The interface boundary is now ready for a future remote UID registry and token/session authority work.
+
+## Stage 4 - PubNub foundation
+
+Status: complete
+
+### Implemented
+
+- Root `pubnub.properties` remains the only supported source of PubNub keys, and the root `.gitignore` now ignores it.
+- Removed the old tracked `app/pubnub.properties` file.
+- Added generated `BuildConfig` fields for:
+  - `PUBNUB_PUBLISH_KEY`
+  - `PUBNUB_SUBSCRIBE_KEY`
+- Added [`PubNubRuntimeConfig`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/PubNubRuntimeConfig.kt) and `PubNubConfigProvider` to read runtime PubNub config from `BuildConfig`.
+- Added a new broader realtime transport boundary:
+  - [`SessionRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/SessionRealtimeClient.kt)
+  - [`FakeSessionRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/FakeSessionRealtimeClient.kt)
+- Added account-scoped realtime lifecycle management in [`RealtimeClientManager`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/RealtimeClientManager.kt).
+- Added future auth/session boundaries:
+  - `PubNubTokenProvider`
+  - `SessionAuthority`
+- Wired account creation, account switching, and sign-out to activate/deactivate the active realtime client.
+- Added [`DelegatingPiClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/main/java/com/example/groupaac/data/realtime/DelegatingPiClient.kt) so existing repositories preserve their local behavior while the new client lifecycle foundation sits underneath.
+- Added stage-4 lifecycle tests in:
+  - [`RealtimeClientManagerTest`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/RealtimeClientManagerTest.kt)
+  - [`RecordingRealtimeClient`](/Users/doraqi/Desktop/Aphasia AAC/GroupAAC/GroupAacPrototype/app/src/test/java/com/example/groupaac/data/realtime/RecordingRealtimeClient.kt)
+
+### Verification
+
+- `./gradlew :app:assembleDebug`
+  - Passed on Tuesday, July 28, 2026.
+  - One transient KSP cache failure occurred first under `app/build/kspCaches/debug/backups`; rerunning after regeneration succeeded.
+- `./gradlew :app:testDebugUnitTest`
+  - Passed on Tuesday, July 28, 2026.
+
+### Notes
+
+- Repositories still speak through the legacy `PiClient` method surface, but that client is now explicitly marked deprecated and is backed by the new lifecycle-managed realtime boundary.
+- The transport implementation is still fake/local at this stage by design; actual PubNub event publishing/subscription begins in the next stages.

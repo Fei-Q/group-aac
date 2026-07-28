@@ -4,9 +4,14 @@ import android.content.Context
 import com.example.groupaac.data.AppDatabase
 import com.example.groupaac.data.account.LocalUserIdRegistry
 import com.example.groupaac.data.file.AttachmentStorage
-import com.example.groupaac.data.pi.MockPiClient
 import com.example.groupaac.data.pi.PiClient
 import com.example.groupaac.data.prefs.AppPreferences
+import com.example.groupaac.data.realtime.AccountScopedRealtimeClientManager
+import com.example.groupaac.data.realtime.DelegatingPiClient
+import com.example.groupaac.data.realtime.FakeSessionRealtimeClient
+import com.example.groupaac.data.realtime.PubNubConfigProvider
+import com.example.groupaac.data.realtime.PubNubRuntimeConfig
+import com.example.groupaac.data.realtime.RealtimeClientManager
 import com.example.groupaac.data.repository.AccountRepository
 import com.example.groupaac.data.repository.AttachmentRepository
 import com.example.groupaac.data.repository.DebugRepository
@@ -22,7 +27,13 @@ class AppContainer(context: Context) {
     val database: AppDatabase = AppDatabase.create(context)
     val preferences = AppPreferences(context)
     val attachmentStorage = AttachmentStorage(context)
-    val piClient: PiClient = MockPiClient()
+    val pubNubConfig: PubNubRuntimeConfig = PubNubConfigProvider.fromBuildConfig()
+    val realtimeClientManager: RealtimeClientManager =
+        AccountScopedRealtimeClientManager(
+            defaultClientFactory = { FakeSessionRealtimeClient() },
+            clientFactory = { FakeSessionRealtimeClient() }
+        )
+    val piClient: PiClient = DelegatingPiClient(realtimeClientManager)
     val userIdRegistry = LocalUserIdRegistry(database)
 
     val activeSessionStore: ActiveSessionStore =
@@ -31,7 +42,8 @@ class AppContainer(context: Context) {
     val accountRepository = AccountRepository(
         userIdRegistry = userIdRegistry,
         userDao = database.userDao(),
-        preferences = preferences
+        preferences = preferences,
+        realtimeClientManager = realtimeClientManager
     )
 
     val settingsRepository = SettingsRepository(

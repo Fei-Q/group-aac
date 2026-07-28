@@ -7,6 +7,7 @@ import com.example.groupaac.data.dao.UserDao
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
 import com.example.groupaac.data.prefs.AppPreferences
+import com.example.groupaac.data.realtime.RealtimeClientManager
 import com.example.groupaac.model.HomeExperience
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -14,7 +15,8 @@ import kotlinx.coroutines.flow.map
 class AccountRepository(
     private val userIdRegistry: UserIdRegistry,
     private val userDao: UserDao,
-    private val preferences: AppPreferences
+    private val preferences: AppPreferences,
+    private val realtimeClientManager: RealtimeClientManager
 ) {
     val users: Flow<List<UserEntity>> = userDao.observeUsers()
     val activeUserId: Flow<String?> = preferences.activeUserId
@@ -38,16 +40,19 @@ class AccountRepository(
         )
         if (result is CreateAccountResult.Success) {
             preferences.setActiveUser(result.user.id)
+            realtimeClientManager.activateUser(result.user.id)
         }
         return result
     }
 
     suspend fun switchUser(userId: String) {
         preferences.setActiveUser(userId)
+        realtimeClientManager.activateUser(userId)
     }
 
     suspend fun signOut() {
         preferences.setActiveUser(null)
+        realtimeClientManager.deactivateUser()
     }
 
     suspend fun updateDisplayName(userId: String, displayName: String) {
