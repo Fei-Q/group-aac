@@ -57,7 +57,20 @@ Its responsibilities are:
 - restore subscriptions after app restart
 - route received events through one pipeline
 - expose connection state to [SessionCoordinatorViewModel](../app/src/main/java/com/example/groupaac/ui/session/SessionCoordinatorViewModel.kt)
-- recover Message Persistence history after the saved channel cursor before live collection resumes
+- open explicit `RealtimeSubscription` owners for every active channel
+- establish live delivery before history replay so incoming events are not lost during restoration
+- recover Message Persistence history after the saved channel cursor before steady-state live collection resumes
+
+### Ownership Model
+
+Before Stage 6, the coordinator created long-lived collector jobs over passive channel flows returned by the realtime client. History replay happened before live collection settled, so a session restart or channel transition could miss events that arrived between replay and steady-state subscription.
+
+Stage 6 makes subscription ownership explicit:
+
+- [PubNubSessionRealtimeClient](../app/src/main/java/com/example/groupaac/data/realtime/PubNubSessionRealtimeClient.kt) exposes `RealtimeSubscription`, which owns a live channel subscription until `close()`
+- [SessionSubscriptionCoordinator](../app/src/main/java/com/example/groupaac/data/realtime/SessionSubscriptionCoordinator.kt) owns one `RealtimeSubscription` per active channel and closes it whenever that channel should stop delivering
+- [DisplayBindingCoordinator](../app/src/main/java/com/example/groupaac/data/pi/DisplayBindingCoordinator.kt) owns a temporary acknowledgement subscription that is closed in all terminal outcomes
+- the PubNub transport owns the underlying SDK subscription only while at least one `RealtimeSubscription` owner still exists for that channel
 
 ## Subscription Matrix
 
@@ -97,23 +110,47 @@ Subscriptions stop when:
 
 - the user leaves a session
 - the host ends or cancels a session
+- the user cancels a join or facilitator request flow
 - the active account changes
 - the user signs out
+- facilitator approval promotes the requester into the facilitator subscription set
+- an active session is replaced by another session
+- Pi bind, unbind, or rebind replaces the display-event ownership context
 
 Collector jobs are cancelled before replacement so they do not survive account or session changes.
+
+Temporary display-binding acknowledgement subscriptions stop on:
+
+- bind success
+- bind rejection
+- bind timeout
+- bind failure
+- bind cancellation
 
 ## Incoming Pipeline
 
 Every received event follows the same pipeline:
 
-1. parse the raw PubNub payload into the canonical envelope
-2. verify channel and session consistency
-3. reject expired events
-4. deduplicate by `eventId`
-5. apply domain changes to Room
-6. record processed event state and advance the cursor
+1. establish live PubNub delivery for the target channel
+2. buffer live arrivals until replay catch-up completes
+3. read the saved cursor for that channel
+4. fetch persisted history after the saved cursor
+5. sort history in ascending timetoken order
+6. merge the buffered live arrivals
+7. deduplicate by `eventId`
+8. parse the raw PubNub payload into the canonical envelope
+9. verify channel and session consistency
+10. reject expired events
+11. apply domain changes to Room
+12. record processed event state and advance the cursor
 
 Android apply logic lives in [DefaultSessionRealtimeSync](../app/src/main/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSync.kt).
+
+Failure categories are kept separate:
+
+- transport connection failures remain connection-state problems
+- malformed event payloads are isolated as diagnostics and do not tear down the channel subscription by themselves
+- application failures are reported separately from transport health so replay and live ownership can still shut down deterministically
 
 ## Message Persistence Replay
 

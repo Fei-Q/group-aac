@@ -24,17 +24,18 @@ import com.pubnub.api.models.consumer.pubsub.PNMessageResult
 import com.pubnub.api.v2.PNConfiguration
 import com.pubnub.api.v2.callbacks.StatusListener
 import com.pubnub.api.v2.subscriptions.Subscription
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.JsonPrimitive
@@ -48,11 +49,15 @@ class PubNubSessionRealtimeClient internal constructor(
 ) : SessionRealtimeClient {
     internal val lastHistoryDiagnostics =
         MutableStateFlow<HistoryFetchDiagnostics?>(null)
+    internal val lastMalformedEventDiagnostics =
+        MutableStateFlow<MalformedRealtimeEventDiagnostics?>(null)
     private val connectionState = MutableStateFlow<RealtimeConnectionState>(
         RealtimeConnectionState.Connecting
     )
-    private val channelEvents =
-        linkedMapOf<String, MutableSharedFlow<ReceivedRealtimeEvent>>()
+    private val channelSubscriptions =
+        linkedMapOf<String, ChannelSubscriptionState>()
+    private val subscriptionLock = Any()
+    private var nextSubscriptionOwnerId = 1
 
     init {
         transport.setStatusListener(::handleTransportState)
@@ -186,17 +191,28 @@ class PubNubSessionRealtimeClient internal constructor(
         }
     }
 
-    override fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent> {
-        val flow = channelEvents.getOrPut(channel) {
-            MutableSharedFlow<ReceivedRealtimeEvent>(
-                extraBufferCapacity = 32
-            ).also { sharedFlow ->
-                transport.subscribe(channel) { incoming ->
-                    handleIncoming(sharedFlow, incoming)
-                }
+    override fun openSubscription(channel: String): RealtimeSubscription {
+        val ownerId: Int
+        val ownerChannel = Channel<ReceivedRealtimeEvent>(Channel.UNLIMITED)
+        val shouldSubscribe = synchronized(subscriptionLock) {
+            val state = channelSubscriptions.getOrPut(channel) {
+                ChannelSubscriptionState()
+            }
+            ownerId = nextSubscriptionOwnerId++
+            val firstOwner = state.owners.isEmpty()
+            state.owners[ownerId] = ownerChannel
+            firstOwner
+        }
+        if (shouldSubscribe) {
+            transport.subscribe(channel) { incoming ->
+                handleIncoming(incoming)
             }
         }
-        return flow
+        return OwnedRealtimeSubscription(
+            channel = channel,
+            ownerId = ownerId,
+            ownerChannel = ownerChannel
+        )
     }
 
     override fun observeConnectionState(): StateFlow<RealtimeConnectionState> =
@@ -220,28 +236,50 @@ class PubNubSessionRealtimeClient internal constructor(
     }
 
     override suspend fun close() {
-        channelEvents.clear()
+        val ownerChannels = synchronized(subscriptionLock) {
+            channelSubscriptions.values
+                .flatMap { it.owners.values }
+                .toList()
+                .also { channelSubscriptions.clear() }
+        }
+        ownerChannels.forEach { ownerChannel ->
+            ownerChannel.close()
+        }
         transport.close()
         connectionState.value = RealtimeConnectionState.Disconnected
     }
 
-    private fun handleIncoming(
-        sink: MutableSharedFlow<ReceivedRealtimeEvent>,
-        incoming: PubNubIncomingMessage
-    ) {
+    private fun handleIncoming(incoming: PubNubIncomingMessage) {
         try {
             val event = RealtimeEventCodec.decode(incoming.payload)
-            sink.tryEmit(
-                ReceivedRealtimeEvent(
+            val received = ReceivedRealtimeEvent(
+                channel = incoming.channel,
+                timetoken = incoming.timetoken,
+                publisherUserId = incoming.publisherUserId,
+                event = event
+            )
+            val ownerChannels = synchronized(subscriptionLock) {
+                channelSubscriptions[incoming.channel]
+                    ?.owners
+                    ?.values
+                    ?.toList()
+                    .orEmpty()
+            }
+            ownerChannels.forEach { ownerChannel ->
+                ownerChannel.trySend(received)
+            }
+        } catch (error: Exception) {
+            lastMalformedEventDiagnostics.value =
+                MalformedRealtimeEventDiagnostics(
                     channel = incoming.channel,
                     timetoken = incoming.timetoken,
                     publisherUserId = incoming.publisherUserId,
-                    event = event
+                    reason = error.message ?: error::class.java.simpleName,
+                    payloadPreview = incoming.payload.take(256)
                 )
-            )
-        } catch (error: Exception) {
-            connectionState.value = RealtimeConnectionState.Failed(
-                "Malformed realtime event on ${incoming.channel}: ${error.message}"
+            System.err.println(
+                "$MALFORMED_LOG_TAG: Dropped malformed realtime event on " +
+                    "${incoming.channel} at ${incoming.timetoken}: ${error.message}"
             )
         }
     }
@@ -253,6 +291,48 @@ class PubNubSessionRealtimeClient internal constructor(
             PubNubTransportState.Disconnected -> RealtimeConnectionState.Disconnected
             is PubNubTransportState.Failed -> RealtimeConnectionState.Failed(
                 state.message
+            )
+        }
+    }
+
+    private fun releaseSubscription(
+        channel: String,
+        ownerId: Int,
+        ownerChannel: Channel<ReceivedRealtimeEvent>
+    ) {
+        val shouldUnsubscribe = synchronized(subscriptionLock) {
+            val state = channelSubscriptions[channel] ?: return
+            state.owners.remove(ownerId)
+            val noOwnersRemain = state.owners.isEmpty()
+            if (noOwnersRemain) {
+                channelSubscriptions.remove(channel)
+            }
+            noOwnersRemain
+        }
+        ownerChannel.close()
+        if (shouldUnsubscribe) {
+            transport.unsubscribe(channel)
+        }
+    }
+
+    private inner class OwnedRealtimeSubscription(
+        private val channel: String,
+        private val ownerId: Int,
+        private val ownerChannel: Channel<ReceivedRealtimeEvent>
+    ) : RealtimeSubscription {
+        override val events: Flow<ReceivedRealtimeEvent> =
+            ownerChannel.receiveAsFlow()
+        private var closed = false
+
+        override fun close() {
+            if (closed) {
+                return
+            }
+            closed = true
+            releaseSubscription(
+                channel = channel,
+                ownerId = ownerId,
+                ownerChannel = ownerChannel
             )
         }
     }
@@ -301,6 +381,7 @@ internal interface PubNubTransport {
         page: PubNubHistoryCursor
     ): PubNubHistoryPage
     fun subscribe(channel: String, onMessageReceived: (PubNubIncomingMessage) -> Unit)
+    fun unsubscribe(channel: String)
     fun setStatusListener(listener: (PubNubTransportState) -> Unit)
     suspend fun close()
 }
@@ -329,6 +410,19 @@ internal data class HistoryFetchDiagnostics(
     val requestedAfterTimetoken: Long?,
     val quarantinedMessages: List<QuarantinedHistoryMessage>,
     val cursorPolicy: String
+)
+
+internal data class MalformedRealtimeEventDiagnostics(
+    val channel: String,
+    val timetoken: Long,
+    val publisherUserId: String?,
+    val reason: String,
+    val payloadPreview: String
+)
+
+private data class ChannelSubscriptionState(
+    val owners: LinkedHashMap<Int, Channel<ReceivedRealtimeEvent>> =
+        linkedMapOf()
 )
 
 private suspend fun createSdkTransport(
@@ -440,6 +534,10 @@ private class SdkPubNubTransport(
         subscription.subscribe()
     }
 
+    override fun unsubscribe(channel: String) {
+        subscriptions.remove(channel)?.close()
+    }
+
     override fun setStatusListener(listener: (PubNubTransportState) -> Unit) {
         statusListener = listener
     }
@@ -535,6 +633,7 @@ private data class HistoryMessageKey(
 
 private const val HISTORY_PAGE_MAX = 100
 private const val HISTORY_LOG_TAG = "PubNubHistory"
+private const val MALFORMED_LOG_TAG = "PubNubMalformedEvent"
 private const val HISTORY_CURSOR_POLICY =
     "Malformed history messages are quarantined locally and skipped. " +
         "Only valid applied events advance the persisted replay cursor."

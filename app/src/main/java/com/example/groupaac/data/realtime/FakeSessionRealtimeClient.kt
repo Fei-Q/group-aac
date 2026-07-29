@@ -13,11 +13,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 
 class FakeSessionRealtimeClient : SessionRealtimeClient {
     val publishedEvents = mutableListOf<ReceivedRealtimeEvent>()
-    private val events = MutableSharedFlow<ReceivedRealtimeEvent>(
+    private val publishedFlow = MutableSharedFlow<ReceivedRealtimeEvent>(
         extraBufferCapacity = 32
     )
     private val connectionState = MutableStateFlow<RealtimeConnectionState>(
@@ -42,7 +41,7 @@ class FakeSessionRealtimeClient : SessionRealtimeClient {
             event = event
         )
         publishedEvents += published
-        events.emit(published)
+        publishedFlow.emit(published)
         return timetoken
     }
 
@@ -60,10 +59,14 @@ class FakeSessionRealtimeClient : SessionRealtimeClient {
             .toList()
     }
 
-    override fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent> {
-        return events
-            .filter { it.channel == channel }
-            .map { it }
+    override fun openSubscription(channel: String): RealtimeSubscription {
+        return object : RealtimeSubscription {
+            override val events: Flow<ReceivedRealtimeEvent> = publishedFlow.filter {
+                it.channel == channel
+            }
+
+            override fun close() = Unit
+        }
     }
 
     override fun observeConnectionState(): StateFlow<RealtimeConnectionState> =

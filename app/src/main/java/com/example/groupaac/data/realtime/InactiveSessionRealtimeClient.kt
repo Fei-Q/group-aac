@@ -10,7 +10,6 @@ import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 
 class InactiveSessionRealtimeClient(
@@ -38,8 +37,13 @@ class InactiveSessionRealtimeClient(
         limit: Int
     ): List<ReceivedRealtimeEvent> = emptyList()
 
-    override fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent> =
-        emptyFlow()
+    override fun openSubscription(channel: String): RealtimeSubscription =
+        object : RealtimeSubscription {
+            override val events: Flow<ReceivedRealtimeEvent> =
+                kotlinx.coroutines.flow.emptyFlow()
+
+            override fun close() = Unit
+        }
 
     override fun observeConnectionState(): StateFlow<RealtimeConnectionState> =
         connectionState

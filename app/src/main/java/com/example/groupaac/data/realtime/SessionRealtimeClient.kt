@@ -18,6 +18,11 @@ sealed interface RealtimeConnectionState {
     data class Failed(val message: String?) : RealtimeConnectionState
 }
 
+interface RealtimeSubscription : AutoCloseable {
+    val events: Flow<ReceivedRealtimeEvent>
+    override fun close()
+}
+
 interface SessionRealtimeClient {
     suspend fun joinSession(request: PiJoinRequest)
     suspend fun sendMessage(payload: PiMessagePayload)
@@ -29,7 +34,7 @@ interface SessionRealtimeClient {
         afterTimetoken: Long?,
         limit: Int = 100
     ): List<ReceivedRealtimeEvent>
-    fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent>
+    fun openSubscription(channel: String): RealtimeSubscription
     fun observeConnectionState(): StateFlow<RealtimeConnectionState>
     fun observeSessionEvents(sessionId: String): Flow<PiSessionEvent>
     suspend fun close()

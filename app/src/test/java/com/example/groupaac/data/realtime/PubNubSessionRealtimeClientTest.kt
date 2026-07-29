@@ -50,8 +50,9 @@ class PubNubSessionRealtimeClientTest {
         val transport = FakePubNubTransport()
         val client = PubNubSessionRealtimeClient("alice", transport)
         val event = sampleEvent()
+        val subscription = client.openSubscription("session.demo.public")
         val deferred = async {
-            client.observeChannel("session.demo.public").first()
+            subscription.events.first()
         }
         runCurrent()
 
@@ -67,6 +68,7 @@ class PubNubSessionRealtimeClientTest {
         assertEquals(99L, received.timetoken)
         assertEquals("bob", received.publisherUserId)
         assertEquals(event, received.event)
+        subscription.close()
     }
 
     @Test
@@ -74,7 +76,7 @@ class PubNubSessionRealtimeClientTest {
         val transport = FakePubNubTransport()
         val client = PubNubSessionRealtimeClient("alice", transport)
 
-        client.observeChannel("session.demo.public")
+        val subscription = client.openSubscription("session.demo.public")
         transport.emitIncoming(
             channel = "session.demo.public",
             payload = "{not-json",
@@ -83,13 +85,16 @@ class PubNubSessionRealtimeClientTest {
         )
 
         val event = withTimeoutOrNull(100) {
-            client.observeChannel("session.demo.public").first()
+            subscription.events.first()
         }
 
         assertNull(event)
-        assertTrue(
-            client.observeConnectionState().value is RealtimeConnectionState.Failed
+        assertEquals(
+            RealtimeConnectionState.Connecting,
+            client.observeConnectionState().value
         )
+        assertEquals(100L, client.lastMalformedEventDiagnostics.value?.timetoken)
+        subscription.close()
     }
 
     @Test
@@ -121,7 +126,7 @@ class PubNubSessionRealtimeClientTest {
         val transport = FakePubNubTransport()
         val client = PubNubSessionRealtimeClient("alice", transport)
 
-        client.observeChannel("session.demo.public")
+        val subscription = client.openSubscription("session.demo.public")
         client.close()
 
         assertTrue(transport.closed)
@@ -129,6 +134,22 @@ class PubNubSessionRealtimeClientTest {
             RealtimeConnectionState.Disconnected,
             client.observeConnectionState().value
         )
+        subscription.close()
+    }
+
+    @Test
+    fun closingLastSubscriptionUnsubscribesTransportChannel() = runTest {
+        val transport = FakePubNubTransport()
+        val client = PubNubSessionRealtimeClient("alice", transport)
+
+        val first = client.openSubscription("session.demo.public")
+        val second = client.openSubscription("session.demo.public")
+
+        first.close()
+        assertTrue("session.demo.public" in transport.subscribers.keys)
+
+        second.close()
+        assertTrue("session.demo.public" in transport.unsubscribedChannels)
     }
 
     @Test
@@ -467,9 +488,10 @@ private class FakePubNubTransport(
 
     val published = mutableListOf<PublishCall>()
     val requestedPages = mutableListOf<PubNubHistoryCursor>()
+    val unsubscribedChannels = mutableListOf<String>()
     var closed = false
     var historyThrowable: Throwable? = null
-    private val subscribers =
+    val subscribers =
         linkedMapOf<String, (PubNubIncomingMessage) -> Unit>()
     private val historyPages =
         linkedMapOf<String, ArrayDeque<PubNubHistoryPage>>()
@@ -489,6 +511,11 @@ private class FakePubNubTransport(
 
     override fun setStatusListener(listener: (PubNubTransportState) -> Unit) {
         statusListener = listener
+    }
+
+    override fun unsubscribe(channel: String) {
+        unsubscribedChannels += channel
+        subscribers.remove(channel)
     }
 
     override suspend fun fetchHistoryPage(

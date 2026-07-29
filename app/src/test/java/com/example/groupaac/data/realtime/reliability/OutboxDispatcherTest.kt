@@ -11,6 +11,7 @@ import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.repository.ImmediateTransactionRunner
 import com.example.groupaac.data.realtime.RealtimeClientManager
 import com.example.groupaac.data.realtime.RealtimeConnectionState
+import com.example.groupaac.data.realtime.RealtimeSubscription
 import com.example.groupaac.data.realtime.SessionRealtimeClient
 import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeChannels
@@ -295,7 +296,12 @@ private class ControllableRealtimeClient : SessionRealtimeClient {
         return 9_999L
     }
 
-    override fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent> = emptyFlow()
+    override fun openSubscription(channel: String): RealtimeSubscription =
+        object : RealtimeSubscription {
+            override val events: Flow<ReceivedRealtimeEvent> = emptyFlow()
+
+            override fun close() = Unit
+        }
 
     override fun observeConnectionState(): StateFlow<RealtimeConnectionState> =
         connectionState

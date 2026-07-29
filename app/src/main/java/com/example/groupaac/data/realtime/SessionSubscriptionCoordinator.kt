@@ -12,6 +12,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
@@ -25,7 +27,11 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionSubscriptionCoordinator(
@@ -41,8 +47,12 @@ class SessionSubscriptionCoordinator(
     private val _connectionState = MutableStateFlow<RealtimeConnectionState>(
         RealtimeConnectionState.Disconnected
     )
+    private val _lastDeliveryFailure =
+        MutableStateFlow<RealtimeDeliveryFailure?>(null)
     val connectionState: StateFlow<RealtimeConnectionState> =
         _connectionState.asStateFlow()
+    val lastDeliveryFailure: StateFlow<RealtimeDeliveryFailure?> =
+        _lastDeliveryFailure.asStateFlow()
 
     private var coordinationJob: Job? = null
 
@@ -75,6 +85,7 @@ class SessionSubscriptionCoordinator(
         coordinationJob = null
         pendingFacilitatorRequest.value = null
         _connectionState.value = RealtimeConnectionState.Disconnected
+        _lastDeliveryFailure.value = null
     }
 
     fun start() {
@@ -133,41 +144,138 @@ class SessionSubscriptionCoordinator(
         }
 
         channels.forEach { channel ->
-            replayHistory(
-                realtimeClient = realtimeClient,
-                channel = channel,
-                context = context
-            )
-        }
-
-        channels.forEach { channel ->
             launch {
-                realtimeClient.observeChannel(channel).collect { received ->
-                    if (shouldApplyIncoming(context, received)) {
-                        sessionRealtimeSync.applyIncoming(received)
-                    }
-                }
+                collectChannel(
+                    realtimeClient = realtimeClient,
+                    channel = channel,
+                    context = context
+                )
             }
         }
 
         awaitCancellation()
     }
 
-    private suspend fun replayHistory(
+    private suspend fun collectChannel(
         realtimeClient: SessionRealtimeClient,
         channel: String,
         context: SubscriptionContext
+    ) = coroutineScope {
+        val subscription = realtimeClient.openSubscription(channel)
+        val liveEvents = Channel<ReceivedRealtimeEvent>(Channel.UNLIMITED)
+        val bufferedEvents = mutableListOf<ReceivedRealtimeEvent>()
+        val bufferingLock = Mutex()
+        var isBuffering = true
+        val seenEventIds = linkedSetOf<String>()
+
+        val collectorJob = launch {
+            subscription.events.collect { received ->
+                var deliverDirectly = false
+                bufferingLock.withLock {
+                    if (isBuffering) {
+                        bufferedEvents += received
+                    } else {
+                        deliverDirectly = true
+                    }
+                }
+                if (deliverDirectly) {
+                    liveEvents.send(received)
+                }
+            }
+        }
+
+        try {
+            replayHistory(
+                realtimeClient = realtimeClient,
+                channel = channel,
+                context = context,
+                seenEventIds = seenEventIds
+            )
+
+            val mergedBuffer = bufferingLock.withLock {
+                isBuffering = false
+                bufferedEvents
+                    .sortedBy { it.timetoken }
+                    .toList()
+                    .also { bufferedEvents.clear() }
+            }
+
+            applyEvents(
+                context = context,
+                events = mergedBuffer,
+                seenEventIds = seenEventIds
+            )
+
+            liveEvents.receiveAsFlow().collect { received ->
+                applyReceived(
+                    context = context,
+                    received = received,
+                    seenEventIds = seenEventIds
+                )
+            }
+        } finally {
+            withContext(NonCancellable) {
+                collectorJob.cancelAndJoin()
+                liveEvents.close()
+                subscription.close()
+            }
+        }
+    }
+
+    private suspend fun replayHistory(
+        realtimeClient: SessionRealtimeClient,
+        channel: String,
+        context: SubscriptionContext,
+        seenEventIds: MutableSet<String>
     ) {
         val afterTimetoken = channelCursorProvider(channel)
-        realtimeClient.fetchHistory(
+        val history = realtimeClient.fetchHistory(
             channel = channel,
             afterTimetoken = afterTimetoken
         ).sortedBy { it.timetoken }
-            .forEach { received ->
-                if (shouldApplyIncoming(context, received)) {
-                    sessionRealtimeSync.applyIncoming(received)
-                }
-            }
+        applyEvents(
+            context = context,
+            events = history,
+            seenEventIds = seenEventIds
+        )
+    }
+
+    private suspend fun applyEvents(
+        context: SubscriptionContext,
+        events: List<ReceivedRealtimeEvent>,
+        seenEventIds: MutableSet<String>
+    ) {
+        events.forEach { received ->
+            applyReceived(
+                context = context,
+                received = received,
+                seenEventIds = seenEventIds
+            )
+        }
+    }
+
+    private suspend fun applyReceived(
+        context: SubscriptionContext,
+        received: ReceivedRealtimeEvent,
+        seenEventIds: MutableSet<String>
+    ) {
+        if (!shouldApplyIncoming(context, received)) {
+            return
+        }
+        if (!seenEventIds.add(received.event.eventId)) {
+            return
+        }
+        try {
+            sessionRealtimeSync.applyIncoming(received)
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            _lastDeliveryFailure.value = RealtimeDeliveryFailure.Application(
+                channel = received.channel,
+                eventId = received.event.eventId,
+                reason = error.message ?: error::class.java.simpleName
+            )
+        }
     }
 
     private fun channelsFor(
@@ -286,4 +394,12 @@ class SessionSubscriptionCoordinator(
         val activeSession: ActiveSession? = null,
         val pendingRequest: PendingFacilitatorRequest? = null
     )
+}
+
+sealed interface RealtimeDeliveryFailure {
+    data class Application(
+        val channel: String,
+        val eventId: String,
+        val reason: String
+    ) : RealtimeDeliveryFailure
 }

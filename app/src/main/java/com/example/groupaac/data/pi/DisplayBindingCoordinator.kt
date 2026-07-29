@@ -272,25 +272,31 @@ class PubNubDisplayBindingCoordinator(
                     start =
                         CoroutineStart.UNDISPATCHED
                 ) {
-                    client.observeChannel(
-                        eventChannel
-                    )
-                        .mapNotNull { received ->
-                            received.event
-                                .toDisplayBindingReplyOrNull(
-                                    expectedCommandEventId =
-                                        expectedCommandEventId,
-                                    expectedDisplayId =
-                                        expectedDisplayId,
-                                    expectedSessionId =
-                                        expectedSessionId
-                                )
-                                ?.takeIf {
-                                    it.eventType in
-                                            allowedReplyTypes
-                                }
-                        }
-                        .first()
+                    val subscription =
+                        client.openSubscription(
+                            eventChannel
+                        )
+                    try {
+                        subscription.events
+                            .mapNotNull { received ->
+                                received.event
+                                    .toDisplayBindingReplyOrNull(
+                                        expectedCommandEventId =
+                                            expectedCommandEventId,
+                                        expectedDisplayId =
+                                            expectedDisplayId,
+                                        expectedSessionId =
+                                            expectedSessionId
+                                    )
+                                    ?.takeIf {
+                                        it.eventType in
+                                                allowedReplyTypes
+                                    }
+                            }
+                            .first()
+                    } finally {
+                        subscription.close()
+                    }
                 }
 
                 try {

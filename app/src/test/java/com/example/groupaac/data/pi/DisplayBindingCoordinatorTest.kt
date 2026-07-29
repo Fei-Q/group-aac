@@ -6,6 +6,7 @@ import com.example.groupaac.data.pi.PiMessagePayload
 import com.example.groupaac.data.pi.PiSessionEvent
 import com.example.groupaac.data.pi.PiSignalPayload
 import com.example.groupaac.data.realtime.RealtimeConnectionState
+import com.example.groupaac.data.realtime.RealtimeSubscription
 import com.example.groupaac.data.realtime.SessionRealtimeClient
 import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeChannels
@@ -13,12 +14,12 @@ import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEventTypes
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.SessionStatus
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
@@ -86,6 +87,7 @@ class DisplayBindingCoordinatorTest {
                 result is
                         DisplayBindingResult.Bound
             )
+            assertEquals(0, client.activeSubscriptionCount)
         }
 
     @Test
@@ -199,6 +201,60 @@ class DisplayBindingCoordinatorTest {
 
         throw AssertionError("Expected cancellation to propagate.")
     }
+
+    @Test
+    fun bindingSubscriptionClosesAfterTimeout() = runTest {
+        val client =
+            object : AutoReplyRealtimeClient() {
+                override suspend fun publish(
+                    channel: String,
+                    event: RealtimeEvent
+                ): Long {
+                    val timetoken = nextPublishTimetoken()
+                    publishedEvents += ReceivedRealtimeEvent(
+                        channel = channel,
+                        timetoken = timetoken,
+                        publisherUserId = event.actorUserId,
+                        event = event
+                    )
+                    return timetoken
+                }
+            }
+
+        val coordinator =
+            PubNubDisplayBindingCoordinator(
+                clientProvider = { client },
+                nowProvider = { 1_000L },
+                acknowledgementTimeoutMillis = 1L
+            )
+
+        val result =
+            coordinator.bind(
+                pairing =
+                    DisplayPairingPayload(
+                        displayId = "pi-1",
+                        displayName = "Room Display",
+                        pairingNonce = "nonce-1",
+                        pairingExpiresAt = 10_000L
+                    ),
+                invitation =
+                    SessionInvitationPayload(
+                        sessionId = "session-1",
+                        joinCode = "1234-5678",
+                        sessionName = "Friday Group",
+                        hostUserId = "host-1",
+                        displayId = "pi-1",
+                        status = SessionStatus.LIVE,
+                        displayMode = DisplayMode.AUTO_LATEST,
+                        actualStartedAt = 1_000L,
+                        expiresAt = 100_000L
+                    ),
+                requestedByUserId = "host-1"
+            )
+
+        assertTrue(result is DisplayBindingResult.TimedOut)
+        assertEquals(0, client.activeSubscriptionCount)
+    }
 }
 
 private open class AutoReplyRealtimeClient :
@@ -207,10 +263,10 @@ private open class AutoReplyRealtimeClient :
     val publishedEvents =
         mutableListOf<ReceivedRealtimeEvent>()
 
-    private val events =
-        MutableSharedFlow<ReceivedRealtimeEvent>(
-            extraBufferCapacity = 16
-        )
+    var activeSubscriptionCount = 0
+        private set
+    private val subscriptions =
+        linkedMapOf<String, LinkedHashMap<Int, Channel<ReceivedRealtimeEvent>>>()
 
     private val connectionState =
         MutableStateFlow<RealtimeConnectionState>(
@@ -220,12 +276,15 @@ private open class AutoReplyRealtimeClient :
     private var nextTimetoken =
         1_000L
 
+    protected fun nextPublishTimetoken(): Long =
+        nextTimetoken++
+
     override suspend fun publish(
         channel: String,
         event: RealtimeEvent
     ): Long {
         val timetoken =
-            nextTimetoken++
+            nextPublishTimetoken()
 
         publishedEvents +=
             ReceivedRealtimeEvent(
@@ -275,7 +334,7 @@ private open class AutoReplyRealtimeClient :
                         }
                 )
 
-            events.emit(
+            emit(
                 ReceivedRealtimeEvent(
                     channel =
                         RealtimeChannels
@@ -283,7 +342,7 @@ private open class AutoReplyRealtimeClient :
                                 displayId
                             ),
                     timetoken =
-                        nextTimetoken++,
+                        nextPublishTimetoken(),
                     publisherUserId =
                         displayId,
                     event = reply
@@ -294,11 +353,33 @@ private open class AutoReplyRealtimeClient :
         return timetoken
     }
 
-    override fun observeChannel(
+    override fun openSubscription(
         channel: String
-    ): Flow<ReceivedRealtimeEvent> {
-        return events.filter {
-            it.channel == channel
+    ): RealtimeSubscription {
+        val ownerId = nextPublishTimetoken().toInt()
+        val ownerChannel =
+            Channel<ReceivedRealtimeEvent>(Channel.UNLIMITED)
+        subscriptions
+            .getOrPut(channel) { linkedMapOf() }[ownerId] =
+            ownerChannel
+        activeSubscriptionCount += 1
+        return object : RealtimeSubscription {
+            override val events: Flow<ReceivedRealtimeEvent> =
+                ownerChannel.receiveAsFlow()
+            private var closed = false
+
+            override fun close() {
+                if (closed) {
+                    return
+                }
+                closed = true
+                subscriptions[channel]?.remove(ownerId)
+                if (subscriptions[channel].isNullOrEmpty()) {
+                    subscriptions.remove(channel)
+                }
+                activeSubscriptionCount -= 1
+                ownerChannel.close()
+            }
         }
     }
 
@@ -335,4 +416,16 @@ private open class AutoReplyRealtimeClient :
         flowOf(PiSessionEvent.Connected)
 
     override suspend fun close() = Unit
+
+    protected suspend fun emit(
+        received: ReceivedRealtimeEvent
+    ) {
+        subscriptions[received.channel]
+            ?.values
+            ?.toList()
+            .orEmpty()
+            .forEach { ownerChannel ->
+                ownerChannel.send(received)
+            }
+    }
 }

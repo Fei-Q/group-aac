@@ -16,19 +16,17 @@ import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.SessionRole
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -81,7 +79,8 @@ class SessionSubscriptionCoordinatorTest {
                     RealtimeChannels.public("session-1"),
                     RealtimeChannels.facilitator("session-1"),
                     RealtimeChannels.privateUser("session-1", "facilitator_1"),
-                    RealtimeChannels.displayEvents("session-1")
+                    RealtimeChannels.displayEvents("session-1"),
+                    RealtimeChannels.displayDeviceEvents("display-1")
                 ),
                 fixture.client.activeChannels
             )
@@ -137,7 +136,8 @@ class SessionSubscriptionCoordinatorTest {
                     RealtimeChannels.public("session-1"),
                     RealtimeChannels.facilitator("session-1"),
                     RealtimeChannels.privateUser("session-1", "host_1"),
-                    RealtimeChannels.displayEvents("session-1")
+                    RealtimeChannels.displayEvents("session-1"),
+                    RealtimeChannels.displayDeviceEvents("display-1")
                 ),
                 secondClient.activeChannels
             )
@@ -368,6 +368,195 @@ class SessionSubscriptionCoordinatorTest {
             fixture.close()
         }
     }
+
+    @Test
+    fun eventArrivesDuringHistoryReplay() = runTest {
+        val fixture = coordinatorFixture(
+            cursorByChannel = mapOf(
+                RealtimeChannels.public("session-1") to 50L
+            )
+        )
+        try {
+            val historyEvent = receivedEvent(
+                channel = RealtimeChannels.public("session-1"),
+                sessionId = "session-1",
+                eventId = "evt-history",
+                timetoken = 60L
+            )
+            val liveEvent = receivedEvent(
+                channel = RealtimeChannels.public("session-1"),
+                sessionId = "session-1",
+                eventId = "evt-live",
+                timetoken = 70L
+            )
+            fixture.client.history[
+                RealtimeChannels.public("session-1")
+            ] = listOf(historyEvent)
+            fixture.client.onFetchHistory = { channel, _, _ ->
+                if (channel == RealtimeChannels.public("session-1")) {
+                    emit(liveEvent)
+                }
+            }
+            fixture.activeUserId.value = "participant_1"
+            fixture.activeSessions["participant_1"]?.value = activeSession(
+                userId = "participant_1",
+                role = SessionRole.PARTICIPANT
+            )
+
+            advanceUntilIdle()
+
+            assertEquals(
+                listOf("evt-history", "evt-live"),
+                fixture.sync.applied.map { it.event.eventId }
+            )
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun eventInHistoryAndLiveBufferIsDeduplicated() = runTest {
+        val fixture = coordinatorFixture(
+            cursorByChannel = mapOf(
+                RealtimeChannels.public("session-1") to 50L
+            )
+        )
+        try {
+            val shared = receivedEvent(
+                channel = RealtimeChannels.public("session-1"),
+                sessionId = "session-1",
+                eventId = "evt-shared",
+                timetoken = 60L
+            )
+            fixture.client.history[
+                RealtimeChannels.public("session-1")
+            ] = listOf(shared)
+            fixture.client.onFetchHistory = { channel, _, _ ->
+                if (channel == RealtimeChannels.public("session-1")) {
+                    emit(shared)
+                }
+            }
+            fixture.activeUserId.value = "participant_1"
+            fixture.activeSessions["participant_1"]?.value = activeSession(
+                userId = "participant_1",
+                role = SessionRole.PARTICIPANT
+            )
+
+            advanceUntilIdle()
+
+            assertEquals(
+                listOf("evt-shared"),
+                fixture.sync.applied.map { it.event.eventId }
+            )
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun oldSessionStopsDeliveringAfterLeave() = runTest {
+        val fixture = coordinatorFixture()
+        try {
+            fixture.activeUserId.value = "participant_1"
+            fixture.activeSessions["participant_1"]?.value = activeSession(
+                userId = "participant_1",
+                role = SessionRole.PARTICIPANT
+            )
+            advanceUntilIdle()
+
+            fixture.client.emit(
+                receivedEvent(
+                    channel = RealtimeChannels.public("session-1"),
+                    sessionId = "session-1",
+                    eventId = "evt-before-leave",
+                    timetoken = 100L
+                )
+            )
+            advanceUntilIdle()
+
+            fixture.activeSessions["participant_1"]?.value = null
+            advanceUntilIdle()
+
+            fixture.client.emit(
+                receivedEvent(
+                    channel = RealtimeChannels.public("session-1"),
+                    sessionId = "session-1",
+                    eventId = "evt-after-leave",
+                    timetoken = 101L
+                )
+            )
+            advanceUntilIdle()
+
+            assertEquals(
+                listOf("evt-before-leave"),
+                fixture.sync.applied.map { it.event.eventId }
+            )
+            assertTrue(fixture.client.activeChannels.isEmpty())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun approvalReplacesRequesterChannels() = runTest {
+        val fixture = coordinatorFixture()
+        try {
+            fixture.activeUserId.value = "facilitator_1"
+            fixture.coordinator.trackFacilitatorRequest(
+                sessionId = "session-1",
+                userId = "facilitator_1"
+            )
+            advanceUntilIdle()
+
+            fixture.activeSessions["facilitator_1"]?.value = activeSession(
+                userId = "facilitator_1",
+                role = SessionRole.FACILITATOR
+            )
+            advanceUntilIdle()
+
+            assertEquals(
+                setOf(
+                    RealtimeChannels.public("session-1"),
+                    RealtimeChannels.facilitator("session-1"),
+                    RealtimeChannels.privateUser("session-1", "facilitator_1"),
+                    RealtimeChannels.displayEvents("session-1"),
+                    RealtimeChannels.displayDeviceEvents("display-1")
+                ),
+                fixture.client.activeChannels
+            )
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun repeatedStartStopLeaksNoSubscriptions() = runTest {
+        val fixture = coordinatorFixture()
+        try {
+            repeat(3) {
+                fixture.activeUserId.value = "participant_1"
+                fixture.activeSessions["participant_1"]?.value = activeSession(
+                    userId = "participant_1",
+                    role = SessionRole.PARTICIPANT
+                )
+                advanceUntilIdle()
+
+                fixture.activeSessions["participant_1"]?.value = null
+                advanceUntilIdle()
+            }
+
+            fixture.coordinator.close()
+            advanceUntilIdle()
+
+            assertTrue(fixture.client.activeChannels.isEmpty())
+            assertEquals(
+                fixture.client.openedSubscriptions,
+                fixture.client.closedSubscriptions
+            )
+        } finally {
+            fixture.scope.cancel()
+        }
+    }
 }
 
 private data class CoordinatorFixture(
@@ -436,13 +625,18 @@ private class TrackingRealtimeClient : SessionRealtimeClient {
     val activeChannels = linkedSetOf<String>()
     val history = linkedMapOf<String, List<ReceivedRealtimeEvent>>()
     val fetchedAfterTimetokens = linkedMapOf<String, Long?>()
+    var openedSubscriptions: Int = 0
+    var closedSubscriptions: Int = 0
     var historyThrowable: Throwable? = null
+    var onFetchHistory:
+        suspend TrackingRealtimeClient.(String, Long?, Int) -> Unit =
+            { _, _, _ -> }
     val connectionState = MutableStateFlow<RealtimeConnectionState>(
         RealtimeConnectionState.Connected
     )
-    private val events = MutableSharedFlow<ReceivedRealtimeEvent>(
-        extraBufferCapacity = 16
-    )
+    private val subscriptions =
+        linkedMapOf<String, LinkedHashMap<Int, Channel<ReceivedRealtimeEvent>>>()
+    private var nextOwnerId: Int = 1
 
     override suspend fun joinSession(request: com.example.groupaac.data.pi.PiJoinRequest) = Unit
 
@@ -457,19 +651,32 @@ private class TrackingRealtimeClient : SessionRealtimeClient {
         event: RealtimeEvent
     ): Long = 1L
 
-    override fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent> {
-        return callbackFlow {
-            activeChannels += channel
-            val job = launch {
-                events.collect { received ->
-                    if (received.channel == channel) {
-                        trySend(received)
-                    }
+    override fun openSubscription(channel: String): RealtimeSubscription {
+        val ownerId = nextOwnerId++
+        val ownerChannel = Channel<ReceivedRealtimeEvent>(Channel.UNLIMITED)
+        val channelOwners =
+            subscriptions.getOrPut(channel) { linkedMapOf() }
+        channelOwners[ownerId] = ownerChannel
+        activeChannels += channel
+        openedSubscriptions += 1
+
+        return object : RealtimeSubscription {
+            override val events: Flow<ReceivedRealtimeEvent> =
+                ownerChannel.receiveAsFlow()
+            private var closed = false
+
+            override fun close() {
+                if (closed) {
+                    return
                 }
-            }
-            awaitClose {
-                activeChannels -= channel
-                job.cancel()
+                closed = true
+                subscriptions[channel]?.remove(ownerId)
+                if (subscriptions[channel].isNullOrEmpty()) {
+                    subscriptions.remove(channel)
+                    activeChannels.remove(channel)
+                }
+                closedSubscriptions += 1
+                ownerChannel.close()
             }
         }
     }
@@ -486,13 +693,20 @@ private class TrackingRealtimeClient : SessionRealtimeClient {
     ): List<ReceivedRealtimeEvent> {
         historyThrowable?.let { throw it }
         fetchedAfterTimetokens[channel] = afterTimetoken
+        onFetchHistory(channel, afterTimetoken, limit)
         return history[channel].orEmpty()
     }
 
     override suspend fun close() = Unit
 
     suspend fun emit(received: ReceivedRealtimeEvent) {
-        events.emit(received)
+        subscriptions[received.channel]
+            ?.values
+            ?.toList()
+            .orEmpty()
+            .forEach { ownerChannel ->
+                ownerChannel.send(received)
+            }
     }
 }
 
@@ -691,6 +905,7 @@ private fun activeSession(
     sessionId = "session-1",
     joinCode = "1234-5678",
     sessionName = "Friday Group",
+    displayId = "display-1",
     userId = userId,
     role = role,
     joinedAt = 10L,

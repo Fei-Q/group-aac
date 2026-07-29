@@ -8,19 +8,14 @@ import com.example.groupaac.data.pi.PiSignalPayload
 import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 
 class RecordingRealtimeClient : SessionRealtimeClient {
     var closed = false
     val connectionState = MutableStateFlow<RealtimeConnectionState>(
         RealtimeConnectionState.Connected
-    )
-    private val published = MutableSharedFlow<ReceivedRealtimeEvent>(
-        extraBufferCapacity = 8
     )
     private var nextTimetoken = 1L
 
@@ -34,14 +29,6 @@ class RecordingRealtimeClient : SessionRealtimeClient {
 
     override suspend fun publish(channel: String, event: RealtimeEvent): Long {
         val timetoken = nextTimetoken++
-        published.tryEmit(
-            ReceivedRealtimeEvent(
-                channel = channel,
-                timetoken = timetoken,
-                publisherUserId = event.actorUserId,
-                event = event
-            )
-        )
         return timetoken
     }
 
@@ -51,9 +38,13 @@ class RecordingRealtimeClient : SessionRealtimeClient {
         limit: Int
     ): List<ReceivedRealtimeEvent> = emptyList()
 
-    override fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent> {
-        return emptyFlow()
-    }
+    override fun openSubscription(channel: String): RealtimeSubscription =
+        object : RealtimeSubscription {
+            override val events: Flow<ReceivedRealtimeEvent> =
+                kotlinx.coroutines.flow.emptyFlow()
+
+            override fun close() = Unit
+        }
 
     override fun observeConnectionState(): StateFlow<RealtimeConnectionState> =
         connectionState
