@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -44,10 +45,6 @@ class SessionSubscriptionCoordinator(
         _connectionState.asStateFlow()
 
     private var coordinationJob: Job? = null
-
-    init {
-        start()
-    }
 
     fun trackFacilitatorRequest(
         sessionId: String,
@@ -80,10 +77,12 @@ class SessionSubscriptionCoordinator(
         _connectionState.value = RealtimeConnectionState.Disconnected
     }
 
-    private fun start() {
+    fun start() {
+        if (coordinationJob?.isActive == true) {
+            return
+        }
         coordinationJob?.cancel()
         coordinationJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            var contextJob: Job? = null
             activeUserId
                 .distinctUntilChanged()
                 .flatMapLatest { userId ->
@@ -109,11 +108,8 @@ class SessionSubscriptionCoordinator(
                         }
                     }
                 }
-                .collect { context ->
-                    contextJob?.cancelAndJoin()
-                    contextJob = launch(start = CoroutineStart.UNDISPATCHED) {
-                        coordinate(context)
-                    }
+                .collectLatest { context ->
+                    coordinate(context)
                 }
         }
     }
@@ -198,6 +194,14 @@ class SessionSubscriptionCoordinator(
                         userId
                     ),
                     RealtimeChannels.displayEvents(activeSession.sessionId)
+                ) + (
+                    activeSession.displayId?.let { displayId ->
+                        listOf(
+                            RealtimeChannels.displayDeviceEvents(
+                                displayId
+                            )
+                        )
+                    } ?: emptyList()
                 )
             }
         }
@@ -260,8 +264,15 @@ class SessionSubscriptionCoordinator(
                 )
 
             RealtimeRouteKind.DISPLAY,
-            RealtimeRouteKind.DISPLAY_CONTROL,
-            RealtimeRouteKind.DISPLAY_DEVICE_EVENTS -> false
+            RealtimeRouteKind.DISPLAY_CONTROL -> false
+
+            RealtimeRouteKind.DISPLAY_DEVICE_EVENTS ->
+                context.activeSession?.let { activeSession ->
+                    activeSession.role in setOf(
+                        SessionRole.FACILITATOR,
+                        SessionRole.HOST
+                    ) && route.displayId == activeSession.displayId
+                } ?: false
         }
     }
 

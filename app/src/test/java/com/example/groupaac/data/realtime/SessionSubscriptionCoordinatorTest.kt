@@ -9,6 +9,7 @@ import com.example.groupaac.data.entity.StatusSignalEntity
 import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeChannels
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
+import com.example.groupaac.data.realtime.protocol.RealtimeEventTypes
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.model.ActiveSession
 import com.example.groupaac.model.DisplayCommandOrigin
@@ -172,6 +173,7 @@ class SessionSubscriptionCoordinatorTest {
             scope = scope
         )
         try {
+            coordinator.start()
             advanceUntilIdle()
 
             assertEquals(
@@ -304,6 +306,68 @@ class SessionSubscriptionCoordinatorTest {
             fixture.close()
         }
     }
+
+    @Test
+    fun facilitatorApprovalRecoveryReplaysPrivateHistoryWhileOffline() = runTest {
+        val fixture = coordinatorFixture(
+            cursorByChannel = mapOf(
+                RealtimeChannels.privateUser("session-1", "facilitator_1") to 25L
+            )
+        )
+        try {
+            val approval = receivedEvent(
+                channel = RealtimeChannels.privateUser("session-1", "facilitator_1"),
+                sessionId = "session-1",
+                eventId = "evt-approved",
+                type = RealtimeEventTypes.FACILITATOR_APPROVED,
+                timetoken = 30L
+            )
+            fixture.client.history[
+                RealtimeChannels.privateUser("session-1", "facilitator_1")
+            ] = listOf(approval)
+            fixture.activeUserId.value = "facilitator_1"
+            fixture.coordinator.trackFacilitatorRequest(
+                sessionId = "session-1",
+                userId = "facilitator_1"
+            )
+
+            advanceUntilIdle()
+
+            assertEquals(listOf(approval), fixture.sync.applied)
+            assertEquals(
+                25L,
+                fixture.client.fetchedAfterTimetokens[
+                    RealtimeChannels.privateUser("session-1", "facilitator_1")
+                ]
+            )
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun historyCancellationPropagates() = runTest {
+        val fixture = coordinatorFixture()
+        try {
+            fixture.client.historyThrowable =
+                kotlinx.coroutines.CancellationException(
+                    "cancel history"
+                )
+            fixture.activeUserId.value = "participant_1"
+            fixture.activeSessions["participant_1"]?.value = activeSession(
+                userId = "participant_1",
+                role = SessionRole.PARTICIPANT
+            )
+
+            advanceUntilIdle()
+
+            assertTrue(
+                fixture.client.activeChannels.isEmpty()
+            )
+        } finally {
+            fixture.close()
+        }
+    }
 }
 
 private data class CoordinatorFixture(
@@ -346,6 +410,7 @@ private fun kotlinx.coroutines.test.TestScope.coordinatorFixture(
         channelCursorProvider = { channel -> cursorByChannel[channel] },
         scope = scope
     )
+    coordinator.start()
     return CoordinatorFixture(
         coordinator = coordinator,
         activeUserId = activeUserId,
@@ -371,6 +436,7 @@ private class TrackingRealtimeClient : SessionRealtimeClient {
     val activeChannels = linkedSetOf<String>()
     val history = linkedMapOf<String, List<ReceivedRealtimeEvent>>()
     val fetchedAfterTimetokens = linkedMapOf<String, Long?>()
+    var historyThrowable: Throwable? = null
     val connectionState = MutableStateFlow<RealtimeConnectionState>(
         RealtimeConnectionState.Connected
     )
@@ -418,6 +484,7 @@ private class TrackingRealtimeClient : SessionRealtimeClient {
         afterTimetoken: Long?,
         limit: Int
     ): List<ReceivedRealtimeEvent> {
+        historyThrowable?.let { throw it }
         fetchedAfterTimetokens[channel] = afterTimetoken
         return history[channel].orEmpty()
     }
@@ -636,6 +703,7 @@ private fun receivedEvent(
     channel: String,
     sessionId: String,
     eventId: String = "evt-$sessionId",
+    type: String = "message.created",
     timetoken: Long = 99L
 ): ReceivedRealtimeEvent = ReceivedRealtimeEvent(
     channel = channel,
@@ -643,7 +711,7 @@ private fun receivedEvent(
     publisherUserId = "publisher",
     event = RealtimeEvent(
         eventId = eventId,
-        type = "message.created",
+        type = type,
         sessionId = sessionId,
         actorUserId = "publisher",
         occurredAt = 10L,

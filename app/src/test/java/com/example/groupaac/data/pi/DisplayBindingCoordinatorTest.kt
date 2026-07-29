@@ -19,10 +19,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -146,9 +148,60 @@ class DisplayBindingCoordinatorTest {
                 client.publishedEvents.isEmpty()
             )
         }
+
+    @Test
+    fun bindPropagatesCancellation() = runTest {
+        val client =
+            object : AutoReplyRealtimeClient() {
+                override suspend fun publish(
+                    channel: String,
+                    event: RealtimeEvent
+                ): Long {
+                    throw CancellationException(
+                        "cancel bind"
+                    )
+                }
+            }
+
+        val coordinator =
+            PubNubDisplayBindingCoordinator(
+                clientProvider = { client },
+                nowProvider = { 1_000L }
+            )
+
+        try {
+            coordinator.bind(
+                pairing =
+                    DisplayPairingPayload(
+                        displayId = "pi-1",
+                        displayName = "Room Display",
+                        pairingNonce = "nonce-1",
+                        pairingExpiresAt = 10_000L
+                    ),
+                invitation =
+                    SessionInvitationPayload(
+                        sessionId = "session-1",
+                        joinCode = "1234-5678",
+                        sessionName = "Friday Group",
+                        hostUserId = "host-1",
+                        displayId = "pi-1",
+                        status = SessionStatus.LIVE,
+                        displayMode = DisplayMode.AUTO_LATEST,
+                        actualStartedAt = 1_000L,
+                        expiresAt = 100_000L
+                    ),
+                requestedByUserId = "host-1"
+            )
+        } catch (expected: CancellationException) {
+            assertEquals("cancel bind", expected.message)
+            return@runTest
+        }
+
+        throw AssertionError("Expected cancellation to propagate.")
+    }
 }
 
-private class AutoReplyRealtimeClient :
+private open class AutoReplyRealtimeClient :
     SessionRealtimeClient {
 
     val publishedEvents =

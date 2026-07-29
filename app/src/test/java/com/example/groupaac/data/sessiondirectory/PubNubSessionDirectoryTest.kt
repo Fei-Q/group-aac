@@ -2,6 +2,7 @@ package com.example.groupaac.data.sessiondirectory
 
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.SessionStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -188,6 +189,51 @@ class PubNubSessionDirectoryTest {
             ResolveJoinCodeResult.NotFound,
             directory.resolve(entry.joinCode)
         )
+    }
+
+    @Test
+    fun resolvePropagatesCancellation() = runTest {
+        val directory =
+            PubNubSessionDirectory(
+                transport =
+                    object : PubNubMetadataTransport {
+                        override suspend fun get(
+                            metadataId: String
+                        ): PubNubMetadataRecord? {
+                            throw CancellationException(
+                                "cancel directory"
+                            )
+                        }
+
+                        override suspend fun set(
+                            metadataId: String,
+                            name: String,
+                            custom: Map<String, Any?>,
+                            type: String,
+                            status: String,
+                            ifMatchesEtag: String?
+                        ): PubNubMetadataRecord =
+                            error("unused")
+
+                        override suspend fun remove(
+                            metadataId: String
+                        ) = Unit
+
+                        override suspend fun close() = Unit
+                    }
+            )
+
+        try {
+            directory.resolve("1234-5678")
+        } catch (expected: CancellationException) {
+            assertEquals(
+                "cancel directory",
+                expected.message
+            )
+            return@runTest
+        }
+
+        throw AssertionError("Expected cancellation to propagate.")
     }
 
     private fun liveEntry(

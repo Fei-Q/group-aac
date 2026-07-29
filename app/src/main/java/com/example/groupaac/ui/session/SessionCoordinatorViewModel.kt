@@ -452,9 +452,9 @@ class SessionCoordinatorViewModel(
         }
 
         viewModelScope.launch {
-            runCatching {
+            try {
                 sessionRepository.cancelJoinRequest(state.requestId)
-            }.onSuccess {
+
                 joinRequestJob?.cancel()
                 sessionSubscriptionCoordinator.clearFacilitatorRequest(
                     userId = _uiState.value.activeUser?.uid,
@@ -466,7 +466,9 @@ class SessionCoordinatorViewModel(
                         ParticipantLookupUiState.Idle,
                     errorMessage = null
                 )
-            }.onFailure { error ->
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
                 _uiState.value = _uiState.value.copy(
                     errorMessage =
                         error.message
@@ -496,13 +498,14 @@ class SessionCoordinatorViewModel(
                     errorMessage = null
                 )
 
-            runCatching {
-                sessionRepository.createSessionNow(
+            try {
+                val draftSession =
+                    sessionRepository.createSessionNow(
                     name = name,
                     ownerUserId = user.uid,
                     displayName = displayName
                 )
-            }.onSuccess { draftSession ->
+
                 _uiState.value =
                     _uiState.value.copy(
                         connectionState =
@@ -518,7 +521,9 @@ class SessionCoordinatorViewModel(
                                 ),
                         errorMessage = null
                     )
-            }.onFailure { error ->
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
                 _uiState.value =
                     _uiState.value.copy(
                         connectionState =
@@ -649,6 +654,8 @@ class SessionCoordinatorViewModel(
                             ownerUserId = user.uid,
                             pairing = pairing
                         )
+                } catch (error: CancellationException) {
+                    throw error
                 } catch (error: Exception) {
                     LaunchSessionResult.Failure(
                         error.message
@@ -746,19 +753,20 @@ class SessionCoordinatorViewModel(
                     )
             )
 
-            runCatching {
+            try {
                 sessionRepository.leaveSession(
                     userId = user.uid,
                     sessionId = session.sessionId
                 )
-            }.onSuccess {
                 _uiState.value = _uiState.value.copy(
                     connectionState =
                         SessionConnectionState.NotInSession,
                     participantLookupState =
                         ParticipantLookupUiState.Idle
                 )
-            }.onFailure { error ->
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
                 _uiState.value = _uiState.value.copy(
                     connectionState =
                         SessionConnectionState.Connected(
@@ -776,7 +784,7 @@ class SessionCoordinatorViewModel(
         val session = currentActiveSession() ?: return
 
         viewModelScope.launch {
-            runCatching {
+            try {
                 sessionRepository.endSession(
                     sessionId = session.sessionId,
                     actorUserId = session.userId
@@ -785,14 +793,15 @@ class SessionCoordinatorViewModel(
                     userId = session.userId,
                     sessionId = session.sessionId
                 )
-            }.onSuccess {
                 _uiState.value = _uiState.value.copy(
                     connectionState =
                         SessionConnectionState.NotInSession,
                     participantLookupState =
                         ParticipantLookupUiState.Idle
                 )
-            }.onFailure { error ->
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
                 _uiState.value = _uiState.value.copy(
                     errorMessage =
                         error.message

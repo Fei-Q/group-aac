@@ -14,6 +14,7 @@ import com.example.groupaac.data.pi.LaunchSessionResult
 import com.example.groupaac.data.pi.NoOpDisplayBindingCoordinator
 import com.example.groupaac.data.pi.SessionInvitationPayload
 import com.example.groupaac.data.pi.validatedForJoin
+import com.example.groupaac.data.realtime.StartupRecoveryState
 import com.example.groupaac.data.realtime.reliability.OutboxDispatching
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
@@ -22,6 +23,7 @@ import com.example.groupaac.data.sessiondirectory.RegisterSessionResult
 import com.example.groupaac.data.sessiondirectory.ResolveJoinCodeResult
 import com.example.groupaac.data.sessiondirectory.SessionDirectory
 import com.example.groupaac.data.sessiondirectory.SessionDirectoryEntry
+import com.example.groupaac.data.sessiondirectory.UpdateDirectoryEntryResult
 import com.example.groupaac.data.sessiondirectory.formatJoinCode
 import com.example.groupaac.model.ActiveSession
 import com.example.groupaac.model.DisplayMode
@@ -170,6 +172,8 @@ class SessionRepository(
                                     member.role,
                                 joinedAt =
                                     member.joinedAt,
+                                displayId =
+                                    session.displayId,
                                 scheduledStartAt =
                                     session
                                         .scheduledStartAt,
@@ -184,6 +188,119 @@ class SessionRepository(
                     }
                 }
             }
+    }
+
+    suspend fun reconcileRestoredSession(
+        userId: String,
+        activeSession: ActiveSession
+    ): StartupRecoveryState {
+        if (activeSession.userId != userId) {
+            return StartupRecoveryState.RecoveryRequired(
+                "The restored session belongs to a different user."
+            )
+        }
+
+        if (
+            activeSession.role != SessionRole.HOST &&
+            activeSession.role != SessionRole.FACILITATOR
+        ) {
+            return StartupRecoveryState.None
+        }
+
+        val session =
+            sessionDao.getSession(activeSession.sessionId)
+                ?: return StartupRecoveryState.RecoveryRequired(
+                    "The restored session could not be loaded."
+                )
+
+        val displayId =
+            session.displayId
+                ?: return StartupRecoveryState.None
+
+        val startedAt =
+            session.actualStartedAt
+                ?: return StartupRecoveryState.RecoveryRequired(
+                    "The restored display binding is missing a start time."
+                )
+
+        val expiresAt =
+            session.expiresAt
+                ?: return StartupRecoveryState.RecoveryRequired(
+                    "The restored display binding is missing an expiry."
+                )
+
+        if (session.status != SessionStatus.LIVE) {
+            return StartupRecoveryState.RecoveryRequired(
+                "The restored display binding no longer matches a live session."
+            )
+        }
+
+        val directoryEntry =
+            SessionDirectoryEntry(
+                joinCode = session.joinCode,
+                sessionId = session.id,
+                sessionName = session.name,
+                hostUserId =
+                    session.hostUserId
+                        ?: return StartupRecoveryState
+                            .RecoveryRequired(
+                                "The restored session is missing its host user."
+                            ),
+                displayId = displayId,
+                status = session.status,
+                displayMode = session.displayMode,
+                createdAt = session.createdAt,
+                actualStartedAt = startedAt,
+                expiresAt = expiresAt
+            )
+
+        return when (
+            val update =
+                sessionDirectory.update(
+                    directoryEntry
+                )
+        ) {
+            is UpdateDirectoryEntryResult.Updated -> {
+                StartupRecoveryState.Reconciled
+            }
+
+            UpdateDirectoryEntryResult.NotFound -> {
+                when (
+                    val registration =
+                        sessionDirectory.register(
+                            directoryEntry
+                        )
+                ) {
+                    is RegisterSessionResult.Registered -> {
+                        StartupRecoveryState.Reconciled
+                    }
+
+                    RegisterSessionResult.CodeTaken -> {
+                        StartupRecoveryState.RecoveryRequired(
+                            "The restored session code is already taken."
+                        )
+                    }
+
+                    is RegisterSessionResult.Failure -> {
+                        StartupRecoveryState.RecoveryRequired(
+                            registration.message
+                        )
+                    }
+                }
+            }
+
+            UpdateDirectoryEntryResult.SessionMismatch -> {
+                StartupRecoveryState.RecoveryRequired(
+                    "The restored session code points to another session."
+                )
+            }
+
+            is UpdateDirectoryEntryResult.Failure -> {
+                StartupRecoveryState.RecoveryRequired(
+                    update.message
+                )
+            }
+        }
     }
 
     suspend fun createSessionNow(
@@ -747,6 +864,8 @@ class SessionRepository(
                     SessionRole.HOST,
                 joinedAt =
                     hostMember.joinedAt,
+                displayId =
+                    pairing.displayId,
                 scheduledStartAt =
                     liveSession
                         .scheduledStartAt,

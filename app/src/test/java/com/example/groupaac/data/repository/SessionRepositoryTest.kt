@@ -14,6 +14,7 @@ import com.example.groupaac.data.pi.DisplayBindingResult
 import com.example.groupaac.data.pi.DisplayPairingPayload
 import com.example.groupaac.data.pi.LaunchSessionResult
 import com.example.groupaac.data.pi.SessionInvitationPayload
+import com.example.groupaac.data.realtime.StartupRecoveryState
 import com.example.groupaac.data.realtime.reliability.NoOpOutboxDispatcher
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
@@ -21,6 +22,7 @@ import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
 import com.example.groupaac.data.sessiondirectory.ResolveJoinCodeResult
 import com.example.groupaac.data.sessiondirectory.SessionDirectoryEntry
+import com.example.groupaac.model.ActiveSession
 import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.JoinRequestStatus
@@ -735,7 +737,9 @@ class SessionRepositoryTest {
     private fun sessionFixture(
         seedLocalSession: Boolean = true,
         hostSettings: UserSettingsEntity = UserSettingsEntity(userId = "host_1"),
-        sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
+        sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync,
+        displayBindingCoordinator: DisplayBindingCoordinator =
+            AlwaysBoundDisplayBindingCoordinator
     ): SessionFixture {
         val now = System.currentTimeMillis()
         val sessionDao = FakeSessionDao()
@@ -813,6 +817,8 @@ class SessionRepositoryTest {
             userDao = userDao,
             activeSessionStore = activeSessionStore,
             sessionDirectory = sessionDirectory,
+            displayBindingCoordinator =
+                displayBindingCoordinator,
             outboxDispatcher = NoOpOutboxDispatcher,
             sessionRealtimeSync = sessionRealtimeSync
         )
@@ -999,6 +1005,40 @@ class SessionRepositoryTest {
         } catch (expected: CancellationException) {
             assertEquals("cancel resolve", expected.message)
         }
+    }
+
+    @Test
+    fun restoredHostSessionDoesNotDuplicateBind() = runTest {
+        val bindingCoordinator =
+            RecordingDisplayBindingCoordinator()
+        val fixture = sessionFixture(
+            displayBindingCoordinator =
+                bindingCoordinator
+        )
+
+        val result =
+            fixture.repository
+                .reconcileRestoredSession(
+                    userId = fixture.host.uid,
+                    activeSession =
+                        ActiveSession(
+                            sessionId = fixture.session.id,
+                            joinCode = fixture.session.joinCode,
+                            sessionName = fixture.session.name,
+                            userId = fixture.host.uid,
+                            role = SessionRole.HOST,
+                            joinedAt = 1L,
+                            displayId = fixture.session.displayId,
+                            actualStartedAt =
+                                fixture.session.actualStartedAt
+                        )
+                )
+
+        assertEquals(
+            StartupRecoveryState.Reconciled,
+            result
+        )
+        assertEquals(0, bindingCoordinator.bindCalls)
     }
 }
 
@@ -1622,6 +1662,28 @@ private object AlwaysBoundDisplayBindingCoordinator :
         DisplayBindingResult.Bound(
             commandEventId = "cmd-1"
         )
+
+    override suspend fun unbind(
+        displayId: String,
+        sessionId: String,
+        requestedByUserId: String
+    ) = error("unbind should not be called in this test")
+}
+
+private class RecordingDisplayBindingCoordinator :
+    DisplayBindingCoordinator {
+    var bindCalls = 0
+
+    override suspend fun bind(
+        pairing: DisplayPairingPayload,
+        invitation: SessionInvitationPayload,
+        requestedByUserId: String
+    ): DisplayBindingResult {
+        bindCalls += 1
+        return DisplayBindingResult.Bound(
+            commandEventId = "cmd-recorded"
+        )
+    }
 
     override suspend fun unbind(
         displayId: String,

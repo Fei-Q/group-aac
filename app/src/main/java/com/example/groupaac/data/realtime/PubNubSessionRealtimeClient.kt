@@ -15,12 +15,16 @@ import com.google.gson.JsonParser
 import com.pubnub.api.PubNub
 import com.pubnub.api.UserId
 import com.pubnub.api.enums.PNStatusCategory
+import com.pubnub.api.models.consumer.PNBoundedPage
 import com.pubnub.api.models.consumer.PNPublishResult
 import com.pubnub.api.models.consumer.PNStatus
+import com.pubnub.api.models.consumer.history.PNFetchMessageItem
+import com.pubnub.api.models.consumer.history.PNFetchMessagesResult
 import com.pubnub.api.models.consumer.pubsub.PNMessageResult
 import com.pubnub.api.v2.PNConfiguration
 import com.pubnub.api.v2.callbacks.StatusListener
 import com.pubnub.api.v2.subscriptions.Subscription
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -42,6 +46,8 @@ class PubNubSessionRealtimeClient internal constructor(
     private val userId: String,
     private val transport: PubNubTransport
 ) : SessionRealtimeClient {
+    internal val lastHistoryDiagnostics =
+        MutableStateFlow<HistoryFetchDiagnostics?>(null)
     private val connectionState = MutableStateFlow<RealtimeConnectionState>(
         RealtimeConnectionState.Connecting
     )
@@ -86,18 +92,98 @@ class PubNubSessionRealtimeClient internal constructor(
         afterTimetoken: Long?,
         limit: Int
     ): List<ReceivedRealtimeEvent> {
-        return transport.fetchHistory(channel, afterTimetoken, limit)
-            .mapNotNull { incoming ->
-                runCatching {
-                    ReceivedRealtimeEvent(
-                        channel = incoming.channel,
-                        timetoken = incoming.timetoken,
-                        publisherUserId = incoming.publisherUserId,
-                        event = RealtimeEventCodec.decode(incoming.payload)
-                    )
-                }.getOrNull()
+        if (limit <= 0) {
+            return emptyList()
+        }
+
+        val receivedEvents = mutableListOf<ReceivedRealtimeEvent>()
+        val quarantinedMessages = mutableListOf<QuarantinedHistoryMessage>()
+        val seenMessages = linkedSetOf<HistoryMessageKey>()
+        var nextPage = PubNubHistoryCursor(
+            end = afterTimetoken,
+            limit = limit.coerceAtMost(HISTORY_PAGE_MAX)
+        )
+
+        try {
+            while (receivedEvents.size < limit) {
+                val remaining = (limit - receivedEvents.size)
+                    .coerceAtMost(HISTORY_PAGE_MAX)
+                val batch = transport.fetchHistoryPage(
+                    channel = channel,
+                    page = nextPage.copy(limit = remaining)
+                )
+                if (batch.messages.isEmpty()) {
+                    break
+                }
+
+                batch.messages.sortedBy { it.timetoken }
+                    .forEach { incoming ->
+                        if (
+                            afterTimetoken != null &&
+                            incoming.timetoken <= afterTimetoken
+                        ) {
+                            return@forEach
+                        }
+                        val key = HistoryMessageKey(
+                            channel = incoming.channel,
+                            timetoken = incoming.timetoken,
+                            publisherUserId = incoming.publisherUserId,
+                            payload = incoming.payload
+                        )
+                        if (!seenMessages.add(key)) {
+                            return@forEach
+                        }
+                        try {
+                            receivedEvents += ReceivedRealtimeEvent(
+                                channel = incoming.channel,
+                                timetoken = incoming.timetoken,
+                                publisherUserId = incoming.publisherUserId,
+                                event = RealtimeEventCodec.decode(incoming.payload)
+                            )
+                        } catch (error: Exception) {
+                            quarantinedMessages += QuarantinedHistoryMessage(
+                                channel = incoming.channel,
+                                timetoken = incoming.timetoken,
+                                publisherUserId = incoming.publisherUserId,
+                                reason = error.message ?: error::class.java.simpleName,
+                                payloadPreview = incoming.payload.take(256)
+                            )
+                            System.err.println(
+                                "$HISTORY_LOG_TAG: Quarantined malformed " +
+                                    "PubNub history on ${incoming.channel} " +
+                                    "at ${incoming.timetoken}: ${error.message}"
+                            )
+                        }
+                    }
+
+                if (receivedEvents.size >= limit) {
+                    break
+                }
+                val candidatePage = batch.nextPage ?: break
+                if (candidatePage == nextPage) {
+                    break
+                }
+                nextPage = candidatePage
             }
-            .sortedBy { it.timetoken }
+
+            val diagnostics = HistoryFetchDiagnostics(
+                channel = channel,
+                requestedAfterTimetoken = afterTimetoken,
+                quarantinedMessages = quarantinedMessages,
+                cursorPolicy = HISTORY_CURSOR_POLICY
+            )
+            lastHistoryDiagnostics.value = diagnostics.takeIf {
+                it.quarantinedMessages.isNotEmpty()
+            }
+
+            return receivedEvents
+                .sortedBy { it.timetoken }
+                .take(limit)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw error
+        }
     }
 
     override fun observeChannel(channel: String): Flow<ReceivedRealtimeEvent> {
@@ -153,7 +239,7 @@ class PubNubSessionRealtimeClient internal constructor(
                     event = event
                 )
             )
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             connectionState.value = RealtimeConnectionState.Failed(
                 "Malformed realtime event on ${incoming.channel}: ${error.message}"
             )
@@ -210,15 +296,40 @@ internal data class PubNubIncomingMessage(
 
 internal interface PubNubTransport {
     suspend fun publish(channel: String, payload: String): Long
-    suspend fun fetchHistory(
+    suspend fun fetchHistoryPage(
         channel: String,
-        afterTimetoken: Long?,
-        limit: Int
-    ): List<PubNubIncomingMessage>
+        page: PubNubHistoryCursor
+    ): PubNubHistoryPage
     fun subscribe(channel: String, onMessageReceived: (PubNubIncomingMessage) -> Unit)
     fun setStatusListener(listener: (PubNubTransportState) -> Unit)
     suspend fun close()
 }
+
+internal data class PubNubHistoryCursor(
+    val start: Long? = null,
+    val end: Long? = null,
+    val limit: Int? = null
+)
+
+internal data class PubNubHistoryPage(
+    val messages: List<PubNubIncomingMessage>,
+    val nextPage: PubNubHistoryCursor?
+)
+
+internal data class QuarantinedHistoryMessage(
+    val channel: String,
+    val timetoken: Long,
+    val publisherUserId: String?,
+    val reason: String,
+    val payloadPreview: String
+)
+
+internal data class HistoryFetchDiagnostics(
+    val channel: String,
+    val requestedAfterTimetoken: Long?,
+    val quarantinedMessages: List<QuarantinedHistoryMessage>,
+    val cursorPolicy: String
+)
 
 private suspend fun createSdkTransport(
     uid: String,
@@ -277,11 +388,41 @@ private class SdkPubNubTransport(
                 }
         }
 
-    override suspend fun fetchHistory(
+    override suspend fun fetchHistoryPage(
         channel: String,
-        afterTimetoken: Long?,
-        limit: Int
-    ): List<PubNubIncomingMessage> = emptyList()
+        page: PubNubHistoryCursor
+    ): PubNubHistoryPage =
+        suspendCancellableCoroutine { continuation ->
+            pubNub.fetchMessages(
+                channels = listOf(channel),
+                page = page.toBoundedPage(),
+                includeUUID = true,
+                includeMeta = false,
+                includeMessageActions = false,
+                includeMessageType = true,
+                includeCustomMessageType = false
+            ).async { result ->
+                result.getOrNull()?.let { fetchResult: PNFetchMessagesResult ->
+                    if (continuation.isActive) {
+                        continuation.resume(
+                            PubNubHistoryPage(
+                                messages = fetchResult.channels[channel]
+                                    .orEmpty()
+                                    .map { item ->
+                                        item.toIncomingMessage(channel)
+                                    },
+                                nextPage = fetchResult.page?.toHistoryCursor()
+                            )
+                        )
+                    }
+                }
+                result.exceptionOrNull()?.let { error ->
+                    if (continuation.isActive) {
+                        continuation.resumeWithException(error)
+                    }
+                }
+            }
+        }
 
     override fun subscribe(
         channel: String,
@@ -328,6 +469,39 @@ private fun PNMessageResult.toIncomingMessage(): PubNubIncomingMessage {
     )
 }
 
+private fun PNFetchMessageItem.toIncomingMessage(
+    channel: String
+): PubNubIncomingMessage {
+    val encodedPayload = if (
+        message.isJsonPrimitive &&
+        message.asJsonPrimitive.isString
+    ) {
+        message.asString
+    } else {
+        message.toString()
+    }
+    return PubNubIncomingMessage(
+        channel = channel,
+        payload = encodedPayload,
+        publisherUserId = uuid,
+        timetoken = timetoken ?: 0L
+    )
+}
+
+private fun PNBoundedPage.toHistoryCursor(): PubNubHistoryCursor =
+    PubNubHistoryCursor(
+        start = start,
+        end = end,
+        limit = limit
+    )
+
+private fun PubNubHistoryCursor.toBoundedPage(): PNBoundedPage =
+    PNBoundedPage(
+        start = start,
+        end = end,
+        limit = limit
+    )
+
 private fun PNStatus.toTransportState(): PubNubTransportState {
     return when (category) {
         PNStatusCategory.PNConnectedCategory,
@@ -351,3 +525,16 @@ private fun PNStatus.toTransportState(): PubNubTransportState {
         }
     }
 }
+
+private data class HistoryMessageKey(
+    val channel: String,
+    val timetoken: Long,
+    val publisherUserId: String?,
+    val payload: String
+)
+
+private const val HISTORY_PAGE_MAX = 100
+private const val HISTORY_LOG_TAG = "PubNubHistory"
+private const val HISTORY_CURSOR_POLICY =
+    "Malformed history messages are quarantined locally and skipped. " +
+        "Only valid applied events advance the persisted replay cursor."

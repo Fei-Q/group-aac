@@ -15,6 +15,7 @@ import com.example.groupaac.model.MessageDisplayStatus
 import com.example.groupaac.model.MessageTransportStatus
 import com.example.groupaac.model.OutboxDomainType
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.serializer
@@ -85,7 +86,9 @@ class OutboxDispatcher(
                     val timetoken = client.publish(entry.channel, event)
                     reliabilityStore.markSent(entry.eventId, timetoken)
                     applySuccessfulDelivery(entry, event)
-                } catch (_: Throwable) {
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
                     reliabilityStore.markFailed(
                         eventId = entry.eventId,
                         attemptCount = nextAttempt,

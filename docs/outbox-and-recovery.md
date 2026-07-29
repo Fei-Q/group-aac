@@ -82,6 +82,30 @@ Rules:
 - overlap between replayed history and live subscription delivery is deduplicated by `eventId`
 - user-visible occurrence time remains the envelope `occurredAt`, not transport timetoken
 
+Android now backs replay with PubNub Kotlin SDK `13.4.1` `fetchMessages(...)` Message Persistence retrieval.
+
+History fetch policy:
+
+- one channel is recovered per request path
+- replay begins with `PNBoundedPage(end = afterTimetoken, limit = ...)`
+- because PubNub treats `end` as inclusive, Android explicitly drops any returned item at or before the stored cursor
+- additional pages use the returned PubNub `page` token until the requested limit is satisfied or history is exhausted
+- raw persisted publisher UUIDs are preserved when present
+
+Malformed replay policy:
+
+- malformed persisted payloads are isolated and recorded as local diagnostics
+- valid events in the same batch continue through apply
+- persisted channel cursors advance only when valid events are actually applied and recorded
+- this means recovery may intentionally move past a malformed payload once later valid events are committed; persistent quarantine tooling is deferred to a later recovery stage
+
+Failure and cancellation policy:
+
+- `CancellationException` is rethrown through replay paths
+- PubNub/network failures are surfaced to the caller rather than swallowed
+- replay does not auto-issue a fresh Pi bind or replay old display-control commands
+- retained `session.<sessionId>.display.events` and `display.<displayId>.events` history may still be replayed so acknowledgement/device-state recovery remains possible
+
 ## Display Recovery Rules
 
 Display acknowledgements are applied transactionally:

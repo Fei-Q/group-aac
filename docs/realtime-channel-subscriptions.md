@@ -10,6 +10,7 @@ Channel helpers live in [RealtimeChannels](../app/src/main/java/com/example/grou
 - display commands: `session.<sessionId>.display`
 - display acknowledgements and reconciliation: `session.<sessionId>.display.events`
 - reserved device control stream: `display.<displayId>.control`
+- retained device event stream: `display.<displayId>.events`
 
 ## Event Types
 
@@ -56,6 +57,7 @@ Its responsibilities are:
 - restore subscriptions after app restart
 - route received events through one pipeline
 - expose connection state to [SessionCoordinatorViewModel](../app/src/main/java/com/example/groupaac/ui/session/SessionCoordinatorViewModel.kt)
+- recover Message Persistence history after the saved channel cursor before live collection resumes
 
 ## Subscription Matrix
 
@@ -70,6 +72,7 @@ Its responsibilities are:
 - `session.<sessionId>.facilitator`
 - `session.<sessionId>.<userId>`
 - `session.<sessionId>.display.events`
+- `display.<displayId>.events` when the active session is already bound to a display
 
 ### Pending Facilitator Requester
 
@@ -111,6 +114,27 @@ Every received event follows the same pipeline:
 6. record processed event state and advance the cursor
 
 Android apply logic lives in [DefaultSessionRealtimeSync](../app/src/main/java/com/example/groupaac/data/realtime/sync/DefaultSessionRealtimeSync.kt).
+
+## Message Persistence Replay
+
+Android production transport uses PubNub Kotlin SDK `13.4.1` `fetchMessages(...)` message-persistence retrieval for one channel at a time.
+
+Rules:
+
+- replay starts from the saved per-channel cursor using `end = afterTimetoken`
+- the PubNub `end` boundary is inclusive, so Android drops any event with `timetoken <= afterTimetoken`
+- additional pages are requested only when needed, using the returned `page` token from PubNub
+- replay results are sorted ascending before application
+- overlap across pages is deduplicated before apply
+- replay is used for public, facilitator, private-user, session display-event, and retained device-event channels
+- old Pi control commands are not auto-replayed into the device-control channel; only retained acknowledgements/device events are candidates for recovery
+
+Malformed history policy:
+
+- malformed persisted payloads are quarantined locally for diagnostics
+- valid events from the same replay batch continue
+- cursor advancement still depends on successfully applied valid events, not on raw history fetch completion
+- broader persistent quarantine tooling is deferred; see [Outbox And Recovery](./outbox-and-recovery.md)
 
 ## Routing Notes
 

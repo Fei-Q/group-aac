@@ -14,9 +14,11 @@ import com.example.groupaac.data.realtime.NoOpPubNubTokenProvider
 import com.example.groupaac.data.realtime.PubNubConfigProvider
 import com.example.groupaac.data.realtime.PubNubRuntimeConfig
 import com.example.groupaac.data.realtime.PubNubSessionRealtimeClientFactory
+import com.example.groupaac.data.realtime.AppStartupState
 import com.example.groupaac.data.realtime.RealtimeClientManager
 import com.example.groupaac.data.realtime.RealtimeStartupInitializer
 import com.example.groupaac.data.realtime.SessionSubscriptionCoordinator
+import com.example.groupaac.data.realtime.StartupRecoveryState
 import com.example.groupaac.data.realtime.reliability.OutboxDispatcher
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.data.realtime.sync.DefaultSessionRealtimeSync
@@ -36,15 +38,15 @@ import com.example.groupaac.data.sessiondirectory.SessionDirectory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.runBlocking
 import com.example.groupaac.data.sessiondirectory.PubNubSessionDirectory
 import com.example.groupaac.data.sessiondirectory.createPubNubMetadataTransport
 import com.example.groupaac.data.pi.DisplayBindingCoordinator
 import com.example.groupaac.data.pi.NoOpDisplayBindingCoordinator
 import com.example.groupaac.data.pi.PubNubDisplayBindingCoordinator
+import kotlinx.coroutines.flow.StateFlow
 
 class AppContainer(context: Context) {
-    private val applicationScope =
+    val applicationScope =
         CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val database: AppDatabase = AppDatabase.create(context)
     val preferences = AppPreferences(context)
@@ -155,6 +157,31 @@ class AppContainer(context: Context) {
         },
         scope = applicationScope
     )
+    private val startupInitializer =
+        RealtimeStartupInitializer(
+            scope = applicationScope,
+            activeUserId = accountRepository.activeUserId,
+            activeSessionProvider = { userId ->
+                sessionRepository.observeActiveSession(userId)
+            },
+            realtimeClientManager = realtimeClientManager,
+            startSessionSubscriptions =
+                sessionSubscriptionCoordinator::start,
+            sessionRecovery =
+                com.example.groupaac.data.realtime.StartupSessionRecovery {
+                        userId,
+                        activeSession ->
+                    sessionRepository
+                        .reconcileRestoredSession(
+                            userId = userId,
+                            activeSession = activeSession
+                        )
+                }
+        )
+    val startupState: StateFlow<AppStartupState> =
+        startupInitializer.startupState
+    val recoveryState: StateFlow<StartupRecoveryState> =
+        startupInitializer.recoveryState
 
     val messageRepository = MessageRepository(
         transactionRunner = RoomTransactionRunner(database),
@@ -193,12 +220,7 @@ class AppContainer(context: Context) {
     )
 
     init {
-        runBlocking {
-            RealtimeStartupInitializer(
-                activeUserId = preferences.activeUserId,
-                realtimeClientManager = realtimeClientManager
-            ).initialize()
-        }
+        startupInitializer.start()
         outboxDispatcher.requestImmediateDispatch()
     }
 }
