@@ -9,11 +9,17 @@ import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
+import com.example.groupaac.data.pi.DisplayBindingCoordinator
+import com.example.groupaac.data.pi.DisplayBindingResult
+import com.example.groupaac.data.pi.DisplayPairingPayload
+import com.example.groupaac.data.pi.LaunchSessionResult
+import com.example.groupaac.data.pi.SessionInvitationPayload
 import com.example.groupaac.data.realtime.reliability.NoOpOutboxDispatcher
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
+import com.example.groupaac.data.sessiondirectory.ResolveJoinCodeResult
 import com.example.groupaac.data.sessiondirectory.SessionDirectoryEntry
 import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
@@ -56,39 +62,60 @@ class SessionRepositoryTest {
     }
 
     @Test
-    fun createSessionNowCreatesHostMembershipAndActivates() = runTest {
-        val fixture = sessionFixture()
+    fun createSessionNowCreatesDraftHostMembershipWithoutActivation() =
+        runTest {
+            val fixture = sessionFixture()
 
-        val activeSession = fixture.repository.createSessionNow(
-            name = "Live Planning",
-            ownerUserId = fixture.host.uid,
-            displayName = fixture.host.displayName
-        )
+            val draftSession =
+                fixture.repository.createSessionNow(
+                    name = "Live Planning",
+                    ownerUserId = fixture.host.uid,
+                    displayName = fixture.host.displayName
+                )
 
-        assertEquals(SessionRole.HOST, activeSession.role)
-        assertEquals(
-            activeSession.sessionId,
-            fixture.activeSessionStore.activeSessions[fixture.host.uid]
-        )
+            assertEquals(
+                SessionRole.HOST,
+                draftSession.role
+            )
 
-        val createdSession = fixture.sessionDao.getSession(activeSession.sessionId)
-        assertNotNull(createdSession)
-        assertNull(createdSession?.actualStartedAt)
-        assertEquals(
-            SessionStatus.DRAFT,
-            createdSession?.status
-        )
-        assertNull(createdSession?.displayId)
-        assertNull(createdSession?.expiresAt)
-        assertEquals(fixture.host.uid, createdSession?.hostUserId)
+            assertNull(
+                fixture.activeSessionStore
+                    .activeSessions[fixture.host.uid]
+            )
 
-        val hostMember = fixture.sessionDao.getMember(
-            activeSession.sessionId,
-            fixture.host.uid
-        )
-        assertNotNull(hostMember)
-        assertEquals(SessionRole.HOST, hostMember?.role)
-    }
+            val createdSession =
+                fixture.sessionDao.getSession(
+                    draftSession.sessionId
+                )
+
+            assertNotNull(createdSession)
+            assertEquals(
+                SessionStatus.DRAFT,
+                createdSession?.status
+            )
+            assertNull(
+                createdSession?.actualStartedAt
+            )
+            assertNull(
+                createdSession?.displayId
+            )
+            assertEquals(
+                fixture.host.uid,
+                createdSession?.hostUserId
+            )
+
+            val hostMember =
+                fixture.sessionDao.getMember(
+                    draftSession.sessionId,
+                    fixture.host.uid
+                )
+
+            assertNotNull(hostMember)
+            assertEquals(
+                SessionRole.HOST,
+                hostMember?.role
+            )
+        }
 
     @Test
     fun scheduleSessionDoesNotActivate() = runTest {
@@ -113,6 +140,93 @@ class SessionRepositoryTest {
             )
         )
     }
+
+    @Test
+    fun launchSessionOnDisplayActivatesHostAndMarksSessionLive() =
+        runTest {
+            val sessionDao = FakeSessionDao()
+            val joinRequestDao = FakeSessionJoinRequestDao()
+            val userDao = FakeUserDao()
+            val activeSessionStore = FakeActiveSessionStore()
+            val sessionDirectory = FakeSessionDirectory(nowProvider = { 0L })
+
+            val host = UserEntity(
+                uid = "host_1",
+                displayName = "Host",
+                createdAt = 1L
+            )
+
+            userDao.seed(host)
+            userDao.seedSettings(
+                UserSettingsEntity(userId = host.uid)
+            )
+
+            val repository = SessionRepository(
+                transactionRunner = ImmediateTransactionRunner,
+                sessionDao = sessionDao,
+                sessionJoinRequestDao = joinRequestDao,
+                userDao = userDao,
+                activeSessionStore = activeSessionStore,
+                sessionDirectory = sessionDirectory,
+                displayBindingCoordinator =
+                    AlwaysBoundDisplayBindingCoordinator,
+                outboxDispatcher = NoOpOutboxDispatcher,
+                sessionRealtimeSync = NoOpSessionRealtimeSync,
+                joinCodeGenerator = { "1234-5678" }
+            )
+
+            val draft =
+                repository.createSessionNow(
+                    name = "Launch Test",
+                    ownerUserId = host.uid,
+                    displayName = host.displayName
+                )
+
+            val result =
+                repository.launchSessionOnDisplay(
+                    sessionId = draft.sessionId,
+                    ownerUserId = host.uid,
+                    pairing =
+                        DisplayPairingPayload(
+                            displayId = "pi-1",
+                            displayName = "Room Display",
+                            pairingNonce = "nonce-1",
+                            pairingExpiresAt = Long.MAX_VALUE
+                        )
+                )
+
+            assertTrue(result is LaunchSessionResult.Launched)
+            assertEquals(
+                draft.sessionId,
+                activeSessionStore.activeSessions[host.uid]
+            )
+
+            val liveSession =
+                sessionDao.getSession(draft.sessionId)
+
+            assertEquals(
+                SessionStatus.LIVE,
+                liveSession?.status
+            )
+            assertEquals(
+                "pi-1",
+                liveSession?.displayId
+            )
+
+            val directoryEntry =
+                (sessionDirectory.resolve("1234-5678")
+                    as ResolveJoinCodeResult.Found)
+                    .entry
+
+            assertEquals(
+                draft.sessionId,
+                directoryEntry.sessionId
+            )
+            assertEquals(
+                "pi-1",
+                directoryEntry.displayId
+            )
+        }
 
     @Test
     fun startScheduledSessionIsHostOnly() = runTest {
@@ -1146,4 +1260,23 @@ private class FakeActiveSessionStore : ActiveSessionStore {
     override suspend fun clearActiveSession(userId: String) {
         activeSessions[userId] = null
     }
+}
+
+private object AlwaysBoundDisplayBindingCoordinator :
+    DisplayBindingCoordinator {
+
+    override suspend fun bind(
+        pairing: DisplayPairingPayload,
+        invitation: SessionInvitationPayload,
+        requestedByUserId: String
+    ): DisplayBindingResult =
+        DisplayBindingResult.Bound(
+            commandEventId = "cmd-1"
+        )
+
+    override suspend fun unbind(
+        displayId: String,
+        sessionId: String,
+        requestedByUserId: String
+    ) = error("unbind should not be called in this test")
 }

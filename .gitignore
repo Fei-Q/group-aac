@@ -22,3 +22,9 @@ backend/**/__pycache__/
 backend/**/*.pyc
 backend/*.egg-info/
 group_aac_backend.db
+
+pi/.env
+pi/.venv/
+pi/runtime/
+pi/**/__pycache__/
+pi/.pytest_cache/

@@ -17,6 +17,7 @@ class RealtimeProtocolTest {
         assertEquals("session.session123.display", RealtimeChannels.display("session123"))
         assertEquals("session.session123.display.events", RealtimeChannels.displayEvents("session123"))
         assertEquals("display.pi-kiosk.control", RealtimeChannels.displayControl("pi-kiosk"))
+        assertEquals("display.pi-kiosk.events", RealtimeChannels.displayDeviceEvents("pi-kiosk"))
     }
 
     @Test
@@ -97,6 +98,14 @@ class RealtimeProtocolTest {
                 displayId = "pi-kiosk"
             ),
             RealtimeEventRouter.route("display.pi-kiosk.control")
+        )
+        assertEquals(
+            RealtimeRoute(
+                RealtimeRouteKind.DISPLAY_DEVICE_EVENTS,
+                sessionId = null,
+                displayId = "pi-kiosk"
+            ),
+            RealtimeEventRouter.route("display.pi-kiosk.events")
         )
     }
 

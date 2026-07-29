@@ -115,6 +115,9 @@ class DefaultSessionRealtimeSync(
         val RESERVED_EVENT_TYPES = setOf(
             RealtimeEventTypes.DISPLAY_BIND_SESSION,
             RealtimeEventTypes.DISPLAY_UNBIND_SESSION,
+            RealtimeEventTypes.DISPLAY_BOUND,
+            RealtimeEventTypes.DISPLAY_BIND_FAILED,
+            RealtimeEventTypes.DISPLAY_UNBOUND,
             RealtimeEventTypes.DISPLAY_SHOW_ATTACHMENT,
             RealtimeEventTypes.DISPLAY_SHOW_ANNOUNCEMENT,
             RealtimeEventTypes.DISPLAY_PLAY_SOUND,

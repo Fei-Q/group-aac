@@ -40,6 +40,9 @@ object RealtimeEventTypes {
     // Reserved for later shared-display transport and device capability stages.
     const val DISPLAY_BIND_SESSION = "display.bind_session"
     const val DISPLAY_UNBIND_SESSION = "display.unbind_session"
+    const val DISPLAY_BOUND = "display.bound"
+    const val DISPLAY_BIND_FAILED = "display.bind_failed"
+    const val DISPLAY_UNBOUND = "display.unbound"
     const val DISPLAY_SHOW_ATTACHMENT = "display.show_attachment"
     const val DISPLAY_SHOW_ANNOUNCEMENT = "display.show_announcement"
     const val DISPLAY_PLAY_SOUND = "display.play_sound"

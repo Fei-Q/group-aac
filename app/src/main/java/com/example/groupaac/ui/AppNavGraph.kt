@@ -125,6 +125,12 @@ fun AppNavGraph(
                         sessionUiState = sessionState,
                         onCreateSessionNow =
                             sessionCoordinatorViewModel::createSession,
+                        onRequestDisplayLaunch =
+                            sessionCoordinatorViewModel::requestDisplayLaunch,
+                        onDisplayPairingScanned =
+                            sessionCoordinatorViewModel::launchSessionOnDisplay,
+                        onCancelDisplayLaunch =
+                            sessionCoordinatorViewModel::cancelDisplayLaunch,
                         onJoinSession =
                             sessionCoordinatorViewModel::joinSession,
                         onCancelFacilitatorRequest =

@@ -19,11 +19,18 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.LocalDate
 
 @RunWith(RobolectricTestRunner::class)
 class AdvancedHomeScreenTest {
     @get:Rule
     val composeRule = createComposeRule()
+    private val fixedToday =
+        LocalDate.of(
+            2026,
+            7,
+            28
+        )
 
     @Test
     fun liveSessionIsPrioritizedInHero() {
@@ -51,7 +58,8 @@ class AdvancedHomeScreenTest {
                 onJoinSession = {},
                 onManageSessions = {},
                 onOpenLiveSession = {},
-                onStartScheduledSession = {}
+                onStartScheduledSession = {},
+                today = fixedToday
             )
         }
 
@@ -88,7 +96,8 @@ class AdvancedHomeScreenTest {
                 onJoinSession = {},
                 onManageSessions = {},
                 onOpenLiveSession = {},
-                onStartScheduledSession = {}
+                onStartScheduledSession = {},
+                today = fixedToday
             )
         }
 
@@ -114,7 +123,8 @@ class AdvancedHomeScreenTest {
                 onJoinSession = {},
                 onManageSessions = {},
                 onOpenLiveSession = {},
-                onStartScheduledSession = {}
+                onStartScheduledSession = {},
+                today = fixedToday
             )
         }
 
@@ -147,7 +157,8 @@ class AdvancedHomeScreenTest {
                 onJoinSession = {},
                 onManageSessions = {},
                 onOpenLiveSession = {},
-                onStartScheduledSession = {}
+                onStartScheduledSession = {},
+                today = fixedToday
             )
         }
 
@@ -199,7 +210,8 @@ class AdvancedHomeScreenTest {
                 onJoinSession = {},
                 onManageSessions = {},
                 onOpenLiveSession = {},
-                onStartScheduledSession = {}
+                onStartScheduledSession = {},
+                today = fixedToday
             )
         }
 
@@ -239,7 +251,8 @@ class AdvancedHomeScreenTest {
                 onJoinSession = {},
                 onManageSessions = {},
                 onOpenLiveSession = {},
-                onStartScheduledSession = {}
+                onStartScheduledSession = {},
+                today = fixedToday
             )
         }
 

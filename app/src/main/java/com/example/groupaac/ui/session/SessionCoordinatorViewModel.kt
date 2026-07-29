@@ -20,11 +20,36 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import com.example.groupaac.data.pi.DisplayPairingPayloadCodec
+import com.example.groupaac.data.pi.LaunchSessionResult
 
+sealed interface DisplayLaunchUiState {
+
+    data object Idle : DisplayLaunchUiState
+
+    data class AwaitingScan(
+        val sessionId: String,
+        val sessionName: String
+    ) : DisplayLaunchUiState
+
+    data class Connecting(
+        val sessionId: String,
+        val sessionName: String,
+        val displayName: String
+    ) : DisplayLaunchUiState
+
+    data class Error(
+        val sessionId: String,
+        val sessionName: String,
+        val message: String
+    ) : DisplayLaunchUiState
+}
 data class SessionCoordinatorUiState(
     val activeUser: UserEntity? = null,
     val connectionState: SessionConnectionState =
         SessionConnectionState.Restoring,
+    val displayLaunchState: DisplayLaunchUiState =
+        DisplayLaunchUiState.Idle,
     val errorMessage: String? = null
 )
 
@@ -69,6 +94,8 @@ class SessionCoordinatorViewModel(
                         } else {
                             SessionConnectionState.Restoring
                         },
+                        displayLaunchState =
+                            DisplayLaunchUiState.Idle,
                         errorMessage = null
                     )
 
@@ -305,14 +332,21 @@ class SessionCoordinatorViewModel(
         name: String,
         displayName: String
     ) {
-        val user = _uiState.value.activeUser ?: return
+        val user =
+            _uiState.value.activeUser
+                ?: return
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                connectionState =
-                    SessionConnectionState.Joining(null),
-                errorMessage = null
-            )
+            _uiState.value =
+                _uiState.value.copy(
+                    connectionState =
+                        SessionConnectionState.Joining(
+                            null
+                        ),
+                    displayLaunchState =
+                        DisplayLaunchUiState.Idle,
+                    errorMessage = null
+                )
 
             runCatching {
                 sessionRepository.createSessionNow(
@@ -320,20 +354,248 @@ class SessionCoordinatorViewModel(
                     ownerUserId = user.uid,
                     displayName = displayName
                 )
-            }.onSuccess { activeSession ->
-                _uiState.value = _uiState.value.copy(
-                    connectionState =
-                        SessionConnectionState.Connected(
-                            activeSession
-                        )
-                )
+            }.onSuccess { draftSession ->
+                /*
+                 * The session exists locally, but it is still DRAFT.
+                 * Do not enter the facilitator session yet.
+                 */
+                _uiState.value =
+                    _uiState.value.copy(
+                        connectionState =
+                            SessionConnectionState
+                                .NotInSession,
+                        displayLaunchState =
+                            DisplayLaunchUiState
+                                .AwaitingScan(
+                                    sessionId =
+                                        draftSession.sessionId,
+                                    sessionName =
+                                        draftSession.sessionName
+                                ),
+                        errorMessage = null
+                    )
             }.onFailure { error ->
-                _uiState.value = _uiState.value.copy(
-                    connectionState =
-                        SessionConnectionState.NotInSession,
-                    errorMessage =
-                        error.message ?: "Unable to create session."
+                _uiState.value =
+                    _uiState.value.copy(
+                        connectionState =
+                            SessionConnectionState
+                                .NotInSession,
+                        displayLaunchState =
+                            DisplayLaunchUiState.Idle,
+                        errorMessage =
+                            error.message
+                                ?: "Unable to create session."
+                    )
+            }
+        }
+    }
+
+    fun requestDisplayLaunch(
+        sessionId: String,
+        sessionName: String
+    ) {
+        if (_uiState.value.activeUser == null) {
+            return
+        }
+
+        _uiState.value =
+            _uiState.value.copy(
+                displayLaunchState =
+                    DisplayLaunchUiState.AwaitingScan(
+                        sessionId = sessionId,
+                        sessionName = sessionName
+                    ),
+                errorMessage = null
+            )
+    }
+
+    fun cancelDisplayLaunch() {
+        val state =
+            _uiState.value.displayLaunchState
+
+        if (
+            state is
+                    DisplayLaunchUiState.Connecting
+        ) {
+            return
+        }
+
+        _uiState.value =
+            _uiState.value.copy(
+                displayLaunchState =
+                    DisplayLaunchUiState.Idle
+            )
+    }
+    fun launchSessionOnDisplay(
+        scannedValue: String
+    ) {
+        val user =
+            _uiState.value.activeUser
+                ?: return
+
+        val pendingLaunch =
+            when (
+                val state =
+                    _uiState.value
+                        .displayLaunchState
+            ) {
+                is DisplayLaunchUiState
+                .AwaitingScan -> {
+
+                    state.sessionId to
+                            state.sessionName
+                }
+
+                is DisplayLaunchUiState.Error -> {
+                    state.sessionId to
+                            state.sessionName
+                }
+
+                DisplayLaunchUiState.Idle,
+                is DisplayLaunchUiState
+                .Connecting -> {
+
+                    return
+                }
+            }
+
+        val sessionId =
+            pendingLaunch.first
+
+        val sessionName =
+            pendingLaunch.second
+
+        val pairing =
+            try {
+                DisplayPairingPayloadCodec.decode(
+                    scannedValue
                 )
+            } catch (error: Exception) {
+                _uiState.value =
+                    _uiState.value.copy(
+                        displayLaunchState =
+                            DisplayLaunchUiState.Error(
+                                sessionId =
+                                    sessionId,
+                                sessionName =
+                                    sessionName,
+                                message =
+                                    error.message
+                                        ?: "This is not a valid display pairing QR code."
+                            )
+                    )
+
+                return
+            }
+
+        _uiState.value =
+            _uiState.value.copy(
+                displayLaunchState =
+                    DisplayLaunchUiState.Connecting(
+                        sessionId = sessionId,
+                        sessionName = sessionName,
+                        displayName =
+                            pairing.displayName
+                    ),
+                errorMessage = null
+            )
+
+        viewModelScope.launch {
+            val result =
+                try {
+                    sessionRepository
+                        .launchSessionOnDisplay(
+                            sessionId = sessionId,
+                            ownerUserId =
+                                user.uid,
+                            pairing = pairing
+                        )
+                } catch (error: Exception) {
+                    LaunchSessionResult.Failure(
+                        error.message
+                            ?: "Unable to launch the session."
+                    )
+                }
+
+            when (result) {
+                is LaunchSessionResult.Launched -> {
+                    _uiState.value =
+                        _uiState.value.copy(
+                            connectionState =
+                                SessionConnectionState
+                                    .Connected(
+                                        result.activeSession
+                                    ),
+                            displayLaunchState =
+                                DisplayLaunchUiState.Idle,
+                            errorMessage = null
+                        )
+                }
+
+                LaunchSessionResult.PairingExpired -> {
+                    setDisplayLaunchError(
+                        sessionId = sessionId,
+                        sessionName = sessionName,
+                        message =
+                            "This display QR code has expired. " +
+                                    "Scan the refreshed QR code shown by the display."
+                    )
+                }
+
+                LaunchSessionResult.DisplayTimedOut -> {
+                    setDisplayLaunchError(
+                        sessionId = sessionId,
+                        sessionName = sessionName,
+                        message =
+                            "The display did not respond. " +
+                                    "Check that it is online, then scan its refreshed QR code."
+                    )
+                }
+
+                is LaunchSessionResult
+                .DisplayRejected -> {
+
+                    setDisplayLaunchError(
+                        sessionId = sessionId,
+                        sessionName = sessionName,
+                        message =
+                            displayRejectionMessage(
+                                result.reason
+                            )
+                    )
+                }
+
+                LaunchSessionResult
+                    .DirectoryCollision -> {
+
+                    setDisplayLaunchError(
+                        sessionId = sessionId,
+                        sessionName = sessionName,
+                        message =
+                            "The session code was taken by another session. " +
+                                    "Scan the display's refreshed QR code to try again."
+                    )
+                }
+
+                is LaunchSessionResult
+                .DirectoryFailure -> {
+
+                    setDisplayLaunchError(
+                        sessionId = sessionId,
+                        sessionName = sessionName,
+                        message =
+                            result.message
+                    )
+                }
+
+                is LaunchSessionResult.Failure -> {
+                    setDisplayLaunchError(
+                        sessionId = sessionId,
+                        sessionName = sessionName,
+                        message =
+                            result.message
+                    )
+                }
             }
         }
     }
@@ -415,6 +677,63 @@ class SessionCoordinatorViewModel(
         }
     }
 
+    private fun setDisplayLaunchError(
+        sessionId: String,
+        sessionName: String,
+        message: String
+    ) {
+        _uiState.value =
+            _uiState.value.copy(
+                connectionState =
+                    SessionConnectionState.NotInSession,
+                displayLaunchState =
+                    DisplayLaunchUiState.Error(
+                        sessionId = sessionId,
+                        sessionName = sessionName,
+                        message = message
+                    )
+            )
+    }
+
+    private fun displayRejectionMessage(
+        reason: String?
+    ): String {
+        return when (reason) {
+            "display_already_bound" -> {
+                "This display is already connected to another session."
+            }
+
+            "pairing_expired" -> {
+                "The display pairing QR code has expired. Scan the refreshed code."
+            }
+
+            "pairing_nonce_mismatch",
+            "pairing_expiry_mismatch" -> {
+                "The display has refreshed its pairing code. Scan the new QR code."
+            }
+
+            "display_id_mismatch" -> {
+                "The QR code does not match the selected display."
+            }
+
+            "session_subscription_failed" -> {
+                "The display could not connect to the session channel."
+            }
+
+            null,
+            "" -> {
+                "The display rejected the connection."
+            }
+
+            else -> {
+                "The display rejected the connection: " +
+                        reason.replace(
+                            oldChar = '_',
+                            newChar = ' '
+                        )
+            }
+        }
+    }
     private fun currentActiveSession(): ActiveSession? =
         when (
             val state = _uiState.value.connectionState

@@ -112,4 +112,6 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
 
     implementation("com.pubnub:pubnub-kotlin:13.4.1")
+
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 }

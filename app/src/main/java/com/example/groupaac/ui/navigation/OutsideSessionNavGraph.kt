@@ -89,7 +89,11 @@ import java.time.LocalTime
 import java.time.ZoneId
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
-
+import androidx.compose.ui.platform.LocalContext
+import com.example.groupaac.ui.session.DisplayLaunchUiState
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 private val ScheduleDurationOptions = listOf(30, 45, 60, 90, 120)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,6 +106,14 @@ fun OutsideSessionNavGraph(
         sessionName: String,
         displayName: String
     ) -> Unit,
+    onRequestDisplayLaunch: (
+        sessionId: String,
+        sessionName: String
+    ) -> Unit,
+    onDisplayPairingScanned: (
+        scannedValue: String
+    ) -> Unit,
+    onCancelDisplayLaunch: () -> Unit,
     onJoinSession: (
         code: String,
         displayName: String,
@@ -116,6 +128,64 @@ fun OutsideSessionNavGraph(
     val container = LocalAppContainer.current
     val navController = rememberNavController()
     val coroutineScope = rememberCoroutineScope()
+
+    val context =
+        LocalContext.current
+
+    val displayScannerOptions =
+        remember {
+            GmsBarcodeScannerOptions
+                .Builder()
+                .setBarcodeFormats(
+                    Barcode.FORMAT_QR_CODE
+                )
+                .enableAutoZoom()
+                .build()
+        }
+
+    val displayQrScanner =
+        remember(
+            context,
+            displayScannerOptions
+        ) {
+            GmsBarcodeScanning.getClient(
+                context,
+                displayScannerOptions
+            )
+        }
+
+    var displayScannerError by
+    rememberSaveable {
+        mutableStateOf<String?>(null)
+    }
+
+    fun scanDisplayQrCode() {
+        displayScannerError = null
+
+        displayQrScanner
+            .startScan()
+            .addOnSuccessListener { barcode ->
+                val rawValue =
+                    barcode.rawValue
+
+                if (rawValue.isNullOrBlank()) {
+                    displayScannerError =
+                        "The scanned QR code did not contain pairing information."
+                } else {
+                    onDisplayPairingScanned(
+                        rawValue
+                    )
+                }
+            }
+            .addOnCanceledListener {
+                // Keep the pairing dialog open.
+            }
+            .addOnFailureListener { error ->
+                displayScannerError =
+                    error.message
+                        ?: "Unable to open the QR scanner."
+            }
+    }
 
     val profileViewModel: ProfileViewModel = viewModel(
         key = "outside-profile-${currentUser.uid}",
@@ -181,6 +251,30 @@ fun OutsideSessionNavGraph(
             AdvancedOutsideNavItem.Tools,
             AdvancedOutsideNavItem.Settings
         )
+    }
+
+    when (
+        val launchState =
+            sessionUiState.displayLaunchState
+    ) {
+        DisplayLaunchUiState.Idle -> Unit
+
+        is DisplayLaunchUiState.AwaitingScan,
+        is DisplayLaunchUiState.Connecting,
+        is DisplayLaunchUiState.Error -> {
+            DisplayLaunchDialog(
+                state = launchState,
+                scannerError =
+                    displayScannerError,
+                onScan = {
+                    scanDisplayQrCode()
+                },
+                onCancel = {
+                    displayScannerError = null
+                    onCancelDisplayLaunch()
+                }
+            )
+        }
     }
 
     Scaffold(
@@ -273,18 +367,12 @@ fun OutsideSessionNavGraph(
                                     }
                                 },
                                 onStartScheduledSession = { session ->
-                                    coroutineScope.launch {
-                                        managementError = null
-                                        runCatching {
-                                            container.sessionRepository.startScheduledSession(
-                                                sessionId = session.id,
-                                                ownerUserId = currentUser.uid
-                                            )
-                                        }.onFailure { error ->
-                                            managementError =
-                                                error.message ?: "Unable to start session."
-                                        }
-                                    }
+                                    managementError = null
+
+                                    onRequestDisplayLaunch(
+                                        session.id,
+                                        session.name
+                                    )
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )
@@ -328,18 +416,12 @@ fun OutsideSessionNavGraph(
                         navController.navigate(OutsideRoutes.Schedule)
                     },
                     onStartSession = { session ->
-                        coroutineScope.launch {
-                            managementError = null
-                            runCatching {
-                                container.sessionRepository.startScheduledSession(
-                                    sessionId = session.id,
-                                    ownerUserId = currentUser.uid
-                                )
-                            }.onFailure { error ->
-                                managementError =
-                                    error.message ?: "Unable to start session."
-                            }
-                        }
+                        managementError = null
+
+                        onRequestDisplayLaunch(
+                            session.id,
+                            session.name
+                        )
                     },
                     onEditSession = { session ->
                         editingSessionId = session.id
@@ -1066,6 +1148,179 @@ private fun ErrorCard(
     }
 }
 
+@Composable
+private fun DisplayLaunchDialog(
+    state: DisplayLaunchUiState,
+    scannerError: String?,
+    onScan: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val isConnecting =
+        state is
+                DisplayLaunchUiState.Connecting
+
+    val sessionName =
+        when (state) {
+            DisplayLaunchUiState.Idle -> {
+                ""
+            }
+
+            is DisplayLaunchUiState
+            .AwaitingScan -> {
+
+                state.sessionName
+            }
+
+            is DisplayLaunchUiState
+            .Connecting -> {
+
+                state.sessionName
+            }
+
+            is DisplayLaunchUiState.Error -> {
+                state.sessionName
+            }
+        }
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!isConnecting) {
+                onCancel()
+            }
+        },
+        title = {
+            Text(
+                if (isConnecting) {
+                    "Connecting display"
+                } else {
+                    "Connect display"
+                }
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        12.dp
+                    )
+            ) {
+                Text(
+                    text = sessionName,
+                    style =
+                        MaterialTheme
+                            .typography
+                            .titleMedium,
+                    fontWeight =
+                        FontWeight.Bold
+                )
+
+                when (state) {
+                    DisplayLaunchUiState.Idle -> Unit
+
+                    is DisplayLaunchUiState
+                    .AwaitingScan -> {
+
+                        Text(
+                            "Scan the pairing QR code shown on the Raspberry Pi display."
+                        )
+                    }
+
+                    is DisplayLaunchUiState
+                    .Connecting -> {
+
+                        Row(
+                            horizontalArrangement =
+                                Arrangement.spacedBy(
+                                    12.dp
+                                ),
+                            verticalAlignment =
+                                Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator()
+
+                            Text(
+                                "Connecting to ${state.displayName}…"
+                            )
+                        }
+
+                        Text(
+                            "Keep this screen open while the display confirms the connection.",
+                            color =
+                                AacTextSecondary
+                        )
+                    }
+
+                    is DisplayLaunchUiState.Error -> {
+                        Surface(
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                            shape =
+                                MaterialTheme.shapes
+                                    .medium,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .errorContainer
+                        ) {
+                            Text(
+                                text = state.message,
+                                modifier =
+                                    Modifier.padding(
+                                        14.dp
+                                    ),
+                                color =
+                                    MaterialTheme
+                                        .colorScheme
+                                        .onErrorContainer
+                            )
+                        }
+                    }
+                }
+
+                scannerError
+                    ?.takeIf {
+                        it.isNotBlank()
+                    }
+                    ?.let { message ->
+                        Text(
+                            text = message,
+                            color =
+                                MaterialTheme
+                                    .colorScheme
+                                    .error
+                        )
+                    }
+            }
+        },
+        confirmButton = {
+            if (!isConnecting) {
+                TextButton(
+                    onClick = onScan
+                ) {
+                    Text(
+                        if (
+                            state is
+                                    DisplayLaunchUiState.Error
+                        ) {
+                            "Scan again"
+                        } else {
+                            "Scan display QR"
+                        }
+                    )
+                }
+            }
+        },
+        dismissButton = {
+            if (!isConnecting) {
+                TextButton(
+                    onClick = onCancel
+                ) {
+                    Text("Cancel")
+                }
+            }
+        }
+    )
+}
 private fun sessionDateTimeLabel(timestamp: Long): String {
     return "${TimeUtils.dateLabel(timestamp)} at ${TimeUtils.clockTime(timestamp)}"
 }

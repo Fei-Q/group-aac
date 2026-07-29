@@ -260,7 +260,8 @@ class SessionSubscriptionCoordinator(
                 )
 
             RealtimeRouteKind.DISPLAY,
-            RealtimeRouteKind.DISPLAY_CONTROL -> false
+            RealtimeRouteKind.DISPLAY_CONTROL,
+            RealtimeRouteKind.DISPLAY_DEVICE_EVENTS -> false
         }
     }
 

@@ -6,7 +6,8 @@ enum class RealtimeRouteKind {
     PRIVATE_USER,
     DISPLAY,
     DISPLAY_EVENTS,
-    DISPLAY_CONTROL
+    DISPLAY_CONTROL,
+    DISPLAY_DEVICE_EVENTS
 }
 
 data class RealtimeRoute(
@@ -17,45 +18,91 @@ data class RealtimeRoute(
 )
 
 object RealtimeEventRouter {
-    fun route(channel: String): RealtimeRoute {
+
+    fun route(
+        channel: String
+    ): RealtimeRoute {
         val parts = channel.split(".")
+
         return when {
-            parts.size == 3 && parts[0] == "session" && parts[2] == "public" -> {
-                RealtimeRoute(RealtimeRouteKind.PUBLIC, sessionId = parts[1])
+            parts.size == 3 &&
+                    parts[0] == "session" &&
+                    parts[2] == "public" -> {
+
+                RealtimeRoute(
+                    kind = RealtimeRouteKind.PUBLIC,
+                    sessionId = parts[1]
+                )
             }
 
-            parts.size == 3 && parts[0] == "session" && parts[2] == "facilitator" -> {
-                RealtimeRoute(RealtimeRouteKind.FACILITATOR, sessionId = parts[1])
+            parts.size == 3 &&
+                    parts[0] == "session" &&
+                    parts[2] == "facilitator" -> {
+
+                RealtimeRoute(
+                    kind = RealtimeRouteKind.FACILITATOR,
+                    sessionId = parts[1]
+                )
             }
 
-            parts.size == 3 && parts[0] == "session" && parts[2] == "display" -> {
-                RealtimeRoute(RealtimeRouteKind.DISPLAY, sessionId = parts[1])
+            parts.size == 3 &&
+                    parts[0] == "session" &&
+                    parts[2] == "display" -> {
+
+                RealtimeRoute(
+                    kind = RealtimeRouteKind.DISPLAY,
+                    sessionId = parts[1]
+                )
             }
 
             parts.size == 4 &&
-                parts[0] == "session" &&
-                parts[2] == "display" &&
-                parts[3] == "events" -> {
-                RealtimeRoute(RealtimeRouteKind.DISPLAY_EVENTS, sessionId = parts[1])
+                    parts[0] == "session" &&
+                    parts[2] == "display" &&
+                    parts[3] == "events" -> {
+
+                RealtimeRoute(
+                    kind = RealtimeRouteKind.DISPLAY_EVENTS,
+                    sessionId = parts[1]
+                )
             }
 
-            parts.size == 3 && parts[0] == "display" && parts[2] == "control" -> {
+            parts.size == 3 &&
+                    parts[0] == "display" &&
+                    parts[2] == "control" -> {
+
                 RealtimeRoute(
-                    RealtimeRouteKind.DISPLAY_CONTROL,
+                    kind = RealtimeRouteKind.DISPLAY_CONTROL,
                     sessionId = null,
                     displayId = parts[1]
                 )
             }
 
-            parts.size == 3 && parts[0] == "session" -> {
+            parts.size == 3 &&
+                    parts[0] == "display" &&
+                    parts[2] == "events" -> {
+
                 RealtimeRoute(
-                    RealtimeRouteKind.PRIVATE_USER,
+                    kind = RealtimeRouteKind.DISPLAY_DEVICE_EVENTS,
+                    sessionId = null,
+                    displayId = parts[1]
+                )
+            }
+
+            parts.size == 3 &&
+                    parts[0] == "session" -> {
+
+                RealtimeRoute(
+                    kind = RealtimeRouteKind.PRIVATE_USER,
                     sessionId = parts[1],
                     userId = parts[2]
                 )
             }
 
-            else -> error("Unsupported realtime channel: $channel")
+            else -> {
+                error(
+                    "Unsupported realtime channel: $channel"
+                )
+            }
         }
     }
 }

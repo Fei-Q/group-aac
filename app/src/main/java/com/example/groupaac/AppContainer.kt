@@ -39,6 +39,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import com.example.groupaac.data.sessiondirectory.PubNubSessionDirectory
 import com.example.groupaac.data.sessiondirectory.createPubNubMetadataTransport
+import com.example.groupaac.data.pi.DisplayBindingCoordinator
+import com.example.groupaac.data.pi.NoOpDisplayBindingCoordinator
+import com.example.groupaac.data.pi.PubNubDisplayBindingCoordinator
 
 class AppContainer(context: Context) {
     private val applicationScope =
@@ -68,6 +71,17 @@ class AppContainer(context: Context) {
                 }
             }
         )
+    val displayBindingCoordinator:
+            DisplayBindingCoordinator =
+        if (pubNubConfig.isConfigured) {
+            PubNubDisplayBindingCoordinator(
+                clientProvider = {
+                    realtimeClientManager.requireClient()
+                }
+            )
+        } else {
+            NoOpDisplayBindingCoordinator
+        }
     val piClient: PiClient = DelegatingPiClient(realtimeClientManager)
     val userIdRegistry = LocalUserIdRegistry(database)
     val realtimeReliabilityStore = RealtimeReliabilityStore(
@@ -125,6 +139,7 @@ class AppContainer(context: Context) {
         userDao = database.userDao(),
         activeSessionStore = activeSessionStore,
         sessionDirectory = sessionDirectory,
+        displayBindingCoordinator = displayBindingCoordinator,
         outboxDispatcher = outboxDispatcher,
         sessionRealtimeSync = sessionRealtimeSync
     )
