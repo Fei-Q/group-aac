@@ -1,269 +1,143 @@
 {
-  "showAutoLatest": {
-    "eventId": "cmd-show-auto-001",
-    "type": "display.show_message",
-    "sessionId": "session-abc",
-    "actorUserId": "host_1",
-    "occurredAt": 1785259200000,
-    "payload": {
-      "display": {
-        "sessionId": "session-abc",
-        "displayMode": "AUTO_LATEST",
-        "isPinned": false,
-        "commandOrigin": "AUTO_LATEST",
-        "message": {
-          "id": "msg-100",
-          "sessionId": "session-abc",
-          "senderUserId": "participant_1",
-          "senderName": "Participant One",
-          "target": "GROUP",
-          "text": "Gardening on Sunday",
-          "attachmentId": null,
-          "createdAt": 1785259198000,
-          "status": "ACTIVE",
-          "saved": false,
-          "displayedOnMonitor": false
+  "meta": {
+    "date": "2026-07-29",
+    "protocolVersion": 1,
+    "displayPairingType": "group-aac-display",
+    "sessionInvitationType": "group-aac-session"
+  },
+  "channels": {
+    "displayControl": "display.{displayId}.control",
+    "displayDeviceEvents": "display.{displayId}.events",
+    "sessionDisplay": "session.{sessionId}.display",
+    "sessionDisplayEvents": "session.{sessionId}.display.events"
+  },
+  "fixtures": {
+    "idlePairing": {
+      "type": "group-aac-display",
+      "protocolVersion": 1,
+      "displayId": "pi-lab-01",
+      "displayName": "Therapy Room Display",
+      "pairingNonce": "pairing-nonce-001",
+      "pairingExpiresAt": 1785427500000
+    },
+    "activeSessionInvitation": {
+      "type": "group-aac-session",
+      "protocolVersion": 1,
+      "sessionId": "session-123",
+      "joinCode": "1234-5678",
+      "sessionName": "Friday Group",
+      "hostUserId": "host-123",
+      "displayId": "pi-lab-01",
+      "status": "LIVE",
+      "displayMode": "AUTO_LATEST",
+      "actualStartedAt": 1785423600000,
+      "expiresAt": 1785430800000
+    },
+    "malformedInvitation": {
+      "type": "wrong-session-type",
+      "protocolVersion": 1,
+      "sessionId": "session-123",
+      "joinCode": "1234-5678",
+      "sessionName": "Friday Group",
+      "hostUserId": "host-123",
+      "displayId": "pi-lab-01",
+      "status": "LIVE",
+      "displayMode": "AUTO_LATEST",
+      "actualStartedAt": 1785423600000,
+      "expiresAt": 1785430800000
+    },
+    "expiredInvitation": {
+      "type": "group-aac-session",
+      "protocolVersion": 1,
+      "sessionId": "session-123",
+      "joinCode": "1234-5678",
+      "sessionName": "Friday Group",
+      "hostUserId": "host-123",
+      "displayId": "pi-lab-01",
+      "status": "LIVE",
+      "displayMode": "AUTO_LATEST",
+      "actualStartedAt": 1785410000000,
+      "expiresAt": 1785413600000
+    },
+    "bindCommand": {
+      "eventId": "bind-001",
+      "type": "display.bind_session",
+      "sessionId": "session-123",
+      "actorUserId": "host-123",
+      "occurredAt": 1785427200000,
+      "inReplyToEventId": null,
+      "expiresAt": 1785427230000,
+      "payload": {
+        "protocolVersion": 1,
+        "displayId": "pi-lab-01",
+        "pairingNonce": "pairing-nonce-001",
+        "pairingExpiresAt": 1785427500000,
+        "session": {
+          "type": "group-aac-session",
+          "protocolVersion": 1,
+          "sessionId": "session-123",
+          "joinCode": "1234-5678",
+          "sessionName": "Friday Group",
+          "hostUserId": "host-123",
+          "displayId": "pi-lab-01",
+          "status": "LIVE",
+          "displayMode": "AUTO_LATEST",
+          "actualStartedAt": 1785423600000,
+          "expiresAt": 1785430800000
         }
       }
-    }
-  },
-  "showManualPinnedReplacement": {
-    "eventId": "cmd-show-manual-001",
-    "type": "display.show_message",
-    "sessionId": "session-abc",
-    "actorUserId": "host_1",
-    "occurredAt": 1785259201000,
-    "payload": {
-      "display": {
-        "sessionId": "session-abc",
-        "displayMode": "APPROVAL_REQUIRED",
-        "isPinned": true,
-        "commandOrigin": "MANUAL_SHOW",
-        "message": {
-          "id": "msg-101",
-          "sessionId": "session-abc",
-          "senderUserId": "participant_2",
-          "senderName": "Participant Two",
-          "target": "GROUP",
-          "text": "Please show this one",
-          "attachmentId": null,
-          "createdAt": 1785259199000,
-          "status": "ACTIVE",
-          "saved": false,
-          "displayedOnMonitor": false
-        }
+    },
+    "boundReply": {
+      "eventId": "reply-bound-001",
+      "type": "display.bound",
+      "sessionId": "session-123",
+      "actorUserId": "pi-lab-01",
+      "occurredAt": 1785427200500,
+      "inReplyToEventId": "bind-001",
+      "payload": {
+        "protocolVersion": 1,
+        "displayId": "pi-lab-01",
+        "state": "SESSION_ACTIVE"
       }
-    }
-  },
-  "restoreManual": {
-    "eventId": "cmd-restore-001",
-    "type": "display.restore_message",
-    "sessionId": "session-abc",
-    "actorUserId": "host_1",
-    "occurredAt": 1785259202000,
-    "payload": {
-      "display": {
-        "sessionId": "session-abc",
-        "displayMode": "APPROVAL_REQUIRED",
-        "isPinned": true,
-        "commandOrigin": "MANUAL_RESTORE",
-        "message": {
-          "id": "msg-099",
-          "sessionId": "session-abc",
-          "senderUserId": "participant_3",
-          "senderName": "Participant Three",
-          "target": "GROUP",
-          "text": "Restore this content",
-          "attachmentId": null,
-          "createdAt": 1785259197000,
-          "status": "ACTIVE",
-          "saved": true,
-          "displayedOnMonitor": true
-        }
+    },
+    "bindFailure": {
+      "eventId": "reply-bind-failed-001",
+      "type": "display.bind_failed",
+      "sessionId": "session-123",
+      "actorUserId": "pi-lab-01",
+      "occurredAt": 1785427200600,
+      "inReplyToEventId": "bind-001",
+      "payload": {
+        "protocolVersion": 1,
+        "displayId": "pi-lab-01",
+        "state": "PAIRING_AVAILABLE",
+        "reason": "pairing_nonce_mismatch"
       }
-    }
-  },
-  "pinCommand": {
-    "eventId": "cmd-pin-001",
-    "type": "display.pin_message",
-    "sessionId": "session-abc",
-    "actorUserId": "host_1",
-    "occurredAt": 1785259205000,
-    "payload": {
-      "displayState": {
-        "sessionId": "session-abc",
-        "currentMessageId": "msg-100",
-        "isPinned": true,
-        "displayMode": "APPROVAL_REQUIRED",
-        "commandOrigin": "MANUAL_SHOW"
+    },
+    "unbindCommand": {
+      "eventId": "unbind-001",
+      "type": "display.unbind_session",
+      "sessionId": "session-123",
+      "actorUserId": "host-123",
+      "occurredAt": 1785429000000,
+      "inReplyToEventId": null,
+      "expiresAt": 1785429030000,
+      "payload": {
+        "protocolVersion": 1,
+        "displayId": "pi-lab-01"
       }
-    }
-  },
-  "unpinCommand": {
-    "eventId": "cmd-unpin-001",
-    "type": "display.unpin_message",
-    "sessionId": "session-abc",
-    "actorUserId": "host_1",
-    "occurredAt": 1785259207000,
-    "payload": {
-      "displayState": {
-        "sessionId": "session-abc",
-        "currentMessageId": "msg-100",
-        "isPinned": false,
-        "displayMode": "APPROVAL_REQUIRED",
-        "commandOrigin": "MANUAL_SHOW"
-      }
-    }
-  },
-  "clearCommand": {
-    "eventId": "cmd-clear-001",
-    "type": "display.clear",
-    "sessionId": "session-abc",
-    "actorUserId": "host_1",
-    "occurredAt": 1785259210000,
-    "payload": {
-      "displayState": {
-        "sessionId": "session-abc",
-        "currentMessageId": null,
-        "isPinned": false,
-        "displayMode": "APPROVAL_REQUIRED",
-        "commandOrigin": null
-      }
-    }
-  },
-  "modeChangedCommand": {
-    "eventId": "cmd-mode-001",
-    "type": "display.mode_changed",
-    "sessionId": "session-abc",
-    "actorUserId": "host_1",
-    "occurredAt": 1785259212000,
-    "payload": {
-      "displayState": {
-        "sessionId": "session-abc",
-        "currentMessageId": "msg-100",
-        "isPinned": true,
-        "displayMode": "APPROVAL_REQUIRED",
-        "commandOrigin": "MANUAL_SHOW"
-      }
-    }
-  },
-  "renderedAck": {
-    "eventId": "ack-rendered-001",
-    "type": "display.rendered",
-    "sessionId": "session-abc",
-    "actorUserId": "display-1",
-    "occurredAt": 1785259203000,
-    "inReplyToEventId": "cmd-show-auto-001",
-    "payload": {
-      "displayState": {
-        "sessionId": "session-abc",
-        "currentMessageId": "msg-100",
-        "isPinned": false,
-        "displayMode": "AUTO_LATEST",
-        "commandOrigin": "AUTO_LATEST"
-      }
-    }
-  },
-  "restoredAck": {
-    "eventId": "ack-restored-001",
-    "type": "display.restored",
-    "sessionId": "session-abc",
-    "actorUserId": "display-1",
-    "occurredAt": 1785259203500,
-    "inReplyToEventId": "cmd-restore-001",
-    "payload": {
-      "displayState": {
-        "sessionId": "session-abc",
-        "currentMessageId": "msg-099",
-        "isPinned": true,
-        "displayMode": "APPROVAL_REQUIRED",
-        "commandOrigin": "MANUAL_RESTORE"
-      }
-    }
-  },
-  "unpinnedAck": {
-    "eventId": "ack-unpinned-001",
-    "type": "display.unpinned",
-    "sessionId": "session-abc",
-    "actorUserId": "display-1",
-    "occurredAt": 1785259208000,
-    "inReplyToEventId": "cmd-unpin-001",
-    "payload": {
-      "displayState": {
-        "sessionId": "session-abc",
-        "currentMessageId": "msg-100",
-        "isPinned": false,
-        "displayMode": "APPROVAL_REQUIRED",
-        "commandOrigin": "MANUAL_SHOW"
-      }
-    }
-  },
-  "clearedAck": {
-    "eventId": "ack-cleared-001",
-    "type": "display.cleared",
-    "sessionId": "session-abc",
-    "actorUserId": "display-1",
-    "occurredAt": 1785259210500,
-    "inReplyToEventId": "cmd-clear-001",
-    "payload": {
-      "displayState": {
-        "sessionId": "session-abc",
-        "currentMessageId": null,
-        "isPinned": false,
-        "displayMode": "APPROVAL_REQUIRED",
-        "commandOrigin": null
-      }
-    }
-  },
-  "failedPinnedAutomaticReplacement": {
-    "eventId": "ack-failed-001",
-    "type": "display.failed",
-    "sessionId": "session-abc",
-    "actorUserId": "display-1",
-    "occurredAt": 1785259213000,
-    "inReplyToEventId": "cmd-show-auto-002",
-    "payload": {
-      "reason": "pinned_auto_latest_rejected",
-      "displayState": {
-        "sessionId": "session-abc",
-        "currentMessageId": "msg-100",
-        "isPinned": true,
-        "displayMode": "APPROVAL_REQUIRED",
-        "commandOrigin": "MANUAL_SHOW"
-      }
-    }
-  },
-  "failedStaleCommand": {
-    "eventId": "ack-failed-002",
-    "type": "display.failed",
-    "sessionId": "session-abc",
-    "actorUserId": "display-1",
-    "occurredAt": 1785259213500,
-    "inReplyToEventId": "cmd-show-stale-001",
-    "payload": {
-      "reason": "stale_or_duplicate_command",
-      "displayState": {
-        "sessionId": "session-abc",
-        "currentMessageId": "msg-100",
-        "isPinned": true,
-        "displayMode": "APPROVAL_REQUIRED",
-        "commandOrigin": "MANUAL_SHOW"
-      }
-    }
-  },
-  "stateReconciliation": {
-    "eventId": "state-001",
-    "type": "display.state",
-    "sessionId": "session-abc",
-    "actorUserId": "display-1",
-    "occurredAt": 1785259214000,
-    "payload": {
-      "displayState": {
-        "sessionId": "session-abc",
-        "currentMessageId": "msg-100",
-        "isPinned": true,
-        "displayMode": "APPROVAL_REQUIRED",
-        "commandOrigin": "MANUAL_SHOW"
+    },
+    "unboundReply": {
+      "eventId": "reply-unbound-001",
+      "type": "display.unbound",
+      "sessionId": "session-123",
+      "actorUserId": "pi-lab-01",
+      "occurredAt": 1785429000500,
+      "inReplyToEventId": "unbind-001",
+      "payload": {
+        "protocolVersion": 1,
+        "displayId": "pi-lab-01",
+        "state": "PAIRING_AVAILABLE"
       }
     }
   }

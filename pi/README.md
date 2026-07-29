@@ -1,40 +1,52 @@
-# Group AAC Raspberry Pi Protocol Simulator
+# Group AAC Raspberry Pi Reference Simulator
 
-This package is the Python-side simulator and reference implementation
-for the Group AAC display-pairing milestone.
+This package is the Python reference simulator and protocol test harness for the Group AAC Raspberry Pi display workflow.
 
-## What This Is
+## Role In The Project
 
-- a local simulator for Android display-pairing and launch flows
-- a reference implementation of the PubNub pairing protocol
-- an automated state-machine and runtime test harness
-- a source of protocol fixtures and expected behavior for cross-checking
-  the external production Pi implementation
+- Android is one protocol implementation and the current producer for pairing, binding, and participant invitation payloads.
+- `pi/group_aac_pi` is a Python simulator and reference implementation used for tests, fixtures, and integration handoff.
+- The production Raspberry Pi client is an external C++ application and is not replaced or generated here.
 
-## What This Is Not
+This package is not:
 
-- not a FastAPI service
-- not a custom Python backend for the Android app
-- not the production Raspberry Pi application
+- a FastAPI service
+- a custom Python backend for Android
+- the production Raspberry Pi executable
 
-The current Android app flow does not depend on a custom Python backend.
-Session creation is local to Android, and live short-code lookup uses
-PubNub App Context metadata.
+## Contract Sources
 
-## Production Pi Boundary
+The external C++ client should implement the frozen contract documented in:
 
-The production Raspberry Pi display client is implemented separately in
-C++ outside this repository.
+- [../docs/pi-display-protocol-contract.md](../docs/pi-display-protocol-contract.md)
+- [../docs/pi-display-protocol-fixtures.json](../docs/pi-display-protocol-fixtures.json)
+- [../docs/pi-cpp-integration-checklist.md](../docs/pi-cpp-integration-checklist.md)
 
-The C++ implementation must remain compatible with the protocol frozen
-here, including:
+## Python Reference Responsibilities
 
-- `display.<displayId>.control`
-- `display.<displayId>.events`
-- pairing QR payload fields and versioning
-- bind / bound / bind-failed / unbind / unbound semantics
-- session invitation payload shape
-- acknowledgement correlation and idempotency behavior
+The Python reference simulator models:
+
+- idle pairing QR generation and rotation
+- `display.<displayId>.control` bind and unbind handling
+- `display.<displayId>.events` replies
+- persisted binding and duplicate reply behavior
+- one-active-session enforcement
+- restart recovery for a valid persisted binding
+- participant invitation validation semantics
+
+It does not own session creation, join-code directory lookup, or Android membership flows.
+
+## Production C++ Boundary
+
+The production C++ Raspberry Pi client is responsible for:
+
+- rendering the idle pairing QR while unbound
+- validating `display.bind_session` and `display.unbind_session`
+- publishing `display.bound`, `display.bind_failed`, and `display.unbound`
+- persisting binding state across restarts
+- subscribing to `session.<sessionId>.display` once bound
+
+The production C++ client must not place secrets, credentials, or PubNub keys into QR payloads.
 
 ## Local Verification
 
@@ -44,5 +56,6 @@ From the repository root:
 cd pi
 source .venv/bin/activate
 python -m pytest tests -q
-python -m compileall group_aac_pi
 ```
+
+Android and Python both load the same shared fixture file from `docs/pi-display-protocol-fixtures.json`.
