@@ -14,8 +14,7 @@ import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
-import com.example.groupaac.data.sessiondirectory.RemoteSessionRecord
-import com.example.groupaac.data.sessiondirectory.RemoteSessionStatus
+import com.example.groupaac.data.sessiondirectory.SessionDirectoryEntry
 import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.JoinRequestStatus
@@ -74,7 +73,13 @@ class SessionRepositoryTest {
 
         val createdSession = fixture.sessionDao.getSession(activeSession.sessionId)
         assertNotNull(createdSession)
-        assertNotNull(createdSession?.actualStartedAt)
+        assertNull(createdSession?.actualStartedAt)
+        assertEquals(
+            SessionStatus.DRAFT,
+            createdSession?.status
+        )
+        assertNull(createdSession?.displayId)
+        assertNull(createdSession?.expiresAt)
         assertEquals(fixture.host.uid, createdSession?.hostUserId)
 
         val hostMember = fixture.sessionDao.getMember(
@@ -351,17 +356,30 @@ class SessionRepositoryTest {
     }
 
     @Test
-    fun cancelledSessionCannotBeJoined() = runTest {
+    fun cancelledUnlaunchedSessionCannotBeJoined() = runTest {
         val fixture = sessionFixture()
+
         val scheduled = fixture.repository.scheduleSession(
             name = "Thursday Group",
             ownerUserId = fixture.host.uid,
             scheduledStartAt = 20_000L,
             scheduledDurationMinutes = 60
         )
-        fixture.repository.cancelScheduledSession(
+
+        val cancelled = fixture.repository.cancelScheduledSession(
             sessionId = scheduled.id,
             ownerUserId = fixture.host.uid
+        )
+
+        assertTrue(cancelled)
+
+        val storedSession = fixture.sessionDao.getSession(
+            scheduled.id
+        )
+
+        assertEquals(
+            SessionStatus.CANCELLED,
+            storedSession?.status
         )
 
         try {
@@ -370,9 +388,16 @@ class SessionRepositoryTest {
                 userId = fixture.participant.uid,
                 displayName = fixture.participant.displayName
             )
-            fail("Expected cancelled sessions to reject joins.")
+
+            fail(
+                "Expected an unlaunched cancelled session " +
+                        "to be unavailable through its code."
+            )
         } catch (expected: IllegalStateException) {
-            assertTrue(expected.message?.contains("cancelled", ignoreCase = true) == true)
+            assertEquals(
+                "No session found for this code.",
+                expected.message
+            )
         }
     }
 
@@ -521,8 +546,12 @@ class SessionRepositoryTest {
             name = "Friday Group",
             joinCode = "1234-5678",
             hostUserId = host.uid,
+            status = SessionStatus.LIVE,
+            displayMode = DisplayMode.AUTO_LATEST,
+            displayId = "pi-test",
             createdAt = 10L,
-            actualStartedAt = 10L
+            actualStartedAt = 10L,
+            expiresAt = 10L + 86_400_000L
         )
         if (seedLocalSession) {
             sessionDao.seedSession(session)
@@ -536,18 +565,19 @@ class SessionRepositoryTest {
                 )
             )
         }
-        sessionDirectory.seedSession(
-            RemoteSessionRecord(
-                sessionId = session.id,
+        sessionDirectory.seed(
+            SessionDirectoryEntry(
                 joinCode = session.joinCode,
+                sessionId = session.id,
                 sessionName = session.name,
-                hostUid = host.uid,
-                status = RemoteSessionStatus.LIVE,
-                scheduledStartAt = session.scheduledStartAt,
-                scheduledDurationMinutes = session.scheduledDurationMinutes,
-                actualStartedAt = session.actualStartedAt,
-                actualEndedAt = session.actualEndedAt,
-                expiresAt = 10L + 86_400_000L
+                hostUserId = host.uid,
+                displayId = requireNotNull(session.displayId),
+                status = SessionStatus.LIVE,
+                displayMode = session.displayMode,
+                createdAt = session.createdAt,
+                actualStartedAt =
+                    requireNotNull(session.actualStartedAt),
+                expiresAt = requireNotNull(session.expiresAt)
             )
         )
 
@@ -578,18 +608,24 @@ class SessionRepositoryTest {
     @Test
     fun endedResolutionReturnsExplicitMessage() = runTest {
         val fixture = sessionFixture(seedLocalSession = false)
-        fixture.sessionDirectory.seedSession(
-            RemoteSessionRecord(
-                sessionId = fixture.session.id,
+        fixture.sessionDirectory.seed(
+            SessionDirectoryEntry(
                 joinCode = fixture.session.joinCode,
+                sessionId = fixture.session.id,
                 sessionName = fixture.session.name,
-                hostUid = fixture.host.uid,
-                status = RemoteSessionStatus.ENDED,
-                scheduledStartAt = fixture.session.scheduledStartAt,
-                scheduledDurationMinutes = fixture.session.scheduledDurationMinutes,
-                actualStartedAt = fixture.session.actualStartedAt,
-                actualEndedAt = 20L,
-                expiresAt = 86_400_000L
+                hostUserId = fixture.host.uid,
+                displayId = requireNotNull(
+                    fixture.session.displayId
+                ),
+                status = SessionStatus.ENDED,
+                displayMode = fixture.session.displayMode,
+                createdAt = fixture.session.createdAt,
+                actualStartedAt = requireNotNull(
+                    fixture.session.actualStartedAt
+                ),
+                expiresAt = requireNotNull(
+                    fixture.session.expiresAt
+                )
             )
         )
         try {
@@ -601,7 +637,7 @@ class SessionRepositoryTest {
             )
             fail("Expected ended sessions to be rejected.")
         } catch (error: IllegalStateException) {
-            assertEquals("This session has already ended.", error.message)
+            assertEquals("This session is not currently open.", error.message)
         }
     }
 }

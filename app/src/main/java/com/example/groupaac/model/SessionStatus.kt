@@ -1,6 +1,7 @@
 package com.example.groupaac.model
 
 enum class SessionStatus {
+    DRAFT,
     SCHEDULED,
     LIVE,
     ENDED,
@@ -8,6 +9,6 @@ enum class SessionStatus {
 
     companion object {
         fun fromName(name: String?): SessionStatus =
-            entries.firstOrNull { it.name == name } ?: LIVE
+            entries.firstOrNull { it.name == name } ?: DRAFT
     }
 }

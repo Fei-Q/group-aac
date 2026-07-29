@@ -23,11 +23,6 @@ val pubNubPublishKey =
 val pubNubSubscribeKey =
     pubNubProperties.getProperty("PUBNUB_SUBSCRIBE_KEY", "")
 
-val sessionDirectoryBaseUrl =
-    providers.environmentVariable("GROUP_AAC_SESSION_DIRECTORY_BASE_URL")
-        .orElse("http://10.0.2.2:8000")
-        .get()
-
 fun pubNubProperty(name: String): String {
     return pubNubProperties.getProperty(name, "")
 }
@@ -44,11 +39,6 @@ android {
         versionName = "0.1.0"
         buildConfigField("String", "PUBNUB_PUBLISH_KEY", "\"$pubNubPublishKey\"")
         buildConfigField("String", "PUBNUB_SUBSCRIBE_KEY", "\"$pubNubSubscribeKey\"")
-        buildConfigField(
-            "String",
-            "SESSION_DIRECTORY_BASE_URL",
-            "\"$sessionDirectoryBaseUrl\""
-        )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ksp {

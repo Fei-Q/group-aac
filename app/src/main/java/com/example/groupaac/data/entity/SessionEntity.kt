@@ -11,12 +11,14 @@ data class SessionEntity(
     val name: String,
     val joinCode: String,
     val hostUserId: String? = null,
-    val status: SessionStatus = SessionStatus.LIVE,
+    val status: SessionStatus = SessionStatus.DRAFT,
     val displayMode: DisplayMode = DisplayMode.AUTO_LATEST,
+    val displayId: String? = null,
     val createdAt: Long,
     val scheduledStartAt: Long? = null,
     val scheduledDurationMinutes: Int? = null,
     val actualStartedAt: Long? = null,
     val actualEndedAt: Long? = null,
+    val expiresAt: Long? = null,
     val updatedAt: Long = createdAt
 )

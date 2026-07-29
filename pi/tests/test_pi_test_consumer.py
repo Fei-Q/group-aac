@@ -1,4 +1,4 @@
-from backend.pi_test_consumer import PiTestConsumer
+from pi.pi_test_consumer import PiTestConsumer
 
 
 def display_command(

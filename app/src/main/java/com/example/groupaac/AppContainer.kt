@@ -32,8 +32,6 @@ import com.example.groupaac.data.repository.SignalRepository
 import com.example.groupaac.data.session.ActiveSessionStore
 import com.example.groupaac.data.session.DataStoreActiveSessionStore
 import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
-import com.example.groupaac.data.sessiondirectory.HttpGroupAacApi
-import com.example.groupaac.data.sessiondirectory.RemoteSessionDirectory
 import com.example.groupaac.data.sessiondirectory.SessionDirectory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -94,13 +92,7 @@ class AppContainer(context: Context) {
     val activeSessionStore: ActiveSessionStore =
         DataStoreActiveSessionStore(preferences)
     val sessionDirectory: SessionDirectory =
-        if (BuildConfig.SESSION_DIRECTORY_BASE_URL.isBlank()) {
-            FakeSessionDirectory()
-        } else {
-            RemoteSessionDirectory(
-                HttpGroupAacApi(BuildConfig.SESSION_DIRECTORY_BASE_URL)
-            )
-        }
+        FakeSessionDirectory()
 
     val accountRepository = AccountRepository(
         userIdRegistry = userIdRegistry,
