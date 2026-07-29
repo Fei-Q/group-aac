@@ -37,6 +37,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
+import com.example.groupaac.data.sessiondirectory.PubNubSessionDirectory
+import com.example.groupaac.data.sessiondirectory.createPubNubMetadataTransport
 
 class AppContainer(context: Context) {
     private val applicationScope =
@@ -91,8 +93,19 @@ class AppContainer(context: Context) {
 
     val activeSessionStore: ActiveSessionStore =
         DataStoreActiveSessionStore(preferences)
+    private val pubNubMetadataTransport =
+        if (pubNubConfig.isConfigured) {
+            createPubNubMetadataTransport(
+                pubNubConfig
+            )
+        } else {
+            null
+        }
+
     val sessionDirectory: SessionDirectory =
-        FakeSessionDirectory()
+        pubNubMetadataTransport?.let { transport ->
+            PubNubSessionDirectory(transport)
+        } ?: FakeSessionDirectory()
 
     val accountRepository = AccountRepository(
         userIdRegistry = userIdRegistry,
