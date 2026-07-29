@@ -270,24 +270,24 @@ class PubNubPiRuntime:
         self,
         message: Any,
     ) -> None:
-        """
-        Stage 3C only establishes the session subscription.
-
-        Rendering and session-display acknowledgements remain part of
-        the later display-state stage.
-        """
         try:
             event = decode_event(message.message)
+            reply = (
+                self.machine.handle_session_display_event(
+                    event
+                )
+            )
+            if reply is None:
+                return
 
-            LOGGER.info(
-                "Received active-session display command: "
-                "type=%s eventId=%s",
-                event.get("type"),
-                event.get("eventId"),
+            session_id = reply["sessionId"]
+            self._publish(
+                f"session.{session_id}.display.events",
+                reply,
             )
         except Exception:
             LOGGER.exception(
-                "Malformed session display command."
+                "Unable to process session display command."
             )
 
     def _publish(

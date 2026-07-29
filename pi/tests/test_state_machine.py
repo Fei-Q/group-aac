@@ -138,6 +138,46 @@ def unbind_command(
     }
 
 
+def display_command(
+    event_type: str,
+    event_id: str,
+    *,
+    session_id: str = "session-1",
+    current_message_id: str | None = "msg-1",
+    is_pinned: bool = False,
+    display_mode: str = "AUTO_LATEST",
+    command_origin: str | None = "MANUAL_SHOW",
+) -> dict[str, Any]:
+    display: dict[str, Any] = {
+        "sessionId": session_id,
+        "displayMode": display_mode,
+    }
+    if current_message_id is not None:
+        display["currentMessageId"] = (
+            current_message_id
+        )
+    if event_type in {
+        "display.show_message",
+        "display.restore_message",
+        "display.pin_message",
+        "display.unpin_message",
+    }:
+        display["isPinned"] = is_pinned
+    if command_origin is not None:
+        display["commandOrigin"] = command_origin
+
+    return {
+        "eventId": event_id,
+        "type": event_type,
+        "sessionId": session_id,
+        "actorUserId": "host-1",
+        "occurredAt": 2_000,
+        "payload": {
+            "display": display,
+        },
+    }
+
+
 def test_bind_success(
     tmp_path: Path,
 ) -> None:
@@ -367,3 +407,283 @@ def test_expired_command_is_rejected(
         "command_expired"
     )
     assert hooks.activated_sessions == []
+
+
+def test_show_and_restore_commands_update_display_state(
+    tmp_path: Path,
+) -> None:
+    machine, _, _ = build_machine(
+        tmp_path / "state.json"
+    )
+    machine.handle_control_event(bind_command(machine))
+
+    rendered = machine.handle_session_display_event(
+        display_command(
+            "display.show_message",
+            "show-1",
+            current_message_id="msg-1",
+            is_pinned=True,
+            display_mode="MANUAL",
+            command_origin="MANUAL_SHOW",
+        )
+    )
+    restored = machine.handle_session_display_event(
+        display_command(
+            "display.restore_message",
+            "restore-1",
+            current_message_id="msg-2",
+            is_pinned=False,
+            display_mode="AUTO_LATEST",
+            command_origin="MANUAL_RESTORE",
+        )
+    )
+
+    assert rendered is not None
+    assert rendered["type"] == "display.rendered"
+    assert restored is not None
+    assert restored["type"] == "display.restored"
+    assert machine._state.current_message_id == "msg-2"
+    assert machine._state.is_pinned is False
+    assert machine._state.display_mode == "AUTO_LATEST"
+    assert machine._state.command_origin == "MANUAL_RESTORE"
+
+
+def test_pin_unpin_clear_and_mode_change_preserve_expected_state(
+    tmp_path: Path,
+) -> None:
+    machine, _, _ = build_machine(
+        tmp_path / "state.json"
+    )
+    machine.handle_control_event(bind_command(machine))
+    machine.handle_session_display_event(
+        display_command(
+            "display.show_message",
+            "show-1",
+            current_message_id="msg-1",
+            is_pinned=False,
+            display_mode="AUTO_LATEST",
+            command_origin="MANUAL_SHOW",
+        )
+    )
+
+    pinned = machine.handle_session_display_event(
+        display_command(
+            "display.pin_message",
+            "pin-1",
+            current_message_id="msg-1",
+            is_pinned=True,
+            display_mode="MANUAL",
+            command_origin="MANUAL_PIN",
+        )
+    )
+    mode_changed = (
+        machine.handle_session_display_event(
+            display_command(
+                "display.mode_changed",
+                "mode-1",
+                current_message_id="msg-ignored",
+                display_mode="AMBIENT",
+                command_origin=None,
+            )
+        )
+    )
+    unpinned = machine.handle_session_display_event(
+        display_command(
+            "display.unpin_message",
+            "unpin-1",
+            current_message_id="msg-1",
+            is_pinned=False,
+            display_mode="AMBIENT",
+            command_origin="MANUAL_UNPIN",
+        )
+    )
+    cleared = machine.handle_session_display_event(
+        display_command(
+            "display.clear",
+            "clear-1",
+            current_message_id=None,
+            display_mode="AUTO_LATEST",
+            command_origin="MANUAL_CLEAR",
+        )
+    )
+
+    assert pinned is not None
+    assert pinned["type"] == "display.pinned"
+    assert mode_changed is not None
+    assert mode_changed["type"] == "display.state"
+    assert mode_changed["payload"]["displayState"] == {
+        "sessionId": "session-1",
+        "currentMessageId": "msg-1",
+        "isPinned": True,
+        "displayMode": "AMBIENT",
+        "commandOrigin": "MANUAL_PIN",
+    }
+    assert unpinned is not None
+    assert unpinned["type"] == "display.unpinned"
+    assert unpinned["payload"]["displayState"][
+        "currentMessageId"
+    ] == "msg-1"
+    assert unpinned["payload"]["displayState"][
+        "isPinned"
+    ] is False
+    assert cleared is not None
+    assert cleared["type"] == "display.cleared"
+    assert machine._state.current_message_id is None
+    assert machine._state.is_pinned is False
+    assert machine._state.display_mode == "AUTO_LATEST"
+
+
+def test_duplicate_display_command_is_idempotent_and_cached(
+    tmp_path: Path,
+) -> None:
+    machine, _, _ = build_machine(
+        tmp_path / "state.json"
+    )
+    machine.handle_control_event(bind_command(machine))
+
+    command = display_command(
+        "display.show_message",
+        "show-1",
+        current_message_id="msg-1",
+    )
+    first_reply = machine.handle_session_display_event(
+        command
+    )
+    second_reply = machine.handle_session_display_event(
+        command
+    )
+
+    assert first_reply == second_reply
+    assert len(
+        machine._state.processed_display_replies
+    ) == 1
+    assert machine._state.current_message_id == "msg-1"
+
+
+def test_wrong_session_display_command_is_ignored(
+    tmp_path: Path,
+) -> None:
+    machine, _, _ = build_machine(
+        tmp_path / "state.json"
+    )
+    machine.handle_control_event(bind_command(machine))
+    machine.handle_session_display_event(
+        display_command(
+            "display.show_message",
+            "show-1",
+            current_message_id="msg-1",
+        )
+    )
+
+    reply = machine.handle_session_display_event(
+        display_command(
+            "display.clear",
+            "clear-1",
+            session_id="other-session",
+            current_message_id=None,
+            command_origin="MANUAL_CLEAR",
+        )
+    )
+
+    assert reply is None
+    assert machine._state.current_message_id == "msg-1"
+    assert machine._state.is_pinned is False
+
+
+def test_display_state_restores_after_restart(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "state.json"
+    first_machine, _, _ = build_machine(
+        state_path
+    )
+    first_machine.handle_control_event(
+        bind_command(first_machine)
+    )
+    first_machine.handle_session_display_event(
+        display_command(
+            "display.show_message",
+            "show-1",
+            current_message_id="msg-1",
+            is_pinned=True,
+            display_mode="MANUAL",
+            command_origin="MANUAL_SHOW",
+        )
+    )
+
+    restored_machine = PiBindingStateMachine(
+        identity=DisplayIdentity(
+            display_id="pi-1",
+            display_name="Room Display",
+        ),
+        state_store=JsonStateStore(
+            state_path
+        ),
+        hooks=RecordingHooks(),
+        now_provider=lambda: 2_000,
+    )
+    restored_machine.start()
+
+    assert restored_machine._state.current_message_id == "msg-1"
+    assert restored_machine._state.is_pinned is True
+    assert restored_machine._state.display_mode == "MANUAL"
+    assert restored_machine._state.command_origin == "MANUAL_SHOW"
+
+
+def test_unbind_clears_persisted_display_state(
+    tmp_path: Path,
+) -> None:
+    machine, _, _ = build_machine(
+        tmp_path / "state.json"
+    )
+    machine.handle_control_event(bind_command(machine))
+    machine.handle_session_display_event(
+        display_command(
+            "display.show_message",
+            "show-1",
+            current_message_id="msg-1",
+            is_pinned=True,
+            display_mode="MANUAL",
+            command_origin="MANUAL_SHOW",
+        )
+    )
+
+    machine.handle_control_event(unbind_command())
+
+    assert machine.binding is None
+    assert machine._state.current_message_id is None
+    assert machine._state.is_pinned is False
+    assert machine._state.display_mode == "AUTO_LATEST"
+    assert machine._state.command_origin is None
+    assert machine._state.processed_display_replies == {}
+
+
+def test_display_acknowledgement_contains_required_fields(
+    tmp_path: Path,
+) -> None:
+    machine, _, _ = build_machine(
+        tmp_path / "state.json"
+    )
+    machine.handle_control_event(bind_command(machine))
+
+    reply = machine.handle_session_display_event(
+        display_command(
+            "display.show_message",
+            "show-1",
+            current_message_id="msg-1",
+            is_pinned=True,
+            display_mode="MANUAL",
+            command_origin="MANUAL_SHOW",
+        )
+    )
+
+    assert reply is not None
+    assert reply["actorUserId"] == "pi-1"
+    assert reply["inReplyToEventId"] == "show-1"
+    assert reply["payload"]["displayState"] == {
+        "sessionId": "session-1",
+        "currentMessageId": "msg-1",
+        "isPinned": True,
+        "displayMode": "MANUAL",
+        "commandOrigin": "MANUAL_SHOW",
+    }

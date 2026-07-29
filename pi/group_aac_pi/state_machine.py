@@ -108,6 +108,13 @@ class PersistedPiState:
     processed_replies: dict[str, dict[str, Any]] = field(
         default_factory=dict
     )
+    current_message_id: str | None = None
+    is_pinned: bool = False
+    display_mode: str = "AUTO_LATEST"
+    command_origin: str | None = None
+    processed_display_replies: dict[
+        str, dict[str, Any]
+    ] = field(default_factory=dict)
     last_error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -119,6 +126,13 @@ class PersistedPiState:
                 else None
             ),
             "processedReplies": self.processed_replies,
+            "currentMessageId": self.current_message_id,
+            "isPinned": self.is_pinned,
+            "displayMode": self.display_mode,
+            "commandOrigin": self.command_origin,
+            "processedDisplayReplies": (
+                self.processed_display_replies
+            ),
             "lastError": self.last_error,
         }
 
@@ -168,6 +182,18 @@ class PersistedPiState:
             if isinstance(raw_replies, Mapping)
             else {}
         )
+        raw_display_replies = value.get(
+            "processedDisplayReplies",
+            {},
+        )
+        display_replies = (
+            dict(raw_display_replies)
+            if isinstance(
+                raw_display_replies,
+                Mapping,
+            )
+            else {}
+        )
 
         return cls(
             lifecycle=PiLifecycle(
@@ -178,6 +204,22 @@ class PersistedPiState:
             ),
             binding=binding,
             processed_replies=replies,
+            current_message_id=(
+                value.get("currentMessageId")
+            ),
+            is_pinned=bool(
+                value.get("isPinned", False)
+            ),
+            display_mode=str(
+                value.get(
+                    "displayMode",
+                    "AUTO_LATEST",
+                )
+            ),
+            command_origin=value.get(
+                "commandOrigin"
+            ),
+            processed_display_replies=display_replies,
             last_error=value.get("lastError"),
         )
 
@@ -407,6 +449,68 @@ class PiBindingStateMachine:
 
             return self._handle_unbind(raw_event)
 
+    def handle_session_display_event(
+        self,
+        raw_event: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        with self._lock:
+            binding = self._state.binding
+            if (
+                binding is None
+                or self._state.lifecycle
+                != PiLifecycle.SESSION_ACTIVE
+            ):
+                return None
+
+            event_type = raw_event.get("type")
+            if event_type not in {
+                "display.show_message",
+                "display.restore_message",
+                "display.pin_message",
+                "display.unpin_message",
+                "display.clear",
+                "display.mode_changed",
+            }:
+                return None
+
+            event_id = _required_string(
+                raw_event,
+                "eventId",
+            )
+            existing_reply = (
+                self._state.processed_display_replies.get(
+                    event_id
+                )
+            )
+            if existing_reply is not None:
+                return copy.deepcopy(existing_reply)
+
+            session_id = _required_string(
+                raw_event,
+                "sessionId",
+            )
+            if session_id != binding.session_id:
+                return None
+
+            payload = _required_mapping(
+                raw_event,
+                "payload",
+            )
+
+            ack_type = self._apply_display_command(
+                event_type=event_type,
+                payload=payload,
+                session_id=session_id,
+            )
+            self.state_store.save(self._state)
+            return self._record_display_reply(
+                event_id=event_id,
+                reply=self._build_display_reply(
+                    command=raw_event,
+                    event_type=ack_type,
+                ),
+            )
+
     def _handle_bind(
         self,
         command: Mapping[str, Any],
@@ -615,6 +719,7 @@ class PiBindingStateMachine:
             )
 
         self._state.binding = None
+        self._clear_display_state()
         self._state.last_error = None
         self._enter_pairing_available()
 
@@ -735,6 +840,42 @@ class PiBindingStateMachine:
             "payload": payload,
         }
 
+    def _build_display_reply(
+        self,
+        command: Mapping[str, Any],
+        event_type: str,
+    ) -> dict[str, Any]:
+        binding = self._state.binding
+        if binding is None:
+            raise ProtocolError("missing_active_binding")
+
+        return {
+            "eventId": str(uuid.uuid4()),
+            "type": event_type,
+            "sessionId": binding.session_id,
+            "actorUserId": self.identity.display_id,
+            "occurredAt": self.now_provider(),
+            "inReplyToEventId": _required_string(
+                command,
+                "eventId",
+            ),
+            "payload": {
+                "displayState": {
+                    "sessionId": binding.session_id,
+                    "currentMessageId": (
+                        self._state.current_message_id
+                    ),
+                    "isPinned": self._state.is_pinned,
+                    "displayMode": (
+                        self._state.display_mode
+                    ),
+                    "commandOrigin": (
+                        self._state.command_origin
+                    ),
+                }
+            },
+        }
+
     def _record_reply(
         self,
         event_id: str,
@@ -761,6 +902,189 @@ class PiBindingStateMachine:
         self.state_store.save(self._state)
 
         return reply
+
+    def _record_display_reply(
+        self,
+        event_id: str,
+        reply: dict[str, Any],
+    ) -> dict[str, Any]:
+        self._state.processed_display_replies[
+            event_id
+        ] = copy.deepcopy(reply)
+
+        while (
+            len(
+                self._state
+                .processed_display_replies
+            )
+            > MAX_PERSISTED_REPLIES
+        ):
+            oldest_event_id = next(
+                iter(
+                    self._state
+                    .processed_display_replies
+                )
+            )
+            del self._state.processed_display_replies[
+                oldest_event_id
+            ]
+
+        self.state_store.save(self._state)
+        return reply
+
+    def _apply_display_command(
+        self,
+        event_type: str,
+        payload: Mapping[str, Any],
+        session_id: str,
+    ) -> str:
+        if event_type in {
+            "display.show_message",
+            "display.restore_message",
+        }:
+            display = _required_mapping(
+                payload,
+                "display",
+            )
+            self._state.current_message_id = (
+                _required_string(
+                    display,
+                    "currentMessageId",
+                )
+            )
+            self._state.is_pinned = _required_bool(
+                display,
+                "isPinned",
+            )
+            self._state.display_mode = (
+                _required_string(
+                    display,
+                    "displayMode",
+                )
+            )
+            self._state.command_origin = (
+                _required_optional_string(
+                    display,
+                    "commandOrigin",
+                )
+            )
+            return (
+                "display.restored"
+                if event_type
+                == "display.restore_message"
+                else "display.rendered"
+            )
+
+        if event_type == "display.pin_message":
+            display = _required_mapping(
+                payload,
+                "display",
+            )
+            self._state.is_pinned = True
+            self._state.display_mode = (
+                _required_string(
+                    display,
+                    "displayMode",
+                )
+            )
+            self._state.command_origin = (
+                _required_optional_string(
+                    display,
+                    "commandOrigin",
+                )
+            )
+            current_message_id = (
+                _required_optional_string(
+                    display,
+                    "currentMessageId",
+                )
+            )
+            if current_message_id is not None:
+                self._state.current_message_id = (
+                    current_message_id
+                )
+            return "display.pinned"
+
+        if event_type == "display.unpin_message":
+            display = _required_mapping(
+                payload,
+                "display",
+            )
+            self._state.is_pinned = False
+            self._state.display_mode = (
+                _required_string(
+                    display,
+                    "displayMode",
+                )
+            )
+            self._state.command_origin = (
+                _required_optional_string(
+                    display,
+                    "commandOrigin",
+                )
+            )
+            current_message_id = (
+                _required_optional_string(
+                    display,
+                    "currentMessageId",
+                )
+            )
+            if current_message_id is not None:
+                self._state.current_message_id = (
+                    current_message_id
+                )
+            return "display.unpinned"
+
+        if event_type == "display.clear":
+            display = _required_mapping(
+                payload,
+                "display",
+            )
+            self._state.current_message_id = None
+            self._state.is_pinned = False
+            self._state.display_mode = (
+                _required_string(
+                    display,
+                    "displayMode",
+                )
+            )
+            self._state.command_origin = (
+                _required_optional_string(
+                    display,
+                    "commandOrigin",
+                )
+            )
+            return "display.cleared"
+
+        if event_type == "display.mode_changed":
+            display = _required_mapping(
+                payload,
+                "display",
+            )
+            mode_session_id = _required_string(
+                display,
+                "sessionId",
+            )
+            if mode_session_id != session_id:
+                raise ProtocolError(
+                    "session_id_mismatch"
+                )
+            self._state.display_mode = (
+                _required_string(
+                    display,
+                    "displayMode",
+                )
+            )
+            return "display.state"
+
+        raise ProtocolError("unsupported_command")
+
+    def _clear_display_state(self) -> None:
+        self._state.current_message_id = None
+        self._state.is_pinned = False
+        self._state.display_mode = "AUTO_LATEST"
+        self._state.command_origin = None
+        self._state.processed_display_replies.clear()
 
     def _enter_pairing_available(self) -> None:
         self._state.lifecycle = (
@@ -910,6 +1234,30 @@ def _optional_int(
         return None
 
     return _required_int(value, key)
+
+
+def _required_bool(
+    value: Mapping[str, Any],
+    key: str,
+) -> bool:
+    result = value.get(key)
+
+    if not isinstance(result, bool):
+        raise ProtocolError(
+            f"missing_or_invalid_{key}"
+        )
+
+    return result
+
+
+def _required_optional_string(
+    value: Mapping[str, Any],
+    key: str,
+) -> str | None:
+    result = value.get(key)
+    if result is None:
+        return None
+    return _required_string(value, key)
 
 
 def _normalize_join_code(
