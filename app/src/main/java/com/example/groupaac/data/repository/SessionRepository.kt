@@ -43,6 +43,23 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 
+sealed interface InvitationLookupResult {
+    data class Found(
+        val invitation: SessionInvitationPayload
+    ) : InvitationLookupResult
+
+    data class Invalid(
+        val message: String
+    ) : InvitationLookupResult
+
+    data object NotFound : InvitationLookupResult
+    data object Expired : InvitationLookupResult
+
+    data class Failure(
+        val message: String
+    ) : InvitationLookupResult
+}
+
 class SessionRepository(
     private val transactionRunner: TransactionRunner,
     private val sessionDao: SessionDao,
@@ -864,56 +881,36 @@ class SessionRepository(
         val cleanCode =
             normalizeJoinCode(joinCode)
 
-        val invitation =
-            when (
-                val result =
-                    sessionDirectory.resolve(
-                        cleanCode
-                    )
-            ) {
-                is ResolveJoinCodeResult.Found -> {
-                    result.entry
-                        .toSessionInvitationPayload()
-                }
-
-                ResolveJoinCodeResult.InvalidCode -> {
-                    error(
-                        "Session code must contain eight digits."
-                    )
-                }
-
-                ResolveJoinCodeResult.NotFound -> {
-                    error(
-                        "No session found for this code."
-                    )
-                }
-
-                ResolveJoinCodeResult.NotLive -> {
-                    error(
-                        "This session is not currently open."
-                    )
-                }
-
-                ResolveJoinCodeResult.Expired -> {
-                    error(
-                        "This session code has expired."
-                    )
-                }
-
-                is ResolveJoinCodeResult
-                .UnsupportedVersion -> {
-
-                    error(
-                        "This session uses an unsupported " +
-                                "invitation format. Update the " +
-                                "app before joining."
-                    )
-                }
-
-                is ResolveJoinCodeResult.Failure -> {
-                    error(result.message)
-                }
+        val invitation = when (
+            val result =
+                lookupInvitation(
+                    cleanCode
+                )
+        ) {
+            is InvitationLookupResult.Found -> {
+                result.invitation
             }
+
+            is InvitationLookupResult.Invalid -> {
+                error(result.message)
+            }
+
+            InvitationLookupResult.NotFound -> {
+                error(
+                    "No session found for this code."
+                )
+            }
+
+            InvitationLookupResult.Expired -> {
+                error(
+                    "This session code has expired."
+                )
+            }
+
+            is InvitationLookupResult.Failure -> {
+                error(result.message)
+            }
+        }
 
         return joinInvitation(
             invitation = invitation,
@@ -921,6 +918,82 @@ class SessionRepository(
             displayName = displayName,
             requestedRole = requestedRole
         )
+    }
+
+    suspend fun lookupInvitation(
+        joinCode: String
+    ): InvitationLookupResult {
+        val cleanCode =
+            normalizeJoinCode(joinCode)
+
+        return try {
+            when (
+                val result =
+                    sessionDirectory.resolve(
+                        cleanCode
+                    )
+            ) {
+                is ResolveJoinCodeResult.Found -> {
+                    try {
+                        InvitationLookupResult.Found(
+                            result.entry
+                                .toSessionInvitationPayload()
+                                .validatedForJoin(
+                                    nowProvider =
+                                        TimeUtils::now
+                                )
+                        )
+                    } catch (
+                        error: CancellationException
+                    ) {
+                        throw error
+                    } catch (error: IllegalArgumentException) {
+                        InvitationLookupResult.Invalid(
+                            error.message
+                                ?: "Invalid session invitation."
+                        )
+                    }
+                }
+
+                ResolveJoinCodeResult.InvalidCode -> {
+                    InvitationLookupResult.Invalid(
+                        "Session code must contain eight digits."
+                    )
+                }
+
+                ResolveJoinCodeResult.NotFound -> {
+                    InvitationLookupResult.NotFound
+                }
+
+                ResolveJoinCodeResult.NotLive -> {
+                    InvitationLookupResult.Invalid(
+                        "This session is not currently open."
+                    )
+                }
+
+                ResolveJoinCodeResult.Expired -> {
+                    InvitationLookupResult.Expired
+                }
+
+                is ResolveJoinCodeResult
+                .UnsupportedVersion -> {
+
+                    InvitationLookupResult.Invalid(
+                        "This session uses an unsupported " +
+                            "invitation format. Update the " +
+                            "app before joining."
+                    )
+                }
+
+                is ResolveJoinCodeResult.Failure -> {
+                    InvitationLookupResult.Failure(
+                        result.message
+                    )
+                }
+            }
+        } catch (error: CancellationException) {
+            throw error
+        }
     }
 
     suspend fun joinInvitation(

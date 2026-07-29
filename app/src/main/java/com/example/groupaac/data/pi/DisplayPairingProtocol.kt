@@ -180,6 +180,69 @@ object DisplayPairingPayloadCodec {
     }
 }
 
+object SessionInvitationPayloadCodec {
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+    }
+
+    fun encode(
+        payload: SessionInvitationPayload
+    ): String {
+        return json.encodeToString(
+            JsonObject.serializer(),
+            payload.toJsonObject()
+        )
+    }
+
+    fun decode(
+        serialized: String
+    ): SessionInvitationPayload {
+        val objectValue =
+            json.parseToJsonElement(serialized)
+                .jsonObject
+
+        return SessionInvitationPayload(
+            type = objectValue.requiredString("type"),
+            protocolVersion =
+                objectValue.requiredInt(
+                    "protocolVersion"
+                ),
+            sessionId =
+                objectValue.requiredString("sessionId"),
+            joinCode =
+                objectValue.requiredString("joinCode"),
+            sessionName =
+                objectValue.requiredString("sessionName"),
+            hostUserId =
+                objectValue.requiredString("hostUserId"),
+            displayId =
+                objectValue.requiredString("displayId"),
+            status =
+                SessionStatus.valueOf(
+                    objectValue.requiredString(
+                        "status"
+                    )
+                ),
+            displayMode =
+                DisplayMode.valueOf(
+                    objectValue.requiredString(
+                        "displayMode"
+                    )
+                ),
+            actualStartedAt =
+                objectValue.requiredLong(
+                    "actualStartedAt"
+                ),
+            expiresAt =
+                objectValue.requiredLong(
+                    "expiresAt"
+                )
+        )
+    }
+}
+
 /**
  * Creates the command sent to:
  *

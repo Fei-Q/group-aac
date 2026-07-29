@@ -3,16 +3,30 @@ package com.example.groupaac.ui.session
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.UserEntity
+import com.example.groupaac.data.pi.DisplayPairingPayloadCodec
+import com.example.groupaac.data.pi.LaunchSessionResult
+import com.example.groupaac.data.pi.SessionInvitationPayload
+import com.example.groupaac.data.pi.SessionInvitationPayloadCodec
+import com.example.groupaac.data.pi.validatedForJoin
 import com.example.groupaac.data.realtime.RealtimeConnectionState
 import com.example.groupaac.data.realtime.SessionSubscriptionCoordinator
 import com.example.groupaac.data.repository.AccountRepository
+import com.example.groupaac.data.repository.InvitationLookupResult
 import com.example.groupaac.data.repository.SessionRepository
 import com.example.groupaac.model.ActiveSession
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.JoinSessionResult
-import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SessionConnectionState
+import com.example.groupaac.model.SessionRole
+import com.example.groupaac.util.TimeUtils
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,8 +34,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
-import com.example.groupaac.data.pi.DisplayPairingPayloadCodec
-import com.example.groupaac.data.pi.LaunchSessionResult
 
 sealed interface DisplayLaunchUiState {
 
@@ -44,10 +56,55 @@ sealed interface DisplayLaunchUiState {
         val message: String
     ) : DisplayLaunchUiState
 }
+
+sealed interface ParticipantLookupUiState {
+
+    data object Idle : ParticipantLookupUiState
+
+    data class Resolving(
+        val codeDigits: String
+    ) : ParticipantLookupUiState
+
+    data class Preview(
+        val preview: ParticipantSessionPreview
+    ) : ParticipantLookupUiState
+
+    data class NotFound(
+        val codeDigits: String
+    ) : ParticipantLookupUiState
+
+    data class Expired(
+        val message: String
+    ) : ParticipantLookupUiState
+
+    data class Invalid(
+        val message: String
+    ) : ParticipantLookupUiState
+
+    data class Failure(
+        val message: String
+    ) : ParticipantLookupUiState
+
+    data class Joining(
+        val preview: ParticipantSessionPreview
+    ) : ParticipantLookupUiState
+}
+
+data class ParticipantSessionPreview(
+    val invitation: SessionInvitationPayload,
+    val sessionName: String,
+    val formattedCode: String,
+    val startLabel: String?,
+    val displayIdentity: String,
+    val expiryWarning: String?
+)
+
 data class SessionCoordinatorUiState(
     val activeUser: UserEntity? = null,
     val connectionState: SessionConnectionState =
         SessionConnectionState.Restoring,
+    val participantLookupState: ParticipantLookupUiState =
+        ParticipantLookupUiState.Idle,
     val displayLaunchState: DisplayLaunchUiState =
         DisplayLaunchUiState.Idle,
     val errorMessage: String? = null
@@ -64,6 +121,130 @@ class SessionCoordinatorViewModel(
     )
     val uiState: StateFlow<SessionCoordinatorUiState> =
         _uiState.asStateFlow()
+
+    private val participantLookupCoordinator =
+        ParticipantLookupCoordinator(
+            scope = viewModelScope,
+            lookupInvitationByCode =
+                sessionRepository::lookupInvitation,
+            decodeInvitation = {
+                SessionInvitationPayloadCodec
+                    .decode(it)
+            },
+            validateInvitation = { invitation ->
+                invitation.validatedForJoin(
+                    nowProvider = TimeUtils::now
+                )
+            },
+            joinInvitation = {
+                    invitation,
+                    userId,
+                    displayName,
+                    role ->
+
+                sessionRepository.joinInvitation(
+                    invitation = invitation,
+                    userId = userId,
+                    displayName = displayName,
+                    requestedRole = role
+                )
+            },
+            updateDisplayName =
+                accountRepository::updateDisplayName,
+            loadLocalSession =
+                sessionRepository::getSession,
+            onStateChanged = { state ->
+                _uiState.value =
+                    _uiState.value.copy(
+                        participantLookupState = state
+                    )
+            },
+            onJoinStarted = { preview ->
+                _uiState.value =
+                    _uiState.value.copy(
+                        connectionState =
+                            SessionConnectionState.Joining(
+                                preview.formattedCode
+                            ),
+                        errorMessage = null
+                    )
+            },
+            onJoinSuccess = {
+                    userId,
+                    result ->
+
+                when (result) {
+                    is JoinSessionResult.Joined -> {
+                        joinRequestJob?.cancel()
+                        sessionSubscriptionCoordinator
+                            .clearFacilitatorRequest(
+                                userId = userId
+                            )
+                        _uiState.value =
+                            _uiState.value.copy(
+                                connectionState =
+                                    SessionConnectionState
+                                        .Connected(
+                                            result.activeSession
+                                        ),
+                                errorMessage = null
+                            )
+                    }
+
+                    is JoinSessionResult
+                    .AwaitingApproval -> {
+                        val request = result.request
+                        sessionSubscriptionCoordinator
+                            .trackFacilitatorRequest(
+                                sessionId =
+                                    request.sessionId,
+                                userId = userId
+                            )
+                        val sessionName =
+                            sessionRepository
+                                .getSession(
+                                    request.sessionId
+                                )
+                                ?.name
+                                ?: "Group Meeting"
+                        observeJoinRequest(
+                            userId = userId,
+                            requestId = request.id
+                        )
+                        _uiState.value =
+                            _uiState.value.copy(
+                                connectionState =
+                                    SessionConnectionState
+                                        .AwaitingApproval(
+                                            requestId =
+                                                request.id,
+                                            sessionId =
+                                                request.sessionId,
+                                            sessionName =
+                                                sessionName,
+                                            requestedAt =
+                                                request.requestedAt
+                                        ),
+                                errorMessage = null
+                            )
+                    }
+                }
+            },
+            onJoinFailure = { userId, message ->
+                sessionSubscriptionCoordinator
+                    .clearFacilitatorRequest(
+                        userId = userId
+                    )
+                _uiState.value =
+                    _uiState.value.copy(
+                        connectionState =
+                            SessionConnectionState
+                                .NotInSession,
+                        errorMessage = message
+                    )
+            },
+            nowProvider = TimeUtils::now
+        )
 
     private var activeSessionJob: Job? = null
     private var joinRequestJob: Job? = null
@@ -94,6 +275,8 @@ class SessionCoordinatorViewModel(
                         } else {
                             SessionConnectionState.Restoring
                         },
+                        participantLookupState =
+                            ParticipantLookupUiState.Idle,
                         displayLaunchState =
                             DisplayLaunchUiState.Idle,
                         errorMessage = null
@@ -138,87 +321,46 @@ class SessionCoordinatorViewModel(
         }
     }
 
-    fun joinSession(
-        code: String,
+    fun updateParticipantLookupCode(
+        code: String
+    ) {
+        participantLookupCoordinator
+            .onCodeChanged(code)
+    }
+
+    fun previewParticipantInvitation(
+        scannedValue: String
+    ) {
+        participantLookupCoordinator
+            .onQrScanned(scannedValue)
+    }
+
+    fun onParticipantQrScanCancelled() {
+        participantLookupCoordinator
+            .onQrScanCancelled()
+    }
+
+    fun onParticipantQrScanFailed(
+        message: String
+    ) {
+        participantLookupCoordinator
+            .onScannerFailure(message)
+    }
+
+    fun confirmParticipantJoin(
         displayName: String,
         sessionRole: SessionRole,
         rememberProfile: Boolean
     ) {
         val user = _uiState.value.activeUser ?: return
 
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                connectionState =
-                    SessionConnectionState.Joining(code),
-                errorMessage = null
+        participantLookupCoordinator
+            .confirmJoin(
+                user = user,
+                displayName = displayName,
+                sessionRole = sessionRole,
+                rememberProfile = rememberProfile
             )
-
-            runCatching {
-                if (rememberProfile) {
-                    accountRepository.updateDisplayName(
-                        userId = user.uid,
-                        displayName = displayName
-                    )
-                }
-
-                sessionRepository.joinSession(
-                    joinCode = code,
-                    userId = user.uid,
-                    displayName = displayName,
-                    requestedRole = sessionRole
-                )
-            }.onSuccess { result ->
-                when (result) {
-                    is JoinSessionResult.Joined -> {
-                        joinRequestJob?.cancel()
-                        sessionSubscriptionCoordinator.clearFacilitatorRequest(
-                            userId = user.uid
-                        )
-                        _uiState.value = _uiState.value.copy(
-                            connectionState =
-                                SessionConnectionState.Connected(
-                                    result.activeSession
-                                )
-                        )
-                    }
-
-                    is JoinSessionResult.AwaitingApproval -> {
-                        val request = result.request
-                        sessionSubscriptionCoordinator.trackFacilitatorRequest(
-                            sessionId = request.sessionId,
-                            userId = user.uid
-                        )
-                        val sessionName = sessionRepository
-                            .getSession(request.sessionId)
-                            ?.name
-                            ?: "Group Meeting"
-                        observeJoinRequest(
-                            userId = user.uid,
-                            requestId = request.id
-                        )
-                        _uiState.value = _uiState.value.copy(
-                            connectionState =
-                                SessionConnectionState.AwaitingApproval(
-                                    requestId = request.id,
-                                    sessionId = request.sessionId,
-                                    sessionName = sessionName,
-                                    requestedAt = request.requestedAt
-                                )
-                        )
-                    }
-                }
-            }.onFailure { error ->
-                sessionSubscriptionCoordinator.clearFacilitatorRequest(
-                    userId = user.uid
-                )
-                _uiState.value = _uiState.value.copy(
-                    connectionState =
-                        SessionConnectionState.NotInSession,
-                    errorMessage =
-                        error.message ?: "Unable to join session."
-                )
-            }
-        }
     }
 
     private fun observeJoinRequest(
@@ -276,6 +418,8 @@ class SessionCoordinatorViewModel(
                             _uiState.value = _uiState.value.copy(
                                 connectionState =
                                     SessionConnectionState.NotInSession,
+                                participantLookupState =
+                                    ParticipantLookupUiState.Idle,
                                 errorMessage =
                                     "Facilitator request declined."
                             )
@@ -291,6 +435,8 @@ class SessionCoordinatorViewModel(
                             _uiState.value = _uiState.value.copy(
                                 connectionState =
                                     SessionConnectionState.NotInSession,
+                                participantLookupState =
+                                    ParticipantLookupUiState.Idle,
                                 errorMessage = null
                             )
                         }
@@ -316,6 +462,8 @@ class SessionCoordinatorViewModel(
                 )
                 _uiState.value = _uiState.value.copy(
                     connectionState = SessionConnectionState.NotInSession,
+                    participantLookupState =
+                        ParticipantLookupUiState.Idle,
                     errorMessage = null
                 )
             }.onFailure { error ->
@@ -355,10 +503,6 @@ class SessionCoordinatorViewModel(
                     displayName = displayName
                 )
             }.onSuccess { draftSession ->
-                /*
-                 * The session exists locally, but it is still DRAFT.
-                 * Do not enter the facilitator session yet.
-                 */
                 _uiState.value =
                     _uiState.value.copy(
                         connectionState =
@@ -426,6 +570,7 @@ class SessionCoordinatorViewModel(
                     DisplayLaunchUiState.Idle
             )
     }
+
     fun launchSessionOnDisplay(
         scannedValue: String
     ) {
@@ -441,27 +586,24 @@ class SessionCoordinatorViewModel(
             ) {
                 is DisplayLaunchUiState
                 .AwaitingScan -> {
-
                     state.sessionId to
-                            state.sessionName
+                        state.sessionName
                 }
 
                 is DisplayLaunchUiState.Error -> {
                     state.sessionId to
-                            state.sessionName
+                        state.sessionName
                 }
 
                 DisplayLaunchUiState.Idle,
                 is DisplayLaunchUiState
                 .Connecting -> {
-
                     return
                 }
             }
 
         val sessionId =
             pendingLaunch.first
-
         val sessionName =
             pendingLaunch.second
 
@@ -475,10 +617,8 @@ class SessionCoordinatorViewModel(
                     _uiState.value.copy(
                         displayLaunchState =
                             DisplayLaunchUiState.Error(
-                                sessionId =
-                                    sessionId,
-                                sessionName =
-                                    sessionName,
+                                sessionId = sessionId,
+                                sessionName = sessionName,
                                 message =
                                     error.message
                                         ?: "This is not a valid display pairing QR code."
@@ -506,8 +646,7 @@ class SessionCoordinatorViewModel(
                     sessionRepository
                         .launchSessionOnDisplay(
                             sessionId = sessionId,
-                            ownerUserId =
-                                user.uid,
+                            ownerUserId = user.uid,
                             pairing = pairing
                         )
                 } catch (error: Exception) {
@@ -538,7 +677,7 @@ class SessionCoordinatorViewModel(
                         sessionName = sessionName,
                         message =
                             "This display QR code has expired. " +
-                                    "Scan the refreshed QR code shown by the display."
+                                "Scan the refreshed QR code shown by the display."
                     )
                 }
 
@@ -548,13 +687,12 @@ class SessionCoordinatorViewModel(
                         sessionName = sessionName,
                         message =
                             "The display did not respond. " +
-                                    "Check that it is online, then scan its refreshed QR code."
+                                "Check that it is online, then scan its refreshed QR code."
                     )
                 }
 
                 is LaunchSessionResult
                 .DisplayRejected -> {
-
                     setDisplayLaunchError(
                         sessionId = sessionId,
                         sessionName = sessionName,
@@ -567,24 +705,21 @@ class SessionCoordinatorViewModel(
 
                 LaunchSessionResult
                     .DirectoryCollision -> {
-
                     setDisplayLaunchError(
                         sessionId = sessionId,
                         sessionName = sessionName,
                         message =
                             "The session code was taken by another session. " +
-                                    "Scan the display's refreshed QR code to try again."
+                                "Scan the display's refreshed QR code to try again."
                     )
                 }
 
                 is LaunchSessionResult
                 .DirectoryFailure -> {
-
                     setDisplayLaunchError(
                         sessionId = sessionId,
                         sessionName = sessionName,
-                        message =
-                            result.message
+                        message = result.message
                     )
                 }
 
@@ -592,8 +727,7 @@ class SessionCoordinatorViewModel(
                     setDisplayLaunchError(
                         sessionId = sessionId,
                         sessionName = sessionName,
-                        message =
-                            result.message
+                        message = result.message
                     )
                 }
             }
@@ -607,7 +741,9 @@ class SessionCoordinatorViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 connectionState =
-                    SessionConnectionState.Leaving(session)
+                    SessionConnectionState.Leaving(
+                        session
+                    )
             )
 
             runCatching {
@@ -618,14 +754,19 @@ class SessionCoordinatorViewModel(
             }.onSuccess {
                 _uiState.value = _uiState.value.copy(
                     connectionState =
-                        SessionConnectionState.NotInSession
+                        SessionConnectionState.NotInSession,
+                    participantLookupState =
+                        ParticipantLookupUiState.Idle
                 )
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
                     connectionState =
-                        SessionConnectionState.Connected(session),
+                        SessionConnectionState.Connected(
+                            session
+                        ),
                     errorMessage =
-                        error.message ?: "Unable to leave session."
+                        error.message
+                            ?: "Unable to leave session."
                 )
             }
         }
@@ -647,12 +788,15 @@ class SessionCoordinatorViewModel(
             }.onSuccess {
                 _uiState.value = _uiState.value.copy(
                     connectionState =
-                        SessionConnectionState.NotInSession
+                        SessionConnectionState.NotInSession,
+                    participantLookupState =
+                        ParticipantLookupUiState.Idle
                 )
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
                     errorMessage =
-                        error.message ?: "Unable to end session."
+                        error.message
+                            ?: "Unable to end session."
                 )
             }
         }
@@ -672,7 +816,9 @@ class SessionCoordinatorViewModel(
             )
             _uiState.value = _uiState.value.copy(
                 connectionState =
-                    SessionConnectionState.NotInSession
+                    SessionConnectionState.NotInSession,
+                participantLookupState =
+                    ParticipantLookupUiState.Idle
             )
         }
     }
@@ -727,13 +873,14 @@ class SessionCoordinatorViewModel(
 
             else -> {
                 "The display rejected the connection: " +
-                        reason.replace(
-                            oldChar = '_',
-                            newChar = ' '
-                        )
+                    reason.replace(
+                        oldChar = '_',
+                        newChar = ' '
+                    )
             }
         }
     }
+
     private fun currentActiveSession(): ActiveSession? =
         when (
             val state = _uiState.value.connectionState
@@ -764,7 +911,10 @@ class SessionCoordinatorViewModel(
 
                 val session = currentActiveSession() ?: return@collect
                 _uiState.value = _uiState.value.copy(
-                    connectionState = connectionStateFor(session, realtimeState)
+                    connectionState = connectionStateFor(
+                        session,
+                        realtimeState
+                    )
                 )
             }
         }
@@ -776,12 +926,16 @@ class SessionCoordinatorViewModel(
     ): SessionConnectionState {
         return when (realtimeState) {
             RealtimeConnectionState.Connected ->
-                SessionConnectionState.Connected(session)
+                SessionConnectionState.Connected(
+                    session
+                )
 
             RealtimeConnectionState.Connecting,
             RealtimeConnectionState.Reconnecting,
             RealtimeConnectionState.Disconnected ->
-                SessionConnectionState.Reconnecting(session)
+                SessionConnectionState.Reconnecting(
+                    session
+                )
 
             is RealtimeConnectionState.Failed ->
                 SessionConnectionState.Reconnecting(
@@ -790,6 +944,328 @@ class SessionCoordinatorViewModel(
                 )
         }
     }
+}
+
+internal class ParticipantLookupCoordinator(
+    private val scope: CoroutineScope,
+    private val lookupInvitationByCode:
+        suspend (String) -> InvitationLookupResult,
+    private val decodeInvitation:
+        (String) -> SessionInvitationPayload,
+    private val validateInvitation:
+        (SessionInvitationPayload) -> SessionInvitationPayload,
+    private val joinInvitation:
+        suspend (
+            SessionInvitationPayload,
+            String,
+            String,
+            SessionRole
+        ) -> JoinSessionResult,
+    private val updateDisplayName:
+        suspend (String, String) -> Unit,
+    private val loadLocalSession:
+        suspend (String) -> SessionEntity?,
+    private val onStateChanged:
+        (ParticipantLookupUiState) -> Unit,
+    private val onJoinStarted:
+        (ParticipantSessionPreview) -> Unit,
+    private val onJoinSuccess:
+        suspend (String, JoinSessionResult) -> Unit,
+    private val onJoinFailure:
+        (String, String) -> Unit,
+    private val nowProvider: () -> Long
+) {
+    private var state: ParticipantLookupUiState =
+        ParticipantLookupUiState.Idle
+    private var lookupJob: Job? = null
+    private var lastLookupCode: String? = null
+
+    fun onCodeChanged(
+        code: String
+    ) {
+        val digits =
+            code.filter(Char::isDigit)
+                .take(8)
+
+        if (digits.length < 8) {
+            lookupJob?.cancel()
+            lastLookupCode = null
+            updateState(
+                ParticipantLookupUiState.Idle
+            )
+            return
+        }
+
+        if (digits == lastLookupCode) {
+            return
+        }
+
+        lastLookupCode = digits
+        lookupJob?.cancel()
+        updateState(
+            ParticipantLookupUiState.Resolving(
+                codeDigits = digits
+            )
+        )
+
+        lookupJob = scope.launch {
+            when (
+                val result =
+                    lookupInvitationByCode(
+                        digits
+                    )
+            ) {
+                is InvitationLookupResult.Found -> {
+                    updateState(
+                        ParticipantLookupUiState
+                            .Preview(
+                                preview =
+                                    buildPreview(
+                                        invitation =
+                                            result
+                                                .invitation,
+                                        localSession =
+                                            loadLocalSession(
+                                                result
+                                                    .invitation
+                                                    .sessionId
+                                            ),
+                                        nowProvider =
+                                            nowProvider
+                                    )
+                            )
+                    )
+                }
+
+                InvitationLookupResult.NotFound -> {
+                    updateState(
+                        ParticipantLookupUiState
+                            .NotFound(
+                                codeDigits = digits
+                            )
+                    )
+                }
+
+                InvitationLookupResult.Expired -> {
+                    updateState(
+                        ParticipantLookupUiState
+                            .Expired(
+                                "This session invitation has expired."
+                            )
+                    )
+                }
+
+                is InvitationLookupResult.Invalid -> {
+                    updateState(
+                        ParticipantLookupUiState
+                            .Invalid(
+                                result.message
+                            )
+                    )
+                }
+
+                is InvitationLookupResult.Failure -> {
+                    updateState(
+                        ParticipantLookupUiState
+                            .Failure(
+                                result.message
+                            )
+                    )
+                }
+            }
+        }
+    }
+
+    fun onQrScanned(
+        scannedValue: String
+    ) {
+        lookupJob?.cancel()
+        lastLookupCode = null
+
+        val invitation =
+            try {
+                validateInvitation(
+                    decodeInvitation(
+                        scannedValue
+                    )
+                )
+            } catch (
+                error: CancellationException
+            ) {
+                throw error
+            } catch (error: Exception) {
+                updateState(
+                    ParticipantLookupUiState
+                        .Invalid(
+                            error.message
+                                ?: "This is not a valid session QR code."
+                        )
+                )
+                return
+            }
+
+        lookupJob = scope.launch {
+            updateState(
+                ParticipantLookupUiState
+                    .Preview(
+                        preview =
+                            buildPreview(
+                                invitation = invitation,
+                                localSession =
+                                    loadLocalSession(
+                                        invitation
+                                            .sessionId
+                                    ),
+                                nowProvider =
+                                    nowProvider
+                            )
+                    )
+            )
+        }
+    }
+
+    fun onQrScanCancelled() = Unit
+
+    fun onScannerFailure(
+        message: String
+    ) {
+        updateState(
+            ParticipantLookupUiState.Failure(
+                message
+            )
+        )
+    }
+
+    fun confirmJoin(
+        user: UserEntity,
+        displayName: String,
+        sessionRole: SessionRole,
+        rememberProfile: Boolean
+    ) {
+        val preview =
+            when (val currentState = state) {
+                is ParticipantLookupUiState
+                .Preview -> {
+                    currentState.preview
+                }
+
+                else -> return
+            }
+
+        lookupJob?.cancel()
+        updateState(
+            ParticipantLookupUiState.Joining(
+                preview = preview
+            )
+        )
+        onJoinStarted(preview)
+
+        scope.launch {
+            try {
+                if (rememberProfile) {
+                    updateDisplayName(
+                        user.uid,
+                        displayName
+                    )
+                }
+
+                val result =
+                    joinInvitation(
+                        preview.invitation,
+                        user.uid,
+                        displayName,
+                        sessionRole
+                    )
+
+                updateState(
+                    ParticipantLookupUiState.Idle
+                )
+                onJoinSuccess(
+                    user.uid,
+                    result
+                )
+            } catch (
+                error: CancellationException
+            ) {
+                throw error
+            } catch (error: Exception) {
+                val message =
+                    error.message
+                        ?: "Unable to join session."
+                updateState(
+                    ParticipantLookupUiState.Failure(
+                        message
+                    )
+                )
+                onJoinFailure(
+                    user.uid,
+                    message
+                )
+            }
+        }
+    }
+
+    private fun updateState(
+        next: ParticipantLookupUiState
+    ) {
+        state = next
+        onStateChanged(next)
+    }
+}
+
+internal fun buildPreview(
+    invitation: SessionInvitationPayload,
+    localSession: SessionEntity?,
+    nowProvider: () -> Long
+): ParticipantSessionPreview {
+    val startTime =
+        invitation.actualStartedAt
+            .takeIf { it > 0L }
+            ?: localSession?.scheduledStartAt
+
+    val startLabel =
+        startTime?.let { millis ->
+            val prefix =
+                if (invitation.actualStartedAt > 0L) {
+                    "Started"
+                } else {
+                    "Scheduled"
+                }
+            "$prefix ${formatClockTime(millis)}"
+        }
+
+    val expiryWarning =
+        if (
+            invitation.expiresAt - nowProvider() <=
+            10 * 60_000L
+        ) {
+            "Expires soon"
+        } else {
+            null
+        }
+
+    return ParticipantSessionPreview(
+        invitation = invitation,
+        sessionName = invitation.sessionName,
+        formattedCode = invitation.joinCode,
+        startLabel = startLabel,
+        displayIdentity =
+            "Display ${invitation.displayId}",
+        expiryWarning = expiryWarning
+    )
+}
+
+private fun formatClockTime(
+    timeMillis: Long
+): String {
+    return DateTimeFormatter
+        .ofLocalizedTime(
+            FormatStyle.SHORT
+        )
+        .withZone(ZoneId.systemDefault())
+        .format(
+            Instant.ofEpochMilli(timeMillis)
+        )
 }
 
 class SessionCoordinatorViewModelFactory(

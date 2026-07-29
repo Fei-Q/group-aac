@@ -131,8 +131,16 @@ fun AppNavGraph(
                             sessionCoordinatorViewModel::launchSessionOnDisplay,
                         onCancelDisplayLaunch =
                             sessionCoordinatorViewModel::cancelDisplayLaunch,
-                        onJoinSession =
-                            sessionCoordinatorViewModel::joinSession,
+                        onParticipantLookupCodeChanged =
+                            sessionCoordinatorViewModel::updateParticipantLookupCode,
+                        onConfirmParticipantJoin =
+                            sessionCoordinatorViewModel::confirmParticipantJoin,
+                        onParticipantInvitationScanned =
+                            sessionCoordinatorViewModel::previewParticipantInvitation,
+                        onParticipantScanFailed =
+                            sessionCoordinatorViewModel::onParticipantQrScanFailed,
+                        onParticipantScanCancelled =
+                            sessionCoordinatorViewModel::onParticipantQrScanCancelled,
                         onCancelFacilitatorRequest =
                             sessionCoordinatorViewModel::cancelFacilitatorRequest
                     )

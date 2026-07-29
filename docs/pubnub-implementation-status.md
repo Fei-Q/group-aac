@@ -2,7 +2,7 @@
 
 Date: 2026-07-29
 Branch: `feature/pubnub-pi-prototype-hardening`
-Status: display-pairing milestone plus Stage 4A shared invitation join pipeline are complete; scanner UI for participant QR joining has not started
+Status: display-pairing milestone plus Stages 4A and 4B are complete; participant QR scanning now previews and confirms joins, but broader recovery work remains deferred
 
 ## Frozen Scope
 
@@ -12,6 +12,7 @@ Status: display-pairing milestone plus Stage 4A shared invitation join pipeline 
 - Join-code discovery is handled by PubNub App Context metadata through `SessionDirectory`.
 - Direct session invitations are validated through a shared repository join pipeline and do not call `SessionDirectory`.
 - Number-code joins resolve one directory entry, convert it to the same invitation model, and then use that same repository join pipeline.
+- JoinSessionScreen now supports both manual-code preview and participant QR preview before confirmation.
 - Display pairing is coordinated by Android and a Pi-side pairing QR / control-event handshake.
 - The Python code under [`pi/`](../pi/README.md) is a simulator, protocol reference, and test harness only.
 - Production Raspberry Pi software is external to this repository and is being implemented in C++.
@@ -26,6 +27,7 @@ Status: display-pairing milestone plus Stage 4A shared invitation join pipeline 
 - Display pairing protocol helpers live in [DisplayPairingProtocol](../app/src/main/java/com/example/groupaac/data/pi/DisplayPairingProtocol.kt).
 - Shared invitation validation and join entry points now use the existing [SessionInvitationPayload](../app/src/main/java/com/example/groupaac/data/pi/DisplayPairingProtocol.kt) model through [SessionRepository.joinInvitation(...)](../app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt).
 - Android-to-display bind/unbind orchestration lives in [DisplayBindingCoordinator](../app/src/main/java/com/example/groupaac/data/pi/DisplayBindingCoordinator.kt).
+- Participant lookup and preview state live in [SessionCoordinatorViewModel](../app/src/main/java/com/example/groupaac/ui/session/SessionCoordinatorViewModel.kt) and [JoinSessionScreen](../app/src/main/java/com/example/groupaac/ui/session/JoinSessionScreen.kt).
 - Facilitator launch UI state lives in [SessionCoordinatorViewModel](../app/src/main/java/com/example/groupaac/ui/session/SessionCoordinatorViewModel.kt) and [OutsideSessionNavGraph](../app/src/main/java/com/example/groupaac/ui/navigation/OutsideSessionNavGraph.kt).
 
 ## Verified Lifecycle
@@ -47,6 +49,11 @@ Status: display-pairing milestone plus Stage 4A shared invitation join pipeline 
    - number-code joins normalize the code, resolve `SessionDirectory` once, convert the result to `SessionInvitationPayload`, and call the same repository function
    - both paths upsert equivalent local session-shell state before participant membership or facilitator request handling
    - `CancellationException` is preserved through both paths
+7. JoinSessionScreen lookup flow now behaves as follows:
+   - fewer than eight manual digits: no directory request
+   - eight manual digits: show resolving state, then preview / not found / expired / invalid / failure
+   - participant QR scan: decode and validate with the shared invitation codec/validator and show the same preview without calling `SessionDirectory`
+   - neither manual code nor QR scan joins immediately; both require an explicit confirmation tap
 
 ## Channel Naming
 
@@ -76,6 +83,7 @@ Session-scoped display channels remain separate:
 ## Deferred Follow-Up
 
 - Broad snapshot or history-based recovery for invitation joins remains a later recovery-stage requirement and is intentionally not part of Stage 4A.
+- Participant QR scanner UI now exists, but snapshot/history recovery and larger reconnect/resume behaviors are still later-stage work.
 
 ## Companion Docs
 

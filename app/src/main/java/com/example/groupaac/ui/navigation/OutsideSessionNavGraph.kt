@@ -114,12 +114,21 @@ fun OutsideSessionNavGraph(
         scannedValue: String
     ) -> Unit,
     onCancelDisplayLaunch: () -> Unit,
-    onJoinSession: (
-        code: String,
+    onParticipantLookupCodeChanged: (
+        code: String
+    ) -> Unit,
+    onConfirmParticipantJoin: (
         displayName: String,
         sessionRole: SessionRole,
         rememberProfile: Boolean
     ) -> Unit,
+    onParticipantInvitationScanned: (
+        scannedValue: String
+    ) -> Unit,
+    onParticipantScanFailed: (
+        message: String
+    ) -> Unit,
+    onParticipantScanCancelled: () -> Unit,
     onCancelFacilitatorRequest: () -> Unit,
     onClearLocalHistory: () -> Unit = {},
     onExportSummary: () -> Unit = {},
@@ -144,6 +153,17 @@ fun OutsideSessionNavGraph(
         }
 
     val displayQrScanner =
+        remember(
+            context,
+            displayScannerOptions
+        ) {
+            GmsBarcodeScanning.getClient(
+                context,
+                displayScannerOptions
+            )
+        }
+
+    val participantQrScanner =
         remember(
             context,
             displayScannerOptions
@@ -184,6 +204,34 @@ fun OutsideSessionNavGraph(
                 displayScannerError =
                     error.message
                         ?: "Unable to open the QR scanner."
+            }
+    }
+
+    fun scanParticipantQrCode() {
+        participantQrScanner
+            .startScan()
+            .addOnSuccessListener { barcode ->
+                val rawValue =
+                    barcode.rawValue
+
+                if (rawValue.isNullOrBlank()) {
+                    onParticipantScanFailed(
+                        "The scanned QR code did not contain session information."
+                    )
+                } else {
+                    onParticipantInvitationScanned(
+                        rawValue
+                    )
+                }
+            }
+            .addOnCanceledListener {
+                onParticipantScanCancelled()
+            }
+            .addOnFailureListener { error ->
+                onParticipantScanFailed(
+                    error.message
+                        ?: "Unable to open the QR scanner."
+                )
             }
     }
 
@@ -326,11 +374,17 @@ fun OutsideSessionNavGraph(
                         HomeExperience.SIMPLE -> {
                             JoinSessionScreen(
                                 currentUser = userForActions,
-                                isJoining = sessionUiState.connectionState
-                                    is SessionConnectionState.Joining,
+                                participantLookupState =
+                                    sessionUiState.participantLookupState,
                                 errorMessage = sessionUiState.errorMessage,
-                                onJoin = onJoinSession,
-                                modifier = Modifier.fillMaxSize()
+                                onLookupCodeChanged =
+                                    onParticipantLookupCodeChanged,
+                                onConfirmJoin =
+                                    onConfirmParticipantJoin,
+                                modifier = Modifier.fillMaxSize(),
+                                onScanQrCode = {
+                                    scanParticipantQrCode()
+                                }
                             )
                         }
 
@@ -393,11 +447,17 @@ fun OutsideSessionNavGraph(
                 } else {
                     JoinSessionScreen(
                         currentUser = userForActions,
-                        isJoining = sessionUiState.connectionState
-                            is SessionConnectionState.Joining,
+                        participantLookupState =
+                            sessionUiState.participantLookupState,
                         errorMessage = sessionUiState.errorMessage,
-                        onJoin = onJoinSession,
+                        onLookupCodeChanged =
+                            onParticipantLookupCodeChanged,
+                        onConfirmJoin =
+                            onConfirmParticipantJoin,
                         modifier = Modifier.fillMaxSize(),
+                        onScanQrCode = {
+                            scanParticipantQrCode()
+                        },
                         onBack = {
                             navController.popBackStack()
                         }

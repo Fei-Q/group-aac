@@ -1,17 +1,16 @@
 # End-To-End Test Procedure
 
-Date: 2026-07-28
+Date: 2026-07-29
 
 ## Prerequisites
 
-- branch: `feature/pubnub-live-integration`
-- local backend available
+- branch: `feature/pubnub-pi-prototype-hardening`
 - valid `pubnub.properties` at repo root
 - one of:
   - two emulators
   - one emulator plus one physical Android device
 - optional:
-  - Python Pi test consumer wrapper around [backend/pi_test_consumer.py](../backend/pi_test_consumer.py)
+  - Python Pi runtime in [`pi/`](../pi/README.md)
   - physical Raspberry Pi implementation that follows [Pi Display Protocol Contract](./pi-display-protocol-contract.md)
 
 ## Required Local Config
@@ -27,38 +26,15 @@ PUBNUB_SUBSCRIBE_KEY=sub-c-...
 
 Do not add a secret key to Android.
 
-### Backend
-
-Recommended local defaults:
-
-```bash
-export GROUP_AAC_DATABASE_URL=sqlite:///./group_aac_backend.db
-```
-
-The Android app defaults `BuildConfig.SESSION_DIRECTORY_BASE_URL` to:
-
-```text
-http://10.0.2.2:8000
-```
-
-Override with `GROUP_AAC_SESSION_DIRECTORY_BASE_URL` before Gradle build if needed.
-
-## Start The Backend
-
-```bash
-cd backend
-python3 -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
 ## Optional Pi Harness
 
-The repo currently provides a deterministic protocol model, not a live PubNub subscriber:
+The repo currently provides a Python Pi runtime and simulator rather than production Pi software:
 
-- implementation: [backend/pi_test_consumer.py](../backend/pi_test_consumer.py)
-- tests: [backend/tests/test_pi_test_consumer.py](../backend/tests/test_pi_test_consumer.py)
+- implementation: [`pi/group_aac_pi/runtime.py`](../pi/group_aac_pi/runtime.py)
+- tests: [`pi/tests/test_state_machine.py`](../pi/tests/test_state_machine.py)
 - fixtures: [pi-display-protocol-fixtures.json](./pi-display-protocol-fixtures.json)
 
-To run a true vertical slice, wrap that consumer in a small live PubNub subscriber/publisher or replace it with a physical Pi implementation.
+To run a true vertical slice, use the Python runtime with valid PubNub keys or replace it with a physical Pi implementation.
 
 ## Android Verification Commands
 
@@ -68,17 +44,17 @@ Run from repo root:
 ./gradlew :app:assembleDebug
 ./gradlew :app:testDebugUnitTest
 ./gradlew :app:connectedDebugAndroidTest --stacktrace
-cd backend && python3 -m pytest
+cd pi && source .venv/bin/activate && python -m pytest tests -q
 ```
 
-Current verified outcomes on 2026-07-28:
+Current verified outcomes on 2026-07-29:
 
 - `assembleDebug`: passed
-- `testDebugUnitTest`: passed (`91` tests, `0` failures)
-- `connectedDebugAndroidTest`: passed
+- `testDebugUnitTest`: passed (`129` tests, `0` failures)
+- `connectedDebugAndroidTest`: not rerun as part of the Stage 4B prompt
   - smoke test executed
   - Compose interaction suite skipped on current Android 17 preview emulator
-- `pytest`: passed (`8` tests)
+- `pytest`: passed (`12` tests)
 
 ## Two-Client Vertical Slice
 
@@ -97,19 +73,23 @@ On client A:
 2. choose advanced home experience
 3. confirm the app reaches the home screen
 
-### 3. Create Live Session
+### 3. Create And Launch A Session
 
 On client A:
 
-1. create a live session
-2. capture:
+1. create a new session
+2. scan the display pairing QR from the Pi or simulator
+3. wait for the session preview / launch to complete
+4. capture:
    - session ID
    - join code
-   - active display mode
+   - display ID
 
 Expected:
 
-- backend creates authoritative session shell
+- Android creates a local draft session first
+- display launch transitions the session to `LIVE`
+- join code registration happens through PubNub App Context
 - host membership is stored locally
 - host realtime subscriptions start
 
@@ -118,23 +98,42 @@ Expected:
 On client B:
 
 1. create a participant account
-2. join with the host’s join code
+2. enter fewer than eight digits and verify no preview appears yet
+3. enter the full eight-digit code and wait for the preview
+4. verify the preview shows session name, code, start label, and display identity
+5. tap Join session
 
 Expected:
 
-- backend resolves the join code
+- PubNub App Context resolves the join code
 - Room persists the returned session shell before activation
 - participant subscribes to public and private-user channels
 
-### 5. Join As Facilitator Requester
+### 5. Join From Participant QR
+
+On client B:
+
+1. return to the join screen
+2. tap Scan QR code
+3. scan a `group-aac-session` invitation QR
+4. verify the same preview appears before joining
+5. tap Join session
+
+Expected:
+
+- QR validation does not call `SessionDirectory`
+- the same shared invitation pipeline is used after confirmation
+- resulting local session and membership state matches the manual-code path
+
+### 6. Join As Facilitator Requester
 
 Optional second non-host facilitator flow:
 
-1. request facilitator access from client B or a third client
+1. request facilitator access from client B or a third client using either manual code or participant QR preview
 2. approve from host
 3. verify requester activates from private `facilitator.approved` without waiting for public `member.joined`
 
-### 6. Message Flow
+### 7. Message Flow
 
 On client B:
 
@@ -148,7 +147,7 @@ Expected:
 - transport status changes to `SENT`
 - host receives `message.created`
 
-### 7. Signal Flow
+### 8. Signal Flow
 
 On participant client:
 
@@ -163,7 +162,7 @@ Then:
 1. snooze from facilitator client A
 2. verify that a different facilitator still sees the signal unsnoozed
 
-### 8. Display Flow
+### 9. Display Flow
 
 On host/facilitator client A:
 
@@ -180,7 +179,7 @@ Expected:
 - acknowledgements publish on `session.<sessionId>.display.events`
 - Room display state updates only from fresh acknowledgements
 
-### 9. Session Lifecycle
+### 10. Session Lifecycle
 
 On host:
 
@@ -208,6 +207,6 @@ PubNub Debug Console can be used to inspect message flow manually:
 
 ## Current Blockers
 
-- The repository does not yet contain a live PubNub-backed Pi process, only the deterministic Python consumer model.
+- The repository still does not contain the production C++ Pi implementation; the Python runtime is a simulator/reference.
 - The current Android 17 preview emulator skips the richer Compose interaction suite because of a platform/test-rule incompatibility.
 - Full production authentication and PubNub Access Manager token flows are deferred.
