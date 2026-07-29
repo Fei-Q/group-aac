@@ -81,7 +81,7 @@ class RealtimeReliabilityStoreTest {
         )
         database.reliabilityDao().upsertDisplayState(
             database.reliabilityDao().getDisplayState("session123")!!.copy(
-                lastAppliedCommandTimetoken = 999_999_999_999L
+                lastPiAppliedCommandTimetoken = 999_999_999_999L
             )
         )
         store.updateLocalDisplayState(

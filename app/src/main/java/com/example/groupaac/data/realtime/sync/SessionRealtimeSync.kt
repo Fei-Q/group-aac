@@ -157,6 +157,7 @@ interface SessionRealtimeSync {
     )
 
     suspend fun publishDisplayShowMessage(
+        eventId: String,
         session: SessionEntity,
         message: MessageEntity,
         senderName: String,
@@ -167,6 +168,7 @@ interface SessionRealtimeSync {
     )
 
     suspend fun publishDisplayPinState(
+        eventId: String,
         sessionId: String,
         messageId: String,
         actorUserId: String,
@@ -176,6 +178,7 @@ interface SessionRealtimeSync {
     )
 
     suspend fun publishDisplayClear(
+        eventId: String,
         sessionId: String,
         actorUserId: String,
         displayMode: DisplayMode,
@@ -183,6 +186,7 @@ interface SessionRealtimeSync {
     )
 
     suspend fun publishDisplayModeChanged(
+        eventId: String,
         sessionId: String,
         actorUserId: String,
         displayMode: DisplayMode,
@@ -237,6 +241,7 @@ object NoOpSessionRealtimeSync : SessionRealtimeSync {
         actorUserId: String
     ) = Unit
     override suspend fun publishDisplayShowMessage(
+        eventId: String,
         session: SessionEntity,
         message: MessageEntity,
         senderName: String,
@@ -246,6 +251,7 @@ object NoOpSessionRealtimeSync : SessionRealtimeSync {
         origin: DisplayCommandOrigin
     ) = Unit
     override suspend fun publishDisplayPinState(
+        eventId: String,
         sessionId: String,
         messageId: String,
         actorUserId: String,
@@ -254,12 +260,14 @@ object NoOpSessionRealtimeSync : SessionRealtimeSync {
         origin: DisplayCommandOrigin?
     ) = Unit
     override suspend fun publishDisplayClear(
+        eventId: String,
         sessionId: String,
         actorUserId: String,
         displayMode: DisplayMode,
         origin: DisplayCommandOrigin?
     ) = Unit
     override suspend fun publishDisplayModeChanged(
+        eventId: String,
         sessionId: String,
         actorUserId: String,
         displayMode: DisplayMode,

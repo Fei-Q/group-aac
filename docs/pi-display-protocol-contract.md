@@ -105,6 +105,7 @@ Current milestone ownership:
 - the Pi publishes `display.bound`, `display.bind_failed`, and `display.unbound` to `display.<displayId>.events`
 - once bound, the Pi subscribes to `session.<sessionId>.display`
 - later shared-display rendering acknowledgements use `session.<sessionId>.display.events`
+- session-scoped display commands and acknowledgements are keyed by the Android-generated command `eventId`
 
 ## Realtime Envelope
 
@@ -218,6 +219,63 @@ Payload:
 - `protocolVersion`
 - `displayId`
 - `state = "PAIRING_AVAILABLE"`
+
+## Session Display Commands
+
+Once bound, Android publishes session-scoped commands on `session.<sessionId>.display`.
+
+Current implemented command types:
+
+- `display.show_message`
+- `display.restore_message`
+- `display.pin_message`
+- `display.unpin_message`
+- `display.clear`
+- `display.mode_changed`
+
+Android rules:
+
+- generate exactly one command `eventId` per user action
+- write one optimistic local display-state record and one outbox event with that same `eventId`
+- preserve the current message, pin state, and command origin across `display.mode_changed`
+- never compare epoch-millisecond fields with PubNub timetokens
+
+## Session Display Acknowledgements
+
+The Pi publishes session-scoped acknowledgements on `session.<sessionId>.display.events`.
+
+Current implemented acknowledgement types:
+
+- `display.rendered`
+- `display.restored`
+- `display.pinned`
+- `display.unpinned`
+- `display.cleared`
+- `display.state`
+
+Acknowledgement acceptance rules on Android:
+
+- `inReplyToEventId` must exactly match the current outstanding command `eventId`
+- the acknowledgement session scope must match both the channel session and the event `sessionId`
+- the acknowledgement display scope must match the bound `displayId`
+- the acknowledgement timetoken must be fresher than the last accepted Pi-applied command timetoken
+- when Android has a saved publish timetoken for the outstanding command, the acknowledgement timetoken must be greater than that publish timetoken
+- stale, duplicate, wrong-display, unrelated, or mismatched acknowledgements must be side-effect free
+
+Tracked Android-side timestamps are intentionally separate:
+
+- `localOptimisticUpdatedAt`: local epoch-millisecond UI/state write time
+- `lastPublishedCommandTimetoken`: PubNub timetoken returned when the command publish is accepted
+- `lastPiAppliedCommandTimetoken`: PubNub timetoken of the last accepted Pi acknowledgement
+
+## Pin And Display-Mode Rules
+
+- pinned content blocks automatic replacement from `AUTO_LATEST`
+- pinned content still permits `MANUAL_SHOW`
+- pinned content still permits `MANUAL_RESTORE`
+- manual replacement preserves the pinned state
+- unpin keeps the current content visible
+- clear removes both the current content and the pinned state
 
 ## Idempotency And Duplicate Handling
 

@@ -143,7 +143,9 @@ class AppContainer(context: Context) {
         sessionDirectory = sessionDirectory,
         displayBindingCoordinator = displayBindingCoordinator,
         outboxDispatcher = outboxDispatcher,
-        sessionRealtimeSync = sessionRealtimeSync
+        sessionRealtimeSync = sessionRealtimeSync,
+        getDisplayState = database.reliabilityDao()::getDisplayState,
+        upsertDisplayState = database.reliabilityDao()::upsertDisplayState
     )
     val sessionSubscriptionCoordinator = SessionSubscriptionCoordinator(
         activeUserId = accountRepository.activeUserId,

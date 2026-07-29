@@ -68,6 +68,25 @@ class RealtimeReliabilityStore(
         reliabilityDao.markOutboxSent(eventId, acceptedTimetoken)
     }
 
+    suspend fun markDisplayCommandPublished(
+        sessionId: String,
+        eventId: String,
+        acceptedTimetoken: Long?
+    ) {
+        if (acceptedTimetoken == null) {
+            return
+        }
+        val current = reliabilityDao.getDisplayState(sessionId) ?: return
+        if (current.lastIssuedCommandEventId != eventId) {
+            return
+        }
+        reliabilityDao.upsertDisplayState(
+            current.copy(
+                lastPublishedCommandTimetoken = acceptedTimetoken
+            )
+        )
+    }
+
     suspend fun recoverStaleSending(now: Long): List<OutboxEventEntity> {
         val stale = reliabilityDao.getStaleSendingOutboxEvents(now)
             .filterNot { event ->
@@ -138,21 +157,43 @@ class RealtimeReliabilityStore(
         now: Long
     ) {
         database.withTransaction {
-            val current = reliabilityDao.getDisplayState(sessionId)
-            reliabilityDao.upsertDisplayState(
-                DisplayStateEntity(
-                    sessionId = sessionId,
-                    currentMessageId = currentMessageId,
-                    isPinned = isPinned,
-                    displayMode = displayMode,
-                    commandOrigin = commandOrigin,
-                    lastIssuedCommandEventId = eventId,
-                    lastAppliedCommandTimetoken = current?.lastAppliedCommandTimetoken,
-                    lastAppliedCommandEventId = current?.lastAppliedCommandEventId,
-                    updatedAt = now
-                )
+            upsertLocalDisplayState(
+                sessionId = sessionId,
+                eventId = eventId,
+                currentMessageId = currentMessageId,
+                isPinned = isPinned,
+                displayMode = displayMode,
+                commandOrigin = commandOrigin,
+                now = now
             )
         }
+    }
+
+    suspend fun upsertLocalDisplayState(
+        sessionId: String,
+        eventId: String,
+        currentMessageId: String?,
+        isPinned: Boolean,
+        displayMode: DisplayMode,
+        commandOrigin: DisplayCommandOrigin?,
+        now: Long
+    ) {
+        val current = reliabilityDao.getDisplayState(sessionId)
+        reliabilityDao.upsertDisplayState(
+            DisplayStateEntity(
+                sessionId = sessionId,
+                currentMessageId = currentMessageId,
+                isPinned = isPinned,
+                displayMode = displayMode,
+                commandOrigin = commandOrigin,
+                lastIssuedCommandEventId = eventId,
+                lastPublishedCommandTimetoken = null,
+                lastPiAppliedCommandTimetoken =
+                    current?.lastPiAppliedCommandTimetoken,
+                lastAppliedCommandEventId = current?.lastAppliedCommandEventId,
+                localOptimisticUpdatedAt = now
+            )
+        )
     }
 
     fun isDisplayAcknowledgementFresh(
@@ -160,16 +201,19 @@ class RealtimeReliabilityStore(
         inReplyToEventId: String?,
         timetoken: Long
     ): Boolean {
+        val issuedEventId = current?.lastIssuedCommandEventId ?: return false
+        if (inReplyToEventId != issuedEventId) {
+            return false
+        }
         if (
-            inReplyToEventId != null &&
-            current?.lastIssuedCommandEventId != null &&
-            inReplyToEventId != current.lastIssuedCommandEventId
+            current.lastPublishedCommandTimetoken != null &&
+            timetoken <= current.lastPublishedCommandTimetoken
         ) {
             return false
         }
         if (
-            current?.lastAppliedCommandTimetoken != null &&
-            timetoken <= current.lastAppliedCommandTimetoken
+            current.lastPiAppliedCommandTimetoken != null &&
+            timetoken <= current.lastPiAppliedCommandTimetoken
         ) {
             return false
         }

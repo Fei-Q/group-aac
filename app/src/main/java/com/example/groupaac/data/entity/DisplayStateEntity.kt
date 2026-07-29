@@ -13,7 +13,8 @@ data class DisplayStateEntity(
     val displayMode: DisplayMode = DisplayMode.AUTO_LATEST,
     val commandOrigin: DisplayCommandOrigin? = null,
     val lastIssuedCommandEventId: String? = null,
-    val lastAppliedCommandTimetoken: Long? = null,
+    val lastPublishedCommandTimetoken: Long? = null,
+    val lastPiAppliedCommandTimetoken: Long? = null,
     val lastAppliedCommandEventId: String? = null,
-    val updatedAt: Long
+    val localOptimisticUpdatedAt: Long
 )

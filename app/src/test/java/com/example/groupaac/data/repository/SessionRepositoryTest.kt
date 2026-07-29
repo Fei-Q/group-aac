@@ -1128,6 +1128,7 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync by NoOpSessionR
     }
 
     override suspend fun publishDisplayModeChanged(
+        eventId: String,
         sessionId: String,
         actorUserId: String,
         displayMode: DisplayMode,

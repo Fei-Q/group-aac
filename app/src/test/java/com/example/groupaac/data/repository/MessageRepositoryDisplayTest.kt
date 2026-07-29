@@ -256,6 +256,7 @@ private class RecordingDisplayRealtimeSync : SessionRealtimeSync by NoOpSessionR
     var clearMode: DisplayMode? = null
 
     override suspend fun publishDisplayShowMessage(
+        eventId: String,
         session: SessionEntity,
         message: MessageEntity,
         senderName: String,
@@ -272,6 +273,7 @@ private class RecordingDisplayRealtimeSync : SessionRealtimeSync by NoOpSessionR
     }
 
     override suspend fun publishDisplayPinState(
+        eventId: String,
         sessionId: String,
         messageId: String,
         actorUserId: String,
@@ -283,6 +285,7 @@ private class RecordingDisplayRealtimeSync : SessionRealtimeSync by NoOpSessionR
     }
 
     override suspend fun publishDisplayClear(
+        eventId: String,
         sessionId: String,
         actorUserId: String,
         displayMode: DisplayMode,

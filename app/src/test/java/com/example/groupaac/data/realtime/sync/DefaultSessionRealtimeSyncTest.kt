@@ -43,6 +43,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -189,6 +190,29 @@ class DefaultSessionRealtimeSyncTest {
 
     @Test
     fun displayAcknowledgementUpdatesDisplayState() = runTest {
+        database.sessionDao().upsertSession(
+            SessionEntity(
+                id = "session-1",
+                name = "Planning",
+                joinCode = "1234-5678",
+                hostUserId = "host",
+                displayMode = DisplayMode.AUTO_LATEST,
+                displayId = "display-1",
+                createdAt = 100L
+            )
+        )
+        database.reliabilityDao().upsertDisplayState(
+            com.example.groupaac.data.entity.DisplayStateEntity(
+                sessionId = "session-1",
+                currentMessageId = "msg-1",
+                isPinned = false,
+                displayMode = DisplayMode.AUTO_LATEST,
+                commandOrigin = DisplayCommandOrigin.MANUAL_SHOW,
+                lastIssuedCommandEventId = "cmd-1",
+                lastPublishedCommandTimetoken = 20L,
+                localOptimisticUpdatedAt = 150L
+            )
+        )
         val payload = buildJsonObject {
             put(
                 "displayState",
@@ -223,6 +247,8 @@ class DefaultSessionRealtimeSyncTest {
         assertNotNull(displayState)
         assertEquals("msg-1", displayState?.currentMessageId)
         assertEquals(true, displayState?.isPinned)
+        assertNull(displayState?.lastIssuedCommandEventId)
+        assertEquals(25L, displayState?.lastPiAppliedCommandTimetoken)
         assertEquals("cmd-1", displayState?.lastAppliedCommandEventId)
     }
 
@@ -256,9 +282,10 @@ class DefaultSessionRealtimeSyncTest {
                 displayMode = DisplayMode.AUTO_LATEST,
                 commandOrigin = DisplayCommandOrigin.MANUAL_SHOW,
                 lastIssuedCommandEventId = "cmd-latest",
-                lastAppliedCommandTimetoken = 300L,
+                lastPublishedCommandTimetoken = 350L,
+                lastPiAppliedCommandTimetoken = 300L,
                 lastAppliedCommandEventId = "cmd-prev",
-                updatedAt = 1_000L
+                localOptimisticUpdatedAt = 1_000L
             )
         )
         database.messageDao().markDisplayed("msg-current")

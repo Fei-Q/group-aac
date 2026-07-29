@@ -15,7 +15,9 @@ import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.realtime.protocol.RealtimeChannels
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
+import com.example.groupaac.data.realtime.protocol.RealtimeEventRouter
 import com.example.groupaac.data.realtime.protocol.RealtimeEventTypes
+import com.example.groupaac.data.realtime.protocol.RealtimeRouteKind
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
 import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
@@ -588,6 +590,7 @@ class DefaultSessionRealtimeSync(
     }
 
     override suspend fun publishDisplayShowMessage(
+        eventId: String,
         session: SessionEntity,
         message: MessageEntity,
         senderName: String,
@@ -608,6 +611,7 @@ class DefaultSessionRealtimeSync(
             domainId = message.id,
             channel = RealtimeChannels.display(session.id),
             event = event(
+                eventId = eventId,
                 type = if (restore) {
                     RealtimeEventTypes.DISPLAY_RESTORE_MESSAGE
                 } else {
@@ -626,6 +630,7 @@ class DefaultSessionRealtimeSync(
     }
 
     override suspend fun publishDisplayPinState(
+        eventId: String,
         sessionId: String,
         messageId: String,
         actorUserId: String,
@@ -638,6 +643,7 @@ class DefaultSessionRealtimeSync(
             domainId = messageId,
             channel = RealtimeChannels.display(sessionId),
             event = event(
+                eventId = eventId,
                 type = if (pinned) {
                     RealtimeEventTypes.DISPLAY_PIN_MESSAGE
                 } else {
@@ -662,6 +668,7 @@ class DefaultSessionRealtimeSync(
     }
 
     override suspend fun publishDisplayClear(
+        eventId: String,
         sessionId: String,
         actorUserId: String,
         displayMode: DisplayMode,
@@ -672,6 +679,7 @@ class DefaultSessionRealtimeSync(
             domainId = sessionId,
             channel = RealtimeChannels.display(sessionId),
             event = event(
+                eventId = eventId,
                 type = RealtimeEventTypes.DISPLAY_CLEAR,
                 sessionId = sessionId,
                 actorUserId = actorUserId,
@@ -692,6 +700,7 @@ class DefaultSessionRealtimeSync(
     }
 
     override suspend fun publishDisplayModeChanged(
+        eventId: String,
         sessionId: String,
         actorUserId: String,
         displayMode: DisplayMode,
@@ -704,6 +713,7 @@ class DefaultSessionRealtimeSync(
             domainId = sessionId,
             channel = RealtimeChannels.display(sessionId),
             event = event(
+                eventId = eventId,
                 type = RealtimeEventTypes.DISPLAY_MODE_CHANGED,
                 sessionId = sessionId,
                 actorUserId = actorUserId,
@@ -916,7 +926,24 @@ class DefaultSessionRealtimeSync(
                         "displayState"
                     ) ?: return@inTransaction false
                     val current = reliabilityDao.getDisplayState(state.sessionId)
+                    val route =
+                        RealtimeEventRouter.route(received.channel)
+                    val expectedDisplayId =
+                        sessionDao.getSession(state.sessionId)?.displayId
+                    val sessionScopeMatches =
+                        route.kind == RealtimeRouteKind.DISPLAY_EVENTS &&
+                            route.sessionId == state.sessionId &&
+                            received.event.sessionId == state.sessionId
+                    val displayScopeMatches =
+                        expectedDisplayId != null &&
+                            received.event.actorUserId == expectedDisplayId &&
+                            (
+                                received.publisherUserId == null ||
+                                    received.publisherUserId == expectedDisplayId
+                                )
                     if (
+                        !sessionScopeMatches ||
+                            !displayScopeMatches ||
                         !reliabilityStore.isDisplayAcknowledgementFresh(
                             current = current,
                             inReplyToEventId = received.event.inReplyToEventId,
@@ -942,10 +969,14 @@ class DefaultSessionRealtimeSync(
                             } else {
                                 current?.lastIssuedCommandEventId
                             },
-                            lastAppliedCommandTimetoken = received.timetoken,
+                            lastPublishedCommandTimetoken =
+                                current?.lastPublishedCommandTimetoken,
+                            lastPiAppliedCommandTimetoken = received.timetoken,
                             lastAppliedCommandEventId = received.event.inReplyToEventId
                                 ?: received.event.eventId,
-                            updatedAt = System.currentTimeMillis()
+                            localOptimisticUpdatedAt =
+                                current?.localOptimisticUpdatedAt
+                                    ?: System.currentTimeMillis()
                         )
                     )
                 }
@@ -988,12 +1019,13 @@ class DefaultSessionRealtimeSync(
     }
 
     private fun event(
+        eventId: String = IdUtils.newId(),
         type: String,
         sessionId: String,
         actorUserId: String?,
         payload: JsonObject
     ): RealtimeEvent = RealtimeEvent(
-        eventId = IdUtils.newId(),
+        eventId = eventId,
         type = type,
         sessionId = sessionId,
         actorUserId = actorUserId,

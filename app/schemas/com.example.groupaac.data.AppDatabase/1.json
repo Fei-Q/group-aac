@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "66a198f96c6385c4a7ee3cbfafb3bd72",
+    "identityHash": "4c823682c57baeb6511ca8d90042018c",
     "entities": [
       {
         "tableName": "users",
@@ -862,7 +862,7 @@
       },
       {
         "tableName": "display_state",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sessionId` TEXT NOT NULL, `currentMessageId` TEXT, `isPinned` INTEGER NOT NULL, `displayMode` TEXT NOT NULL, `commandOrigin` TEXT, `lastIssuedCommandEventId` TEXT, `lastAppliedCommandTimetoken` INTEGER, `lastAppliedCommandEventId` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`sessionId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`sessionId` TEXT NOT NULL, `currentMessageId` TEXT, `isPinned` INTEGER NOT NULL, `displayMode` TEXT NOT NULL, `commandOrigin` TEXT, `lastIssuedCommandEventId` TEXT, `lastPublishedCommandTimetoken` INTEGER, `lastPiAppliedCommandTimetoken` INTEGER, `lastAppliedCommandEventId` TEXT, `localOptimisticUpdatedAt` INTEGER NOT NULL, PRIMARY KEY(`sessionId`))",
         "fields": [
           {
             "fieldPath": "sessionId",
@@ -898,8 +898,13 @@
             "affinity": "TEXT"
           },
           {
-            "fieldPath": "lastAppliedCommandTimetoken",
-            "columnName": "lastAppliedCommandTimetoken",
+            "fieldPath": "lastPublishedCommandTimetoken",
+            "columnName": "lastPublishedCommandTimetoken",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastPiAppliedCommandTimetoken",
+            "columnName": "lastPiAppliedCommandTimetoken",
             "affinity": "INTEGER"
           },
           {
@@ -908,8 +913,8 @@
             "affinity": "TEXT"
           },
           {
-            "fieldPath": "updatedAt",
-            "columnName": "updatedAt",
+            "fieldPath": "localOptimisticUpdatedAt",
+            "columnName": "localOptimisticUpdatedAt",
             "affinity": "INTEGER",
             "notNull": true
           }
@@ -1107,7 +1112,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '66a198f96c6385c4a7ee3cbfafb3bd72')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '4c823682c57baeb6511ca8d90042018c')"
     ]
   }
 }

@@ -85,6 +85,13 @@ class OutboxDispatcher(
                     val event = reliabilityStore.decodeOutboxEvent(entry)
                     val timetoken = client.publish(entry.channel, event)
                     reliabilityStore.markSent(entry.eventId, timetoken)
+                    if (entry.domainType == OutboxDomainType.DISPLAY) {
+                        reliabilityStore.markDisplayCommandPublished(
+                            sessionId = entry.sessionId,
+                            eventId = entry.eventId,
+                            acceptedTimetoken = timetoken
+                        )
+                    }
                     applySuccessfulDelivery(entry, event)
                 } catch (error: CancellationException) {
                     throw error

@@ -2,7 +2,7 @@
 
 Date: 2026-07-29
 Branch: `feature/pubnub-pi-prototype-hardening`
-Status: display-pairing milestone plus Stages 4A and 4B are complete; participant QR scanning now previews and confirms joins, but broader recovery work remains deferred
+Status: display-pairing milestone plus Stages 4A, 4B, 5, 6, and 7 are complete; participant QR scanning now previews and confirms joins, while broader recovery and leasing work remain deferred
 
 ## Frozen Scope
 
@@ -14,6 +14,7 @@ Status: display-pairing milestone plus Stages 4A and 4B are complete; participan
 - Number-code joins resolve one directory entry, convert it to the same invitation model, and then use that same repository join pipeline.
 - JoinSessionScreen now supports both manual-code preview and participant QR preview before confirmation.
 - Display pairing is coordinated by Android and a Pi-side pairing QR / control-event handshake.
+- Session-scoped display commands now use one generated `eventId` for both optimistic Room state and the outbox event, and acknowledgements are accepted only when command, session, display, and timetoken freshness all match.
 - The Python code under [`pi/`](../pi/README.md) is a simulator, protocol reference, and test harness only.
 - Production Raspberry Pi software is external to this repository and is being implemented in C++.
 - `launchSessionOnDisplay()` is the only intended path that transitions an unstarted session to `LIVE`.
@@ -67,6 +68,22 @@ Session-scoped display channels remain separate:
 - `session.<sessionId>.display`
 - `session.<sessionId>.display.events`
 
+## Display Command Semantics
+
+- Every display command now generates exactly one command `eventId`.
+- For show, restore, pin, unpin, clear, and display-mode changes, Android writes the optimistic local display state and enqueues the outbox event with that same `eventId` inside one Room transaction.
+- Display-state timing is separated into:
+  - `localOptimisticUpdatedAt`
+  - `lastPublishedCommandTimetoken`
+  - `lastPiAppliedCommandTimetoken`
+- Android never compares PubNub timetokens with epoch-millisecond timestamps.
+- Display-mode changes preserve the current message, pinned state, and command origin instead of resetting them.
+- Acknowledgements are side-effect free unless all of the following are true:
+  - `inReplyToEventId` matches the current outstanding command
+  - session scope matches
+  - display scope matches the bound display
+  - PubNub timetoken is fresher than the saved publish/apply state
+
 ## PubNub Client Audit
 
 - The managed session realtime client comes from `RealtimeClientManager` and is reused for display pairing/binding. This avoids creating extra unmanaged realtime clients for the display handshake.
@@ -84,6 +101,7 @@ Session-scoped display channels remain separate:
 
 - Broad snapshot or history-based recovery for invitation joins remains a later recovery-stage requirement and is intentionally not part of Stage 4A.
 - Participant QR scanner UI now exists, but snapshot/history recovery and larger reconnect/resume behaviors are still later-stage work.
+- Account-scoped outbox leasing is still deferred; this stage only corrects display command generation, optimistic state updates, and acknowledgement acceptance semantics.
 
 ## Companion Docs
 

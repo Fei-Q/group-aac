@@ -828,7 +828,7 @@ fun SessionLogScreenPreview() {
                     sessionId = "s1",
                     currentMessageId = "5",
                     isPinned = true,
-                    updatedAt = now
+                    localOptimisticUpdatedAt = now
                 )
             ),
             onSave = {},

@@ -4,6 +4,7 @@ import com.example.groupaac.data.dao.SessionDao
 import com.example.groupaac.data.dao.SessionJoinRequestDao
 import com.example.groupaac.data.dao.SessionParticipantRow
 import com.example.groupaac.data.dao.UserDao
+import com.example.groupaac.data.entity.DisplayStateEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
@@ -26,6 +27,7 @@ import com.example.groupaac.data.sessiondirectory.SessionDirectoryEntry
 import com.example.groupaac.data.sessiondirectory.UpdateDirectoryEntryResult
 import com.example.groupaac.data.sessiondirectory.formatJoinCode
 import com.example.groupaac.model.ActiveSession
+import com.example.groupaac.model.DisplayCommandOrigin
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.JoinSessionResult
@@ -74,6 +76,8 @@ class SessionRepository(
     private val outboxDispatcher: OutboxDispatching,
     private val sessionRealtimeSync: SessionRealtimeSync =
         NoOpSessionRealtimeSync,
+    private val getDisplayState: suspend (String) -> DisplayStateEntity? = { null },
+    private val upsertDisplayState: suspend (DisplayStateEntity) -> Unit = {},
     private val joinCodeGenerator: () -> String =
         ::generateJoinCode
 ) {
@@ -1798,10 +1802,41 @@ class SessionRepository(
                 displayMode = displayMode,
                 updatedAt = TimeUtils.now()
             )
+        val eventId = IdUtils.newId()
 
         transactionRunner.inTransaction {
+            val currentDisplayState =
+                getDisplayState(sessionId)
             sessionDao.upsertSession(
                 updated
+            )
+
+            upsertDisplayState(
+                DisplayStateEntity(
+                    sessionId = sessionId,
+                    currentMessageId =
+                        currentDisplayState
+                            ?.currentMessageId,
+                    isPinned =
+                        currentDisplayState
+                            ?.isPinned ?: false,
+                    displayMode = displayMode,
+                    commandOrigin =
+                        currentDisplayState
+                            ?.commandOrigin,
+                    lastIssuedCommandEventId =
+                        eventId,
+                    lastPublishedCommandTimetoken =
+                        null,
+                    lastPiAppliedCommandTimetoken =
+                        currentDisplayState
+                            ?.lastPiAppliedCommandTimetoken,
+                    lastAppliedCommandEventId =
+                        currentDisplayState
+                            ?.lastAppliedCommandEventId,
+                    localOptimisticUpdatedAt =
+                        updated.updatedAt
+                )
             )
 
             sessionRealtimeSync
@@ -1812,14 +1847,21 @@ class SessionRepository(
 
             sessionRealtimeSync
                 .publishDisplayModeChanged(
+                    eventId = eventId,
                     sessionId = sessionId,
                     actorUserId =
                         actorUserId,
                     displayMode =
                         displayMode,
-                    currentMessageId = null,
-                    isPinned = false,
-                    origin = null
+                    currentMessageId =
+                        currentDisplayState
+                            ?.currentMessageId,
+                    isPinned =
+                        currentDisplayState
+                            ?.isPinned ?: false,
+                    origin =
+                        currentDisplayState
+                            ?.commandOrigin
                 )
         }
 
