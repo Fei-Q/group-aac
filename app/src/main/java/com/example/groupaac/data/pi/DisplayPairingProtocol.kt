@@ -2,6 +2,8 @@ package com.example.groupaac.data.pi
 
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeEventTypes
+import com.example.groupaac.data.sessiondirectory.formatJoinCode
+import com.example.groupaac.data.sessiondirectory.normalizeJoinCodeOrNull
 import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.SessionStatus
 import kotlinx.serialization.json.Json
@@ -58,6 +60,71 @@ data class DisplayBindingReply(
     val sessionId: String,
     val reason: String? = null
 )
+
+fun SessionInvitationPayload.validatedForJoin(
+    nowProvider: () -> Long = System::currentTimeMillis
+): SessionInvitationPayload {
+    require(type == SESSION_INVITATION_TYPE) {
+        "QR code is not a Group AAC session invitation."
+    }
+    require(protocolVersion == DISPLAY_PROTOCOL_VERSION) {
+        "Unsupported session invitation version: $protocolVersion"
+    }
+
+    val cleanSessionId = sessionId.trim()
+    require(cleanSessionId.isNotEmpty()) {
+        "Session invitation is missing sessionId."
+    }
+
+    val cleanSessionName = sessionName.trim()
+    require(cleanSessionName.isNotEmpty()) {
+        "Session invitation is missing sessionName."
+    }
+
+    val cleanHostUserId = hostUserId.trim()
+    require(cleanHostUserId.isNotEmpty()) {
+        "Session invitation is missing hostUserId."
+    }
+
+    val cleanDisplayId = displayId.trim()
+    require(cleanDisplayId.isNotEmpty()) {
+        "Session invitation is missing displayId."
+    }
+
+    val normalizedJoinCode =
+        requireNotNull(
+            normalizeJoinCodeOrNull(joinCode)
+                ?.let(::formatJoinCode)
+        ) {
+            "Session invitation has an invalid joinCode."
+        }
+
+    require(status == SessionStatus.LIVE) {
+        "This session is not currently open."
+    }
+
+    val now = nowProvider()
+
+    require(expiresAt > now) {
+        "This session invitation has expired."
+    }
+
+    require(actualStartedAt > 0L) {
+        "Session invitation has an invalid actualStartedAt."
+    }
+
+    require(actualStartedAt < expiresAt) {
+        "Session invitation has an invalid actualStartedAt."
+    }
+
+    return copy(
+        sessionId = cleanSessionId,
+        joinCode = normalizedJoinCode,
+        sessionName = cleanSessionName,
+        hostUserId = cleanHostUserId,
+        displayId = cleanDisplayId
+    )
+}
 
 object DisplayPairingPayloadCodec {
 

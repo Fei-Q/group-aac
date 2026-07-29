@@ -9,6 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.fail
 import org.junit.Test
 
 class DisplayPairingProtocolTest {
@@ -145,5 +146,59 @@ class DisplayPairingProtocolTest {
             )
 
         assertNull(reply)
+    }
+
+    @Test
+    fun invitationValidationNormalizesJoinCodeAndTrimsFields() {
+        val invitation =
+            SessionInvitationPayload(
+                sessionId = " session-1 ",
+                joinCode = "12345678",
+                sessionName = " Friday Group ",
+                hostUserId = " host-1 ",
+                displayId = " pi-1 ",
+                status = SessionStatus.LIVE,
+                displayMode = DisplayMode.AUTO_LATEST,
+                actualStartedAt = 1_000L,
+                expiresAt = Long.MAX_VALUE
+            )
+
+        val validated =
+            invitation.validatedForJoin(
+                nowProvider = { 2L }
+            )
+
+        assertEquals("session-1", validated.sessionId)
+        assertEquals("1234-5678", validated.joinCode)
+        assertEquals("Friday Group", validated.sessionName)
+        assertEquals("host-1", validated.hostUserId)
+        assertEquals("pi-1", validated.displayId)
+    }
+
+    @Test
+    fun invitationValidationRejectsWrongType() {
+        try {
+            SessionInvitationPayload(
+                type = "wrong-type",
+                sessionId = "session-1",
+                joinCode = "1234-5678",
+                sessionName = "Friday Group",
+                hostUserId = "host-1",
+                displayId = "pi-1",
+                status = SessionStatus.LIVE,
+                displayMode = DisplayMode.AUTO_LATEST,
+                actualStartedAt = 1_000L,
+                expiresAt = Long.MAX_VALUE
+            ).validatedForJoin(
+                nowProvider = { 2L }
+            )
+
+            fail("Expected wrong invitation type to fail validation.")
+        } catch (expected: IllegalArgumentException) {
+            assertEquals(
+                "QR code is not a Group AAC session invitation.",
+                expected.message
+            )
+        }
     }
 }

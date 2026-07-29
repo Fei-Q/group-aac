@@ -8,6 +8,9 @@ class FakeSessionDirectory(
 
     private val entriesByCode =
         linkedMapOf<String, SessionDirectoryEntry>()
+    var resolveCallCount: Int = 0
+        private set
+    var resolveThrowable: Throwable? = null
 
     fun seed(entry: SessionDirectoryEntry) {
         val code = normalizeJoinCodeOrNull(entry.joinCode)
@@ -49,6 +52,9 @@ class FakeSessionDirectory(
     override suspend fun resolve(
         joinCode: String
     ): ResolveJoinCodeResult {
+        resolveCallCount++
+        resolveThrowable?.let { throw it }
+
         val code = normalizeJoinCodeOrNull(joinCode)
             ?: return ResolveJoinCodeResult.InvalidCode
 

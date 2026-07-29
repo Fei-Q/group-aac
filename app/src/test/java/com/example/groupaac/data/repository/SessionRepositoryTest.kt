@@ -27,6 +27,7 @@ import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.JoinSessionResult
 import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SessionStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -274,6 +275,115 @@ class SessionRepositoryTest {
             )
         )
         assertTrue(fixture.joinRequestDao.requests.isEmpty())
+        assertEquals(1, fixture.sessionDirectory.resolveCallCount)
+    }
+
+    @Test
+    fun validDirectParticipantInvitation() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        val result = fixture.repository.joinInvitation(
+            invitation = fixture.sessionInvitation(),
+            userId = fixture.participant.uid,
+            displayName = fixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        assertTrue(result is JoinSessionResult.Joined)
+        val joined = result as JoinSessionResult.Joined
+        assertEquals(fixture.session.id, joined.activeSession.sessionId)
+        assertEquals(
+            fixture.session.id,
+            fixture.activeSessionStore.activeSessions[fixture.participant.uid]
+        )
+        assertNotNull(
+            fixture.sessionDao.getSession(fixture.session.id)
+        )
+        assertNotNull(
+            fixture.sessionDao.getMember(
+                fixture.session.id,
+                fixture.participant.uid
+            )
+        )
+    }
+
+    @Test
+    fun directInvitationDoesNotCallDirectory() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        fixture.repository.joinInvitation(
+            invitation = fixture.sessionInvitation(),
+            userId = fixture.participant.uid,
+            displayName = fixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        assertEquals(0, fixture.sessionDirectory.resolveCallCount)
+    }
+
+    @Test
+    fun numberCodeJoinCallsDirectoryOnce() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        fixture.repository.joinSession(
+            joinCode = fixture.session.joinCode,
+            userId = fixture.participant.uid,
+            displayName = fixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        assertEquals(1, fixture.sessionDirectory.resolveCallCount)
+    }
+
+    @Test
+    fun directAndDirectoryJoinPathsCreateEquivalentState() = runTest {
+        val directFixture = sessionFixture(seedLocalSession = false)
+        val codeFixture = sessionFixture(seedLocalSession = false)
+
+        directFixture.repository.joinInvitation(
+            invitation = directFixture.sessionInvitation(),
+            userId = directFixture.participant.uid,
+            displayName = directFixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        codeFixture.repository.joinSession(
+            joinCode = codeFixture.session.joinCode,
+            userId = codeFixture.participant.uid,
+            displayName = codeFixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        assertEquivalentJoinedState(
+            directFixture = directFixture,
+            codeFixture = codeFixture,
+            userId = directFixture.participant.uid
+        )
+    }
+
+    @Test
+    fun directFacilitatorInvitationReturnsAwaitingApproval() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        val result = fixture.repository.joinInvitation(
+            invitation = fixture.sessionInvitation(),
+            userId = fixture.facilitator.uid,
+            displayName = fixture.facilitator.displayName,
+            requestedRole = SessionRole.FACILITATOR
+        )
+
+        assertTrue(result is JoinSessionResult.AwaitingApproval)
+        val request =
+            (result as JoinSessionResult.AwaitingApproval).request
+
+        assertEquals(JoinRequestStatus.PENDING, request.status)
+        assertNull(
+            fixture.sessionDao.getMember(
+                fixture.session.id,
+                fixture.facilitator.uid
+            )
+        )
+        assertEquals(0, fixture.sessionDirectory.resolveCallCount)
     }
 
     @Test
@@ -627,11 +737,12 @@ class SessionRepositoryTest {
         hostSettings: UserSettingsEntity = UserSettingsEntity(userId = "host_1"),
         sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync
     ): SessionFixture {
+        val now = System.currentTimeMillis()
         val sessionDao = FakeSessionDao()
         val joinRequestDao = FakeSessionJoinRequestDao()
         val userDao = FakeUserDao()
         val activeSessionStore = FakeActiveSessionStore()
-        val sessionDirectory = FakeSessionDirectory(nowProvider = { 10L })
+        val sessionDirectory = FakeSessionDirectory(nowProvider = { now })
 
         val host = UserEntity(
             uid = "host_1",
@@ -663,9 +774,9 @@ class SessionRepositoryTest {
             status = SessionStatus.LIVE,
             displayMode = DisplayMode.AUTO_LATEST,
             displayId = "pi-test",
-            createdAt = 10L,
-            actualStartedAt = 10L,
-            expiresAt = 10L + 86_400_000L
+            createdAt = now - 60_000L,
+            actualStartedAt = now - 30_000L,
+            expiresAt = now + 86_400_000L
         )
         if (seedLocalSession) {
             sessionDao.seedSession(session)
@@ -675,7 +786,7 @@ class SessionRepositoryTest {
                     userId = host.uid,
                     displayName = host.displayName,
                     role = SessionRole.HOST,
-                    joinedAt = 10L
+                    joinedAt = now - 30_000L
                 )
             )
         }
@@ -754,6 +865,141 @@ class SessionRepositoryTest {
             assertEquals("This session is not currently open.", error.message)
         }
     }
+
+    @Test
+    fun malformedTypeInvitationIsRejected() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        assertJoinInvitationFails(
+            fixture = fixture,
+            invitation =
+                fixture.sessionInvitation(
+                    type = "wrong-type"
+                ),
+            expectedMessage =
+                "QR code is not a Group AAC session invitation."
+        )
+    }
+
+    @Test
+    fun unsupportedInvitationVersionIsRejected() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        assertJoinInvitationFails(
+            fixture = fixture,
+            invitation =
+                fixture.sessionInvitation(
+                    protocolVersion = 99
+                ),
+            expectedMessage =
+                "Unsupported session invitation version: 99"
+        )
+    }
+
+    @Test
+    fun expiredInvitationIsRejected() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        assertJoinInvitationFails(
+            fixture = fixture,
+            invitation =
+                fixture.sessionInvitation(
+                    expiresAt = 0L
+                ),
+            expectedMessage =
+                "This session invitation has expired."
+        )
+    }
+
+    @Test
+    fun nonLiveInvitationIsRejected() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        assertJoinInvitationFails(
+            fixture = fixture,
+            invitation =
+                fixture.sessionInvitation(
+                    status = SessionStatus.ENDED
+                ),
+            expectedMessage =
+                "This session is not currently open."
+        )
+    }
+
+    @Test
+    fun invalidSessionDisplayAndCodeFieldsAreRejected() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        val cases =
+            listOf(
+                fixture.sessionInvitation(
+                    sessionId = " "
+                ) to "Session invitation is missing sessionId.",
+                fixture.sessionInvitation(
+                    sessionName = " "
+                ) to "Session invitation is missing sessionName.",
+                fixture.sessionInvitation(
+                    hostUserId = " "
+                ) to "Session invitation is missing hostUserId.",
+                fixture.sessionInvitation(
+                    displayId = " "
+                ) to "Session invitation is missing displayId.",
+                fixture.sessionInvitation(
+                    joinCode = "12"
+                ) to "Session invitation has an invalid joinCode.",
+                fixture.sessionInvitation(
+                    actualStartedAt = 0L
+                ) to "Session invitation has an invalid actualStartedAt."
+            )
+
+        for ((invitation, message) in cases) {
+            assertJoinInvitationFails(
+                fixture = fixture,
+                invitation = invitation,
+                expectedMessage = message
+            )
+        }
+    }
+
+    @Test
+    fun joinInvitationPropagatesCancellation() = runTest {
+        val fixture = sessionFixture(
+            seedLocalSession = false,
+            sessionRealtimeSync =
+                CancellingSessionRealtimeSync()
+        )
+
+        try {
+            fixture.repository.joinInvitation(
+                invitation = fixture.sessionInvitation(),
+                userId = fixture.participant.uid,
+                displayName = fixture.participant.displayName,
+                requestedRole = SessionRole.PARTICIPANT
+            )
+            fail("Expected cancellation to propagate.")
+        } catch (expected: CancellationException) {
+            assertEquals("cancel join publish", expected.message)
+        }
+    }
+
+    @Test
+    fun joinSessionPropagatesCancellationFromDirectoryResolve() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+        fixture.sessionDirectory.resolveThrowable =
+            CancellationException("cancel resolve")
+
+        try {
+            fixture.repository.joinSession(
+                joinCode = fixture.session.joinCode,
+                userId = fixture.participant.uid,
+                displayName = fixture.participant.displayName,
+                requestedRole = SessionRole.PARTICIPANT
+            )
+            fail("Expected directory cancellation to propagate.")
+        } catch (expected: CancellationException) {
+            assertEquals("cancel resolve", expected.message)
+        }
+    }
 }
 
 private data class SessionFixture(
@@ -766,7 +1012,34 @@ private data class SessionFixture(
     val host: UserEntity,
     val participant: UserEntity,
     val facilitator: UserEntity
-)
+) {
+    fun sessionInvitation(
+        type: String = com.example.groupaac.data.pi.SESSION_INVITATION_TYPE,
+        protocolVersion: Int = com.example.groupaac.data.pi.DISPLAY_PROTOCOL_VERSION,
+        sessionId: String = session.id,
+        joinCode: String = session.joinCode,
+        sessionName: String = session.name,
+        hostUserId: String = host.uid,
+        displayId: String = requireNotNull(session.displayId),
+        status: SessionStatus = session.status,
+        displayMode: DisplayMode = session.displayMode,
+        actualStartedAt: Long = requireNotNull(session.actualStartedAt),
+        expiresAt: Long = requireNotNull(session.expiresAt)
+    ): SessionInvitationPayload =
+        SessionInvitationPayload(
+            type = type,
+            protocolVersion = protocolVersion,
+            sessionId = sessionId,
+            joinCode = joinCode,
+            sessionName = sessionName,
+            hostUserId = hostUserId,
+            displayId = displayId,
+            status = status,
+            displayMode = displayMode,
+            actualStartedAt = actualStartedAt,
+            expiresAt = expiresAt
+        )
+}
 
 private class RecordingSessionRealtimeSync : SessionRealtimeSync by NoOpSessionRealtimeSync {
     data class ApprovalCall(
@@ -831,6 +1104,19 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync by NoOpSessionR
         actorUserId: String
     ) {
         facilitatorDeclined = request to session
+    }
+}
+
+private class CancellingSessionRealtimeSync :
+    SessionRealtimeSync by NoOpSessionRealtimeSync {
+
+    override suspend fun publishMemberJoined(
+        session: SessionEntity,
+        member: SessionMemberEntity
+    ) {
+        throw CancellationException(
+            "cancel join publish"
+        )
     }
 }
 
@@ -1260,6 +1546,69 @@ private class FakeActiveSessionStore : ActiveSessionStore {
     override suspend fun clearActiveSession(userId: String) {
         activeSessions[userId] = null
     }
+}
+
+private suspend fun assertJoinInvitationFails(
+    fixture: SessionFixture,
+    invitation: SessionInvitationPayload,
+    expectedMessage: String
+) {
+    try {
+        fixture.repository.joinInvitation(
+            invitation = invitation,
+            userId = fixture.participant.uid,
+            displayName = fixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+        fail("Expected join invitation to fail.")
+    } catch (expected: IllegalArgumentException) {
+        assertEquals(expectedMessage, expected.message)
+    }
+}
+
+private suspend fun assertEquivalentJoinedState(
+    directFixture: SessionFixture,
+    codeFixture: SessionFixture,
+    userId: String
+) {
+    val directSession =
+        directFixture.sessionDao.getSession(
+            directFixture.session.id
+        )
+    val codeSession =
+        codeFixture.sessionDao.getSession(
+            codeFixture.session.id
+        )
+
+    assertEquals(directSession?.id, codeSession?.id)
+    assertEquals(directSession?.name, codeSession?.name)
+    assertEquals(directSession?.joinCode, codeSession?.joinCode)
+    assertEquals(directSession?.hostUserId, codeSession?.hostUserId)
+    assertEquals(directSession?.status, codeSession?.status)
+    assertEquals(directSession?.displayId, codeSession?.displayId)
+    assertEquals(directSession?.actualStartedAt, codeSession?.actualStartedAt)
+    assertEquals(directSession?.expiresAt, codeSession?.expiresAt)
+
+    val directMember =
+        directFixture.sessionDao.getMember(
+            directFixture.session.id,
+            userId
+        )
+    val codeMember =
+        codeFixture.sessionDao.getMember(
+            codeFixture.session.id,
+            userId
+        )
+
+    assertEquals(directMember?.sessionId, codeMember?.sessionId)
+    assertEquals(directMember?.userId, codeMember?.userId)
+    assertEquals(directMember?.displayName, codeMember?.displayName)
+    assertEquals(directMember?.role, codeMember?.role)
+
+    assertEquals(
+        directFixture.activeSessionStore.activeSessions[userId],
+        codeFixture.activeSessionStore.activeSessions[userId]
+    )
 }
 
 private object AlwaysBoundDisplayBindingCoordinator :

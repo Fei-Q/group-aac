@@ -13,6 +13,7 @@ import com.example.groupaac.data.pi.DisplayPairingPayload
 import com.example.groupaac.data.pi.LaunchSessionResult
 import com.example.groupaac.data.pi.NoOpDisplayBindingCoordinator
 import com.example.groupaac.data.pi.SessionInvitationPayload
+import com.example.groupaac.data.pi.validatedForJoin
 import com.example.groupaac.data.realtime.reliability.OutboxDispatching
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
@@ -860,14 +861,10 @@ class SessionRepository(
             "Host access cannot be requested from the join screen."
         }
 
-        val user =
-            userDao.getUser(userId)
-                ?: error("User not found.")
-
         val cleanCode =
             normalizeJoinCode(joinCode)
 
-        val directoryEntry =
+        val invitation =
             when (
                 val result =
                     sessionDirectory.resolve(
@@ -876,6 +873,7 @@ class SessionRepository(
             ) {
                 is ResolveJoinCodeResult.Found -> {
                     result.entry
+                        .toSessionInvitationPayload()
                 }
 
                 ResolveJoinCodeResult.InvalidCode -> {
@@ -917,22 +915,44 @@ class SessionRepository(
                 }
             }
 
+        return joinInvitation(
+            invitation = invitation,
+            userId = userId,
+            displayName = displayName,
+            requestedRole = requestedRole
+        )
+    }
+
+    suspend fun joinInvitation(
+        invitation: SessionInvitationPayload,
+        userId: String,
+        displayName: String,
+        requestedRole: SessionRole
+    ): JoinSessionResult {
+        require(
+            requestedRole != SessionRole.HOST
+        ) {
+            "Host access cannot be requested from the join screen."
+        }
+
+        val user =
+            userDao.getUser(userId)
+                ?: error("User not found.")
+
+        val validatedInvitation =
+            invitation.validatedForJoin(
+                nowProvider = TimeUtils::now
+            )
+
         val existingSession =
             sessionDao.getSession(
-                directoryEntry.sessionId
+                validatedInvitation.sessionId
             )
 
         val session =
-            directoryEntry.toSessionEntity(
+            validatedInvitation.toSessionEntity(
                 existing = existingSession
             )
-
-        check(
-            session.status ==
-                    SessionStatus.LIVE
-        ) {
-            "This session is not currently open."
-        }
 
         sessionDao.upsertSession(session)
 
@@ -1750,6 +1770,23 @@ class SessionRepository(
     }
 
     private fun SessionDirectoryEntry
+            .toSessionInvitationPayload():
+            SessionInvitationPayload {
+
+        return SessionInvitationPayload(
+            sessionId = sessionId,
+            joinCode = joinCode,
+            sessionName = sessionName,
+            hostUserId = hostUserId,
+            displayId = displayId,
+            status = status,
+            displayMode = displayMode,
+            actualStartedAt = actualStartedAt,
+            expiresAt = expiresAt
+        )
+    }
+
+    private fun SessionInvitationPayload
             .toSessionEntity(
         existing: SessionEntity? = null
     ): SessionEntity {
@@ -1757,15 +1794,14 @@ class SessionRepository(
         return SessionEntity(
             id = sessionId,
             name = sessionName,
-            joinCode =
-                formatJoinCode(joinCode),
+            joinCode = joinCode,
             hostUserId = hostUserId,
             status = status,
             displayMode = displayMode,
             displayId = displayId,
             createdAt =
                 existing?.createdAt
-                    ?: createdAt,
+                    ?: actualStartedAt,
             scheduledStartAt =
                 existing?.scheduledStartAt,
             scheduledDurationMinutes =
@@ -1778,6 +1814,20 @@ class SessionRepository(
             expiresAt = expiresAt,
             updatedAt = TimeUtils.now()
         )
+    }
+
+    private fun SessionDirectoryEntry
+            .toSessionEntity(
+        existing: SessionEntity? = null
+    ): SessionEntity {
+
+        return toSessionInvitationPayload()
+            .toSessionEntity(existing)
+            .copy(
+                createdAt =
+                    existing?.createdAt
+                        ?: createdAt
+            )
     }
 
     private suspend fun defaultDisplayModeForUser(

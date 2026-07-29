@@ -2,7 +2,7 @@
 
 Date: 2026-07-29
 Branch: `feature/pubnub-pi-prototype-hardening`
-Status: display-pairing milestone complete in this repository; participant QR joining has not started
+Status: display-pairing milestone plus Stage 4A shared invitation join pipeline are complete; scanner UI for participant QR joining has not started
 
 ## Frozen Scope
 
@@ -10,6 +10,8 @@ Status: display-pairing milestone complete in this repository; participant QR jo
 - Immediate session creation is local-only and creates a `DRAFT` session in Room.
 - Scheduled session creation is local-only and remains inactive until explicit launch.
 - Join-code discovery is handled by PubNub App Context metadata through `SessionDirectory`.
+- Direct session invitations are validated through a shared repository join pipeline and do not call `SessionDirectory`.
+- Number-code joins resolve one directory entry, convert it to the same invitation model, and then use that same repository join pipeline.
 - Display pairing is coordinated by Android and a Pi-side pairing QR / control-event handshake.
 - The Python code under [`pi/`](../pi/README.md) is a simulator, protocol reference, and test harness only.
 - Production Raspberry Pi software is external to this repository and is being implemented in C++.
@@ -22,6 +24,7 @@ Status: display-pairing milestone complete in this repository; participant QR jo
 - Session lifecycle logic lives in [SessionRepository](../app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt).
 - Join-code registration and lookup flow through [SessionDirectory](../app/src/main/java/com/example/groupaac/data/sessiondirectory/SessionDirectory.kt) and [PubNubSessionDirectory](../app/src/main/java/com/example/groupaac/data/sessiondirectory/PubNubSessionDirectory.kt).
 - Display pairing protocol helpers live in [DisplayPairingProtocol](../app/src/main/java/com/example/groupaac/data/pi/DisplayPairingProtocol.kt).
+- Shared invitation validation and join entry points now use the existing [SessionInvitationPayload](../app/src/main/java/com/example/groupaac/data/pi/DisplayPairingProtocol.kt) model through [SessionRepository.joinInvitation(...)](../app/src/main/java/com/example/groupaac/data/repository/SessionRepository.kt).
 - Android-to-display bind/unbind orchestration lives in [DisplayBindingCoordinator](../app/src/main/java/com/example/groupaac/data/pi/DisplayBindingCoordinator.kt).
 - Facilitator launch UI state lives in [SessionCoordinatorViewModel](../app/src/main/java/com/example/groupaac/ui/session/SessionCoordinatorViewModel.kt) and [OutsideSessionNavGraph](../app/src/main/java/com/example/groupaac/ui/navigation/OutsideSessionNavGraph.kt).
 
@@ -39,6 +42,11 @@ Status: display-pairing milestone complete in this repository; participant QR jo
    - commits the session locally as `LIVE`
    - publishes launch/member realtime events
    - activates the host in `ActiveSessionStore`
+6. Participant/facilitator joining now uses one validated invitation pipeline:
+   - direct invitation joins receive `SessionInvitationPayload` and perform zero directory calls
+   - number-code joins normalize the code, resolve `SessionDirectory` once, convert the result to `SessionInvitationPayload`, and call the same repository function
+   - both paths upsert equivalent local session-shell state before participant membership or facilitator request handling
+   - `CancellationException` is preserved through both paths
 
 ## Channel Naming
 
@@ -61,9 +69,13 @@ Session-scoped display channels remain separate:
 
 ## Explicit Non-Scope
 
-- Participant QR joining has not begun and should not be started from this milestone branch.
+- Scanner UI for participant QR joining has not begun and should not be started from this branch.
 - The Python `pi/` package is not a backend and is not the production Raspberry Pi runtime.
 - Production Pi implementation details and deployment remain external C++ work.
+
+## Deferred Follow-Up
+
+- Broad snapshot or history-based recovery for invitation joins remains a later recovery-stage requirement and is intentionally not part of Stage 4A.
 
 ## Companion Docs
 
