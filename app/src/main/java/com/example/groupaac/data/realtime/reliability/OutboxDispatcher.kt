@@ -1,10 +1,12 @@
 package com.example.groupaac.data.realtime.reliability
 
 import android.content.Context
+import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.CoroutineWorker
 import androidx.work.WorkManager
-import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.example.groupaac.GroupAacApplication
 import com.example.groupaac.data.AppDatabase
@@ -14,6 +16,7 @@ import com.example.groupaac.data.realtime.sync.DisplayMessagePayload
 import com.example.groupaac.model.MessageDisplayStatus
 import com.example.groupaac.model.MessageTransportStatus
 import com.example.groupaac.model.OutboxDomainType
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -40,15 +43,18 @@ class OutboxDispatcher(
     private val realtimeClientManager: RealtimeClientManager,
     private val scope: CoroutineScope,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val fallbackScheduler: () -> Unit = {
-        enqueueFallback(context)
+    private val workScheduler: (Long) -> Unit = { delayMillis ->
+        enqueueFallback(
+            context = context,
+            delayMillis = delayMillis
+        )
     }
 ) : OutboxDispatching {
     private val running = AtomicBoolean(false)
     private val json = Json { ignoreUnknownKeys = true }
 
     override fun requestImmediateDispatch() {
-        runCatching { fallbackScheduler() }
+        runCatching { workScheduler(0L) }
         if (!running.compareAndSet(false, true)) {
             return
         }
@@ -62,27 +68,47 @@ class OutboxDispatcher(
     }
 
     suspend fun dispatchDueEvents(now: Long = clock()) {
-        reliabilityStore.recoverStaleSending(now)
+        val activeUid = realtimeClientManager.activeUserId ?: return
+        reliabilityStore.recoverStaleSending(
+            actorUserId = activeUid,
+            now = now
+        )
 
         while (true) {
             val due = reliabilityStore.getRetryableEvents(
+                actorUserId = activeUid,
                 now = clock(),
                 limit = 25
-            ).filter { it.attemptCount < RealtimeReliabilityStore.MAX_ATTEMPTS }
+            )
             if (due.isEmpty()) {
+                scheduleNextRetry(activeUid)
                 return
             }
 
             val client = realtimeClientManager.requireClient()
             due.forEach { entry ->
+                val attemptTime = clock()
                 val nextAttempt = entry.attemptCount + 1
-                reliabilityStore.markSending(
+                val claimed = reliabilityStore.claimSending(
                     eventId = entry.eventId,
+                    actorUserId = activeUid,
                     attemptCount = nextAttempt,
-                    now = clock()
+                    now = attemptTime
                 )
+                if (!claimed) {
+                    return@forEach
+                }
                 try {
                     val event = reliabilityStore.decodeOutboxEvent(entry)
+                    check(entry.actorUserId == activeUid) {
+                        "Outbox row actorUserId does not match active realtime UID."
+                    }
+                    check(event.actorUserId == activeUid) {
+                        "Decoded outbox event actorUserId does not match active realtime UID."
+                    }
+                    check(event.actorUserId == entry.actorUserId) {
+                        "Decoded outbox event actorUserId does not match stored row actorUserId."
+                    }
                     val timetoken = client.publish(entry.channel, event)
                     reliabilityStore.markSent(entry.eventId, timetoken)
                     if (entry.domainType == OutboxDomainType.DISPLAY) {
@@ -110,6 +136,15 @@ class OutboxDispatcher(
     override suspend fun retryEvent(eventId: String) {
         reliabilityStore.retryNow(eventId, clock())
         dispatchDueEvents()
+    }
+
+    private suspend fun scheduleNextRetry(activeUid: String) {
+        val nextRetryAt = reliabilityStore.getEarliestFutureRetryTime(
+            actorUserId = activeUid,
+            now = clock()
+        ) ?: return
+        val delayMillis = (nextRetryAt - clock()).coerceAtLeast(0L)
+        runCatching { workScheduler(delayMillis) }
     }
 
     private suspend fun applySuccessfulDelivery(
@@ -172,12 +207,24 @@ class OutboxDispatcher(
 
     companion object {
         private const val UNIQUE_WORK_NAME = "group-aac-outbox-dispatch"
+        internal fun buildWorkRequest(delayMillis: Long) =
+            OneTimeWorkRequestBuilder<OutboxDispatchWorker>()
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build()
+                )
+                .setInitialDelay(delayMillis, TimeUnit.MILLISECONDS)
+                .build()
 
-        private fun enqueueFallback(context: Context) {
+        private fun enqueueFallback(
+            context: Context,
+            delayMillis: Long
+        ) {
             WorkManager.getInstance(context).enqueueUniqueWork(
                 UNIQUE_WORK_NAME,
                 ExistingWorkPolicy.REPLACE,
-                OneTimeWorkRequestBuilder<OutboxDispatchWorker>().build()
+                buildWorkRequest(delayMillis)
             )
         }
     }
@@ -194,15 +241,13 @@ class OutboxDispatcher(
 class OutboxDispatchWorker(
     appContext: Context,
     params: WorkerParameters
-) : Worker(appContext, params) {
-    override fun doWork(): Result {
+) : CoroutineWorker(appContext, params) {
+    override suspend fun doWork(): Result {
         val dispatcher =
             (applicationContext as GroupAacApplication)
                 .appContainer
                 .outboxDispatcher
-        kotlinx.coroutines.runBlocking {
-            dispatcher.dispatchDueEvents()
-        }
+        dispatcher.dispatchDueEvents()
         return Result.success()
     }
 }

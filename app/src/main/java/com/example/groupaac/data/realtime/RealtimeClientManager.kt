@@ -1,6 +1,7 @@
 package com.example.groupaac.data.realtime
 
 interface RealtimeClientManager {
+    val activeUserId: String?
     suspend fun activateUser(uid: String)
     suspend fun deactivateUser()
     fun requireClient(): SessionRealtimeClient
@@ -29,6 +30,8 @@ class AccountScopedRealtimeClientManager(
 ) : RealtimeClientManager {
     private var activeUid: String? = null
     private var activeClient: SessionRealtimeClient = defaultClientFactory()
+    override val activeUserId: String?
+        get() = activeUid
 
     override suspend fun activateUser(uid: String) {
         if (activeUid == uid) {

@@ -102,7 +102,9 @@ class DefaultSessionRealtimeSyncTest {
         )
 
         val stored = database.reliabilityDao().getRetryableOutboxEvents(
+            actorUserId = "alice",
             now = Long.MAX_VALUE,
+            maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
             limit = 1
         ).single()
         assertNotNull(stored)
@@ -402,7 +404,9 @@ class DefaultSessionRealtimeSyncTest {
         )
 
         val stored = database.reliabilityDao().getRetryableOutboxEvents(
+            actorUserId = "host",
             now = Long.MAX_VALUE,
+            maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
             limit = 10
         ).single { it.eventId.isNotBlank() && it.channel == RealtimeChannels.privateUser("session-1", "facilitator") }
         val event = RealtimeEventCodec.decode(stored.serializedEvent)
@@ -456,7 +460,9 @@ class DefaultSessionRealtimeSyncTest {
             )
 
             val privateEvent = hostDb.reliabilityDao().getRetryableOutboxEvents(
+                actorUserId = "host",
                 now = Long.MAX_VALUE,
+                maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
                 limit = 10
             ).single { it.channel == RealtimeChannels.privateUser(session.id, "facilitator") }
             val received = ReceivedRealtimeEvent(
@@ -523,7 +529,9 @@ class DefaultSessionRealtimeSyncTest {
             hostSync.publishMemberJoined(session, member)
 
             val rosterEvent = hostDb.reliabilityDao().getRetryableOutboxEvents(
+                actorUserId = member.userId,
                 now = Long.MAX_VALUE,
+                maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
                 limit = 10
             ).single { it.channel == RealtimeChannels.public(session.id) }
             val received = ReceivedRealtimeEvent(
@@ -639,7 +647,9 @@ class DefaultSessionRealtimeSyncTest {
             )
             senderSync.publishSignalCreated(signal, "Participant")
             val createdEvent = senderDb.reliabilityDao().getRetryableOutboxEvents(
+                actorUserId = "participant",
                 now = Long.MAX_VALUE,
+                maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
                 limit = 10
             ).single { it.domainId == signal.id }
             assertEquals(
@@ -669,7 +679,9 @@ class DefaultSessionRealtimeSyncTest {
                 actorUserId = "participant"
             )
             val clearedEvent = senderDb.reliabilityDao().getRetryableOutboxEvents(
+                actorUserId = "participant",
                 now = Long.MAX_VALUE,
+                maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
                 limit = 10
             ).last()
             assertTrue(
@@ -723,7 +735,9 @@ class DefaultSessionRealtimeSyncTest {
                 facilitatorUserId = "facilitator-1"
             )
             val snoozeEvent = senderDb.reliabilityDao().getRetryableOutboxEvents(
+                actorUserId = "facilitator-1",
                 now = Long.MAX_VALUE,
+                maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
                 limit = 10
             ).single()
             assertEquals(
@@ -809,6 +823,124 @@ class DefaultSessionRealtimeSyncTest {
         assertEquals(declared, covered)
     }
 
+    @Test
+    fun sessionStartedReplayPreservesDisplayIdAndExpiresAt() = runTest {
+        val payload = buildJsonObject {
+            put(
+                "session",
+                Json.encodeToJsonElement(
+                    SessionPayload.serializer(),
+                    seededSession("session-started").copy(
+                        displayId = "display-1",
+                        expiresAt = 9_999L
+                    ).toRealtimePayload()
+                )
+            )
+        }
+        val received = ReceivedRealtimeEvent(
+            channel = RealtimeChannels.public("session-started"),
+            timetoken = 900L,
+            publisherUserId = "host",
+            event = RealtimeEvent(
+                eventId = "evt-started-1",
+                type = RealtimeEventTypes.SESSION_STARTED,
+                sessionId = "session-started",
+                actorUserId = "host",
+                occurredAt = 101L,
+                payload = payload
+            )
+        )
+
+        assertTrue(sync.applyIncoming(received))
+
+        val stored = database.sessionDao().getSession("session-started")
+        assertEquals("display-1", stored?.displayId)
+        assertEquals(9_999L, stored?.expiresAt)
+    }
+
+    @Test
+    fun displayAcknowledgementValidationFindsBoundDisplayAfterSessionSelfReplay() = runTest {
+        val sessionPayload = seededSession("session-self-replay").copy(
+            displayId = "display-1",
+            expiresAt = 8_000L
+        ).toRealtimePayload()
+        val startedPayload = buildJsonObject {
+            put(
+                "session",
+                Json.encodeToJsonElement(
+                    SessionPayload.serializer(),
+                    sessionPayload
+                )
+            )
+        }
+        val started = ReceivedRealtimeEvent(
+            channel = RealtimeChannels.public("session-self-replay"),
+            timetoken = 910L,
+            publisherUserId = "host",
+            event = RealtimeEvent(
+                eventId = "evt-session-self-replay",
+                type = RealtimeEventTypes.SESSION_STARTED,
+                sessionId = "session-self-replay",
+                actorUserId = "host",
+                occurredAt = 102L,
+                payload = startedPayload
+            )
+        )
+
+        assertTrue(sync.applyIncoming(started))
+
+        database.reliabilityDao().upsertDisplayState(
+            com.example.groupaac.data.entity.DisplayStateEntity(
+                sessionId = "session-self-replay",
+                currentMessageId = "msg-1",
+                isPinned = false,
+                displayMode = DisplayMode.AUTO_LATEST,
+                commandOrigin = DisplayCommandOrigin.MANUAL_SHOW,
+                lastIssuedCommandEventId = "cmd-1",
+                lastPublishedCommandTimetoken = 920L,
+                localOptimisticUpdatedAt = 200L
+            )
+        )
+
+        val ackPayload = buildJsonObject {
+            put(
+                "displayState",
+                Json.encodeToJsonElement(
+                    DisplayStatePayload.serializer(),
+                    DisplayStatePayload(
+                        sessionId = "session-self-replay",
+                        currentMessageId = "msg-1",
+                        isPinned = false,
+                        displayMode = DisplayMode.AUTO_LATEST.name,
+                        commandOrigin = DisplayCommandOrigin.MANUAL_SHOW.name
+                    )
+                )
+            )
+        }
+        val acknowledgement = ReceivedRealtimeEvent(
+            channel = RealtimeChannels.displayEvents("session-self-replay"),
+            timetoken = 930L,
+            publisherUserId = "display-1",
+            event = RealtimeEvent(
+                eventId = "ack-cmd-1",
+                type = RealtimeEventTypes.DISPLAY_RENDERED,
+                sessionId = "session-self-replay",
+                actorUserId = "display-1",
+                occurredAt = 103L,
+                inReplyToEventId = "cmd-1",
+                payload = ackPayload
+            )
+        )
+
+        assertTrue(sync.applyIncoming(acknowledgement))
+        assertEquals(
+            930L,
+            database.reliabilityDao()
+                .getDisplayState("session-self-replay")
+                ?.lastPiAppliedCommandTimetoken
+        )
+    }
+
     private fun inMemoryDatabase(): AppDatabase {
         val context = ApplicationProvider.getApplicationContext<Context>()
         return Room.inMemoryDatabaseBuilder(
@@ -837,8 +969,10 @@ class DefaultSessionRealtimeSyncTest {
         joinCode = "1234-5678",
         hostUserId = "host",
         displayMode = DisplayMode.AUTO_LATEST,
+        displayId = "display-seeded",
         createdAt = 100L,
-        actualStartedAt = 100L
+        actualStartedAt = 100L,
+        expiresAt = 5_000L
     )
 
     private fun facilitatorApprovalEvent(

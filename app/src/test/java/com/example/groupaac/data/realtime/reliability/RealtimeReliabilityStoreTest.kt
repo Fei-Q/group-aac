@@ -137,7 +137,11 @@ class RealtimeReliabilityStoreTest {
             now = 1_000L
         )
 
-        val retryable = store.getRetryableEvents(now = 1_000L, limit = 10)
+        val retryable = store.getRetryableEvents(
+            actorUserId = "alice",
+            now = 1_000L,
+            limit = 10
+        )
 
         assertEquals(listOf("evt-live"), retryable.map { it.eventId })
     }

@@ -28,6 +28,7 @@ class RealtimeClientManagerTest {
         assertTrue(initial.closed)
         assertTrue(aliceClient.closed)
         assertSame(bobClient, manager.requireClient())
+        assertEquals("bob", manager.activeUserId)
         assertEquals(3, createdClients.size)
     }
 
@@ -43,6 +44,7 @@ class RealtimeClientManagerTest {
         manager.activateUser("alice")
 
         assertSame(first, manager.requireClient())
+        assertEquals("alice", manager.activeUserId)
     }
 
     @Test
@@ -59,6 +61,7 @@ class RealtimeClientManagerTest {
 
         assertTrue((initial as RecordingRealtimeClient).closed)
         assertTrue(aliceClient.closed)
+        assertEquals(null, manager.activeUserId)
         assertTrue(manager.requireClient() is RecordingRealtimeClient)
     }
 }

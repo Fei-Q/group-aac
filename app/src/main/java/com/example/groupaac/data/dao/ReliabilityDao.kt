@@ -24,13 +24,17 @@ interface ReliabilityDao {
         """
         SELECT * FROM outbox_events
         WHERE state IN ('PENDING', 'FAILED')
+          AND actorUserId = :actorUserId
           AND nextAttemptAt <= :now
+          AND attemptCount < :maxAttempts
         ORDER BY nextAttemptAt ASC, createdAt ASC
         LIMIT :limit
         """
     )
     suspend fun getRetryableOutboxEvents(
+        actorUserId: String,
         now: Long,
+        maxAttempts: Int,
         limit: Int
     ): List<OutboxEventEntity>
 
@@ -38,11 +42,35 @@ interface ReliabilityDao {
         """
         SELECT * FROM outbox_events
         WHERE state = 'SENDING'
+          AND actorUserId = :actorUserId
           AND nextAttemptAt <= :now
         ORDER BY nextAttemptAt ASC, createdAt ASC
         """
     )
-    suspend fun getStaleSendingOutboxEvents(now: Long): List<OutboxEventEntity>
+    suspend fun getStaleSendingOutboxEvents(
+        actorUserId: String,
+        now: Long
+    ): List<OutboxEventEntity>
+
+    @Query(
+        """
+        UPDATE outbox_events
+        SET state = 'SENDING',
+            attemptCount = :attemptCount,
+            nextAttemptAt = :leaseUntil
+        WHERE eventId = :eventId
+          AND actorUserId = :actorUserId
+          AND state IN ('PENDING', 'FAILED')
+          AND nextAttemptAt <= :now
+        """
+    )
+    suspend fun claimOutboxEvent(
+        eventId: String,
+        actorUserId: String,
+        attemptCount: Int,
+        now: Long,
+        leaseUntil: Long
+    ): Int
 
     @Query(
         """
@@ -87,6 +115,21 @@ interface ReliabilityDao {
         eventId: String,
         now: Long
     )
+
+    @Query(
+        """
+        SELECT MIN(nextAttemptAt) FROM outbox_events
+        WHERE actorUserId = :actorUserId
+          AND state IN ('PENDING', 'FAILED')
+          AND nextAttemptAt > :now
+          AND attemptCount < :maxAttempts
+        """
+    )
+    suspend fun getEarliestFutureRetryTime(
+        actorUserId: String,
+        now: Long,
+        maxAttempts: Int
+    ): Long?
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertProcessedEvent(event: ProcessedEventEntity): Long

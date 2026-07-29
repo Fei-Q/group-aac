@@ -26,6 +26,9 @@ class RealtimeReliabilityStore(
         event: RealtimeEvent,
         now: Long
     ) {
+        require(!event.actorUserId.isNullOrBlank()) {
+            "Outbox events must have a non-null actorUserId."
+        }
         reliabilityDao.upsertOutboxEvent(
             OutboxEventEntity(
                 eventId = event.eventId,
@@ -42,17 +45,19 @@ class RealtimeReliabilityStore(
         )
     }
 
-    suspend fun markSending(
+    suspend fun claimSending(
         eventId: String,
+        actorUserId: String,
         attemptCount: Int,
         now: Long
-    ) {
-        reliabilityDao.updateOutboxAttempt(
+    ): Boolean {
+        return reliabilityDao.claimOutboxEvent(
             eventId = eventId,
-            state = OutboxEventState.SENDING,
+            actorUserId = actorUserId,
             attemptCount = attemptCount,
-            nextAttemptAt = now + nextRetryDelayMillis(attemptCount)
-        )
+            now = now,
+            leaseUntil = now + SEND_LEASE_MILLIS
+        ) == 1
     }
 
     suspend fun markFailed(eventId: String, attemptCount: Int, now: Long) {
@@ -87,8 +92,14 @@ class RealtimeReliabilityStore(
         )
     }
 
-    suspend fun recoverStaleSending(now: Long): List<OutboxEventEntity> {
-        val stale = reliabilityDao.getStaleSendingOutboxEvents(now)
+    suspend fun recoverStaleSending(
+        actorUserId: String,
+        now: Long
+    ): List<OutboxEventEntity> {
+        val stale = reliabilityDao.getStaleSendingOutboxEvents(
+            actorUserId = actorUserId,
+            now = now
+        )
             .filterNot { event ->
                 event.expiresAt != null && event.expiresAt <= now
             }
@@ -108,14 +119,29 @@ class RealtimeReliabilityStore(
     }
 
     suspend fun getRetryableEvents(
+        actorUserId: String,
         now: Long,
         limit: Int
     ): List<OutboxEventEntity> {
-        return reliabilityDao.getRetryableOutboxEvents(now, limit)
+        return reliabilityDao.getRetryableOutboxEvents(
+            actorUserId = actorUserId,
+            now = now,
+            maxAttempts = MAX_ATTEMPTS,
+            limit = limit
+        )
             .filterNot { event ->
                 event.expiresAt != null && event.expiresAt <= now
             }
     }
+
+    suspend fun getEarliestFutureRetryTime(
+        actorUserId: String,
+        now: Long
+    ): Long? = reliabilityDao.getEarliestFutureRetryTime(
+        actorUserId = actorUserId,
+        now = now,
+        maxAttempts = MAX_ATTEMPTS
+    )
 
     suspend fun recordProcessedEvent(
         received: ReceivedRealtimeEvent,
@@ -222,6 +248,7 @@ class RealtimeReliabilityStore(
 
     companion object {
         const val MAX_ATTEMPTS = 5
+        const val SEND_LEASE_MILLIS = 30_000L
 
         fun nextRetryDelayMillis(attemptCount: Int): Long {
             return when (attemptCount.coerceAtLeast(1)) {

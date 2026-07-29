@@ -127,7 +127,8 @@ class AppContainer(context: Context) {
         userIdRegistry = userIdRegistry,
         userDao = database.userDao(),
         preferences = preferences,
-        realtimeClientManager = realtimeClientManager
+        realtimeClientManager = realtimeClientManager,
+        outboxDispatcher = outboxDispatcher
     )
 
     val settingsRepository = SettingsRepository(
@@ -167,6 +168,8 @@ class AppContainer(context: Context) {
                 sessionRepository.observeActiveSession(userId)
             },
             realtimeClientManager = realtimeClientManager,
+            requestOutboxDispatch =
+                outboxDispatcher::requestImmediateDispatch,
             startSessionSubscriptions =
                 sessionSubscriptionCoordinator::start,
             sessionRecovery =

@@ -455,7 +455,12 @@ class DisplayCommandAcknowledgementIntegrationTest {
 
     private suspend fun displayOutboxCount(): Int =
         database.reliabilityDao()
-            .getRetryableOutboxEvents(Long.MAX_VALUE, 50)
+            .getRetryableOutboxEvents(
+                actorUserId = "host1",
+                now = Long.MAX_VALUE,
+                maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
+                limit = 50
+            )
             .count { it.channel == RealtimeChannels.display(SESSION_ID) }
 
     private fun acknowledgement(

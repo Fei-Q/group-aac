@@ -11,6 +11,7 @@ import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
 import com.example.groupaac.data.pi.DisplayBindingCoordinator
 import com.example.groupaac.data.pi.DisplayBindingResult
+import com.example.groupaac.data.pi.DisplayUnbindResult
 import com.example.groupaac.data.pi.DisplayPairingPayload
 import com.example.groupaac.data.pi.LaunchSessionResult
 import com.example.groupaac.data.pi.SessionInvitationPayload
@@ -644,6 +645,139 @@ class SessionRepositoryTest {
         val ended = fixture.sessionDao.getSession(active.sessionId)
         assertEquals(SessionStatus.ENDED, ended?.status)
         assertNotNull(ended?.actualEndedAt)
+    }
+
+    @Test
+    fun normalEndCallsUnbindWithCorrectIdentifiers() = runTest {
+        val displayBindingCoordinator =
+            RecordingDisplayBindingCoordinator()
+        val fixture = sessionFixture(
+            displayBindingCoordinator =
+                displayBindingCoordinator
+        )
+
+        val result =
+            fixture.repository.endSession(
+                sessionId = fixture.session.id,
+                actorUserId = fixture.host.uid
+            )
+
+        assertEquals(null, result.cleanupWarning)
+        assertEquals(1, displayBindingCoordinator.unbindCalls.size)
+        assertEquals(
+            UnbindCall(
+                displayId = "pi-test",
+                sessionId = fixture.session.id,
+                requestedByUserId = fixture.host.uid
+            ),
+            displayBindingCoordinator.unbindCalls.single()
+        )
+    }
+
+    @Test
+    fun noDisplayIdSkipsUnbinding() = runTest {
+        val displayBindingCoordinator =
+            RecordingDisplayBindingCoordinator()
+        val fixture = sessionFixture(
+            displayBindingCoordinator =
+                displayBindingCoordinator
+        )
+        fixture.sessionDao.upsertSession(
+            fixture.session.copy(displayId = null)
+        )
+
+        val result =
+            fixture.repository.endSession(
+                sessionId = fixture.session.id,
+                actorUserId = fixture.host.uid
+            )
+
+        assertEquals(null, result.cleanupWarning)
+        assertTrue(displayBindingCoordinator.unbindCalls.isEmpty())
+    }
+
+    @Test
+    fun alreadyEndedSessionRetriesCleanup() = runTest {
+        val displayBindingCoordinator =
+            RecordingDisplayBindingCoordinator()
+        val fixture = sessionFixture(
+            displayBindingCoordinator =
+                displayBindingCoordinator
+        )
+
+        fixture.repository.endSession(
+            sessionId = fixture.session.id,
+            actorUserId = fixture.host.uid
+        )
+
+        fixture.repository.endSession(
+            sessionId = fixture.session.id,
+            actorUserId = fixture.host.uid
+        )
+
+        assertEquals(2, displayBindingCoordinator.unbindCalls.size)
+        assertEquals(
+            SessionStatus.ENDED,
+            fixture.sessionDao.getSession(
+                fixture.session.id
+            )?.status
+        )
+    }
+
+    @Test
+    fun unbindFailureLeavesSessionEnded() = runTest {
+        val displayBindingCoordinator =
+            RecordingDisplayBindingCoordinator(
+                unbindResult =
+                    DisplayUnbindResult.Failure(
+                        "Pi did not respond."
+                    )
+            )
+        val fixture = sessionFixture(
+            displayBindingCoordinator =
+                displayBindingCoordinator
+        )
+
+        val result =
+            fixture.repository.endSession(
+                sessionId = fixture.session.id,
+                actorUserId = fixture.host.uid
+            )
+
+        assertEquals(
+            SessionStatus.ENDED,
+            fixture.sessionDao.getSession(
+                fixture.session.id
+            )?.status
+        )
+        assertTrue(
+            result.cleanupWarning
+                ?.contains(
+                    "display",
+                    ignoreCase = true
+                ) == true
+        )
+    }
+
+    @Test
+    fun successfulEndRemovesDirectoryEntry() = runTest {
+        val displayBindingCoordinator =
+            RecordingDisplayBindingCoordinator()
+        val fixture = sessionFixture(
+            displayBindingCoordinator =
+                displayBindingCoordinator
+        )
+
+        fixture.repository.endSession(
+            sessionId = fixture.session.id,
+            actorUserId = fixture.host.uid
+        )
+
+        assertTrue(
+            fixture.sessionDirectory.resolve(
+                fixture.session.joinCode
+            ) is ResolveJoinCodeResult.NotFound
+        )
     }
 
     @Test
@@ -1671,9 +1805,20 @@ private object AlwaysBoundDisplayBindingCoordinator :
     ) = error("unbind should not be called in this test")
 }
 
-private class RecordingDisplayBindingCoordinator :
+private data class UnbindCall(
+    val displayId: String,
+    val sessionId: String,
+    val requestedByUserId: String
+)
+
+private class RecordingDisplayBindingCoordinator(
+    private val unbindResult: DisplayUnbindResult =
+        DisplayUnbindResult.Unbound
+) :
     DisplayBindingCoordinator {
     var bindCalls = 0
+    val unbindCalls =
+        mutableListOf<UnbindCall>()
 
     override suspend fun bind(
         pairing: DisplayPairingPayload,
@@ -1690,5 +1835,14 @@ private class RecordingDisplayBindingCoordinator :
         displayId: String,
         sessionId: String,
         requestedByUserId: String
-    ) = error("unbind should not be called in this test")
+    ): DisplayUnbindResult {
+        unbindCalls +=
+            UnbindCall(
+                displayId = displayId,
+                sessionId = sessionId,
+                requestedByUserId =
+                    requestedByUserId
+            )
+        return unbindResult
+    }
 }

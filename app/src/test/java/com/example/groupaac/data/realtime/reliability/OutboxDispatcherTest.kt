@@ -3,12 +3,14 @@ package com.example.groupaac.data.realtime.reliability
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.NetworkType
 import com.example.groupaac.data.AppDatabase
 import com.example.groupaac.data.entity.MessageEntity
 import com.example.groupaac.data.entity.SessionEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.repository.ImmediateTransactionRunner
+import com.example.groupaac.data.repository.MessageRepository
 import com.example.groupaac.data.realtime.RealtimeClientManager
 import com.example.groupaac.data.realtime.RealtimeConnectionState
 import com.example.groupaac.data.realtime.RealtimeSubscription
@@ -16,15 +18,16 @@ import com.example.groupaac.data.realtime.SessionRealtimeClient
 import com.example.groupaac.data.realtime.protocol.ReceivedRealtimeEvent
 import com.example.groupaac.data.realtime.protocol.RealtimeChannels
 import com.example.groupaac.data.realtime.protocol.RealtimeEvent
-import com.example.groupaac.data.realtime.reliability.NoOpOutboxDispatcher
 import com.example.groupaac.data.realtime.sync.DefaultSessionRealtimeSync
-import com.example.groupaac.data.repository.MessageRepository
 import com.example.groupaac.model.MessageStatus
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.MessageTransportStatus
 import com.example.groupaac.model.OutboxDomainType
 import com.example.groupaac.model.OutboxEventState
 import com.example.groupaac.model.SessionRole
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,7 +38,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,8 +51,10 @@ class OutboxDispatcherTest {
     private lateinit var database: AppDatabase
     private lateinit var store: RealtimeReliabilityStore
     private lateinit var sync: DefaultSessionRealtimeSync
-    private lateinit var client: ControllableRealtimeClient
-    private lateinit var manager: RealtimeClientManager
+    private lateinit var aliceClient: ControllableRealtimeClient
+    private lateinit var bobClient: ControllableRealtimeClient
+    private lateinit var manager: TestRealtimeClientManager
+    private lateinit var scheduledDelays: MutableList<Long>
     private var clock = 1_000L
 
     @Before
@@ -67,14 +74,16 @@ class OutboxDispatcherTest {
             reliabilityDao = database.reliabilityDao(),
             reliabilityStore = store
         )
-        client = ControllableRealtimeClient()
-        manager = object : RealtimeClientManager {
-            override suspend fun activateUser(uid: String) = Unit
-
-            override suspend fun deactivateUser() = Unit
-
-            override fun requireClient(): SessionRealtimeClient = client
-        }
+        aliceClient = ControllableRealtimeClient()
+        bobClient = ControllableRealtimeClient()
+        manager = TestRealtimeClientManager(
+            clients = mapOf(
+                "alice" to aliceClient,
+                "bob" to bobClient
+            ),
+            activeUserId = "alice"
+        )
+        scheduledDelays = mutableListOf()
 
         runBlocking {
             database.userDao().upsertUser(
@@ -124,7 +133,9 @@ class OutboxDispatcherTest {
 
         val message = database.messageDao().getMessage(messageId)
         val outbox = database.reliabilityDao().getRetryableOutboxEvents(
+            actorUserId = "participant1",
             now = Long.MAX_VALUE,
+            maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
             limit = 10
         ).single { it.domainType == OutboxDomainType.MESSAGE }
 
@@ -136,85 +147,251 @@ class OutboxDispatcherTest {
     }
 
     @Test
-    fun failedPublishMarksMessageFailedAndRespectsBackoffUntilRetryWindow() = runTest {
-        enqueueMessageOutbox("msg-fail", "evt-fail")
-        client.failuresRemaining = 1
-        val dispatcher = dispatcher(this)
+    fun foregroundAndBackgroundDispatchersRaceForOneRowAndPublishOnce() = runTest {
+        enqueueMessageOutbox(
+            messageId = "msg-race",
+            eventId = "evt-race",
+            actorUserId = "alice"
+        )
+        val gate = CompletableDeferred<Unit>()
+        aliceClient.beforePublish = { gate.await() }
+        val foreground = dispatcher(this)
+        val background = dispatcher(this)
 
-        dispatcher.dispatchDueEvents()
+        val first = async { foreground.dispatchDueEvents() }
+        val second = async { background.dispatchDueEvents() }
+        gate.complete(Unit)
+        first.await()
+        second.await()
 
-        var outbox = database.reliabilityDao().getOutboxEvent("evt-fail")
-        var message = database.messageDao().getMessage("msg-fail")
-        assertEquals(OutboxEventState.FAILED, outbox?.state)
-        assertEquals(1, outbox?.attemptCount)
-        assertEquals(2_000L, outbox?.nextAttemptAt)
-        assertEquals(MessageTransportStatus.FAILED, message?.transportStatus)
-        assertEquals(1, client.publishAttempts)
-
-        clock = 1_500L
-        dispatcher.dispatchDueEvents()
-        assertEquals(1, client.publishAttempts)
-
-        clock = 2_000L
-        dispatcher.dispatchDueEvents()
-        outbox = database.reliabilityDao().getOutboxEvent("evt-fail")
-        message = database.messageDao().getMessage("msg-fail")
-        assertEquals(OutboxEventState.SENT, outbox?.state)
-        assertEquals(MessageTransportStatus.SENT, message?.transportStatus)
-        assertEquals(2, client.publishAttempts)
+        assertEquals(1, aliceClient.publishAttempts)
+        assertEquals(
+            OutboxEventState.SENT,
+            database.reliabilityDao().getOutboxEvent("evt-race")?.state
+        )
     }
 
     @Test
-    fun staleSendingRowsRecoverAndRetryOnRestart() = runTest {
-        enqueueMessageOutbox("msg-recover", "evt-recover")
-        store.markSending(
-            eventId = "evt-recover",
-            attemptCount = 1,
-            now = clock
+    fun secondClaimantReceivesZeroClaimedRows() = runTest {
+        enqueueMessageOutbox(
+            messageId = "msg-claim",
+            eventId = "evt-claim",
+            actorUserId = "alice"
         )
-        clock = 2_000L
-        val dispatcher = dispatcher(this)
 
-        dispatcher.dispatchDueEvents()
+        assertTrue(
+            store.claimSending(
+                eventId = "evt-claim",
+                actorUserId = "alice",
+                attemptCount = 1,
+                now = clock
+            )
+        )
+        assertFalse(
+            store.claimSending(
+                eventId = "evt-claim",
+                actorUserId = "alice",
+                attemptCount = 1,
+                now = clock
+            )
+        )
+    }
 
-        val outbox = database.reliabilityDao().getOutboxEvent("evt-recover")
-        val message = database.messageDao().getMessage("msg-recover")
-        assertEquals(OutboxEventState.SENT, outbox?.state)
-        assertEquals(MessageTransportStatus.SENT, message?.transportStatus)
-        assertEquals(1, client.publishAttempts)
+    @Test
+    fun alicesQueuedEventIsNotPublishedThroughBobsActiveClient() = runTest {
+        enqueueMessageOutbox(
+            messageId = "msg-alice",
+            eventId = "evt-alice",
+            actorUserId = "alice"
+        )
+        manager.activeUserId = "bob"
+
+        dispatcher(this).dispatchDueEvents()
+
+        assertEquals(0, bobClient.publishAttempts)
+        assertEquals(0, aliceClient.publishAttempts)
+        assertEquals(
+            OutboxEventState.PENDING,
+            database.reliabilityDao().getOutboxEvent("evt-alice")?.state
+        )
+    }
+
+    @Test
+    fun alicesRowRemainsQueuedAfterSwitchingToBob() = runTest {
+        enqueueMessageOutbox(
+            messageId = "msg-queued",
+            eventId = "evt-queued",
+            actorUserId = "alice"
+        )
+        manager.activeUserId = "bob"
+
+        dispatcher(this).requestImmediateDispatch()
+
+        assertEquals(
+            OutboxEventState.PENDING,
+            database.reliabilityDao().getOutboxEvent("evt-queued")?.state
+        )
+    }
+
+    @Test
+    fun switchingBackToAliceDispatchesHerRow() = runTest {
+        enqueueMessageOutbox(
+            messageId = "msg-return",
+            eventId = "evt-return",
+            actorUserId = "alice"
+        )
+        manager.activeUserId = "bob"
+        dispatcher(this).dispatchDueEvents()
+
+        manager.activeUserId = "alice"
+        dispatcher(this).dispatchDueEvents()
+
+        assertEquals(1, aliceClient.publishAttempts)
+        assertEquals(
+            OutboxEventState.SENT,
+            database.reliabilityDao().getOutboxEvent("evt-return")?.state
+        )
+    }
+
+    @Test
+    fun nullOrMismatchedActorEventsAreRejected() = runTest {
+        try {
+            store.enqueueOutboxEvent(
+                domainType = OutboxDomainType.MESSAGE,
+                domainId = "msg-null",
+                channel = RealtimeChannels.public("session1"),
+                event = RealtimeEvent(
+                    eventId = "evt-null",
+                    type = "message.created",
+                    sessionId = "session1",
+                    actorUserId = null,
+                    occurredAt = clock,
+                    payload = JsonObject(mapOf("messageId" to JsonPrimitive("msg-null")))
+                ),
+                now = clock
+            )
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(expected.message?.contains("actorUserId") == true)
+        }
+
+        enqueueMessageOutbox(
+            messageId = "msg-mismatch",
+            eventId = "evt-mismatch",
+            actorUserId = "alice",
+            eventActorUserId = "bob"
+        )
+
+        dispatcher(this).dispatchDueEvents()
+
+        assertEquals(0, aliceClient.publishAttempts)
+        assertEquals(
+            OutboxEventState.FAILED,
+            database.reliabilityDao().getOutboxEvent("evt-mismatch")?.state
+        )
+    }
+
+    @Test
+    fun failedPublicationRecordsFutureNextAttemptAt() = runTest {
+        enqueueMessageOutbox(
+            messageId = "msg-fail",
+            eventId = "evt-fail",
+            actorUserId = "alice"
+        )
+        aliceClient.failuresRemaining = 1
+
+        dispatcher(this).dispatchDueEvents()
+
+        val outbox = database.reliabilityDao().getOutboxEvent("evt-fail")
+        assertEquals(OutboxEventState.FAILED, outbox?.state)
+        assertEquals(2_000L, outbox?.nextAttemptAt)
+    }
+
+    @Test
+    fun nextWorkerIsScheduledWithCorrectDelay() = runTest {
+        enqueueMessageOutbox(
+            messageId = "msg-delay",
+            eventId = "evt-delay",
+            actorUserId = "alice",
+            now = 5_000L
+        )
+        clock = 1_000L
+
+        dispatcher(this).dispatchDueEvents()
+
+        assertEquals(listOf(4_000L), scheduledDelays)
+    }
+
+    @Test
+    fun workerUsesNetworkConstraint() {
+        val request = OutboxDispatcher.buildWorkRequest(delayMillis = 123L)
+
+        assertEquals(NetworkType.CONNECTED, request.workSpec.constraints.requiredNetworkType)
+    }
+
+    @Test
+    fun staleSendingRowsAreReclaimableAfterLeaseExpires() = runTest {
+        enqueueMessageOutbox(
+            messageId = "msg-stale",
+            eventId = "evt-stale",
+            actorUserId = "alice"
+        )
+        assertTrue(
+            store.claimSending(
+                eventId = "evt-stale",
+                actorUserId = "alice",
+                attemptCount = 1,
+                now = clock
+            )
+        )
+        clock += RealtimeReliabilityStore.SEND_LEASE_MILLIS
+
+        dispatcher(this).dispatchDueEvents()
+
+        assertEquals(1, aliceClient.publishAttempts)
+        assertEquals(
+            OutboxEventState.SENT,
+            database.reliabilityDao().getOutboxEvent("evt-stale")?.state
+        )
     }
 
     @Test
     fun manualRetryResetsMaxAttemptFailureAndPublishesAgain() = runTest {
-        enqueueMessageOutbox("msg-retry", "evt-retry")
-        client.failuresRemaining = RealtimeReliabilityStore.MAX_ATTEMPTS
+        enqueueMessageOutbox(
+            messageId = "msg-retry",
+            eventId = "evt-retry",
+            actorUserId = "alice"
+        )
+        aliceClient.failuresRemaining = RealtimeReliabilityStore.MAX_ATTEMPTS
         val dispatcher = dispatcher(this)
 
-        repeat(RealtimeReliabilityStore.MAX_ATTEMPTS) { attempt ->
+        repeat(RealtimeReliabilityStore.MAX_ATTEMPTS) {
             dispatcher.dispatchDueEvents()
-            val outbox = database.reliabilityDao().getOutboxEvent("evt-retry")
-            clock = outbox?.nextAttemptAt ?: (2_000L + attempt)
+            clock =
+                database.reliabilityDao()
+                    .getOutboxEvent("evt-retry")
+                    ?.nextAttemptAt
+                    ?: clock
         }
 
         dispatcher.dispatchDueEvents()
-        assertEquals(RealtimeReliabilityStore.MAX_ATTEMPTS, client.publishAttempts)
+        assertEquals(RealtimeReliabilityStore.MAX_ATTEMPTS, aliceClient.publishAttempts)
         assertEquals(
             OutboxEventState.FAILED,
             database.reliabilityDao().getOutboxEvent("evt-retry")?.state
         )
 
-        client.failuresRemaining = 0
+        aliceClient.failuresRemaining = 0
         dispatcher.retryEvent("evt-retry")
 
         val outbox = database.reliabilityDao().getOutboxEvent("evt-retry")
         val message = database.messageDao().getMessage("msg-retry")
-        assertEquals(RealtimeReliabilityStore.MAX_ATTEMPTS + 1, client.publishAttempts)
+        assertEquals(RealtimeReliabilityStore.MAX_ATTEMPTS + 1, aliceClient.publishAttempts)
         assertEquals(OutboxEventState.SENT, outbox?.state)
         assertEquals(1, outbox?.attemptCount)
         assertEquals(MessageTransportStatus.SENT, message?.transportStatus)
     }
 
-    private fun dispatcher(scope: kotlinx.coroutines.CoroutineScope): OutboxDispatcher {
+    private fun dispatcher(scope: CoroutineScope): OutboxDispatcher {
         val context = ApplicationProvider.getApplicationContext<Context>()
         return OutboxDispatcher(
             context = context,
@@ -223,7 +400,9 @@ class OutboxDispatcherTest {
             realtimeClientManager = manager,
             scope = scope,
             clock = { clock },
-            fallbackScheduler = {}
+            workScheduler = { delayMillis ->
+                scheduledDelays += delayMillis
+            }
         )
     }
 
@@ -240,7 +419,13 @@ class OutboxDispatcherTest {
         )
     }
 
-    private suspend fun enqueueMessageOutbox(messageId: String, eventId: String) {
+    private suspend fun enqueueMessageOutbox(
+        messageId: String,
+        eventId: String,
+        actorUserId: String,
+        eventActorUserId: String = actorUserId,
+        now: Long = clock
+    ) {
         database.messageDao().upsertMessage(
             MessageEntity(
                 id = messageId,
@@ -261,20 +446,45 @@ class OutboxDispatcherTest {
                 eventId = eventId,
                 type = "message.created",
                 sessionId = "session1",
-                actorUserId = "participant1",
-                occurredAt = clock,
+                actorUserId = eventActorUserId,
+                occurredAt = now,
                 payload = JsonObject(
                     mapOf("messageId" to JsonPrimitive(messageId))
                 )
             ),
-            now = clock
+            now = now
         )
+        if (actorUserId != eventActorUserId) {
+            database.reliabilityDao().upsertOutboxEvent(
+                requireNotNull(database.reliabilityDao().getOutboxEvent(eventId)).copy(
+                    actorUserId = actorUserId
+                )
+            )
+        }
     }
+}
+
+private class TestRealtimeClientManager(
+    private val clients: Map<String, ControllableRealtimeClient>,
+    override var activeUserId: String?
+) : RealtimeClientManager {
+    override suspend fun activateUser(uid: String) {
+        activeUserId = uid
+    }
+
+    override suspend fun deactivateUser() {
+        activeUserId = null
+    }
+
+    override fun requireClient(): SessionRealtimeClient =
+        clients[activeUserId]
+            ?: error("No active client for $activeUserId")
 }
 
 private class ControllableRealtimeClient : SessionRealtimeClient {
     var failuresRemaining: Int = 0
     var publishAttempts: Int = 0
+    var beforePublish: (suspend () -> Unit)? = null
     private val connectionState = MutableStateFlow<RealtimeConnectionState>(
         RealtimeConnectionState.Connected
     )
@@ -288,6 +498,7 @@ private class ControllableRealtimeClient : SessionRealtimeClient {
     override suspend fun sendDisplayCommand(command: com.example.groupaac.data.pi.DisplayCommand) = Unit
 
     override suspend fun publish(channel: String, event: RealtimeEvent): Long {
+        beforePublish?.invoke()
         publishAttempts += 1
         if (failuresRemaining > 0) {
             failuresRemaining -= 1

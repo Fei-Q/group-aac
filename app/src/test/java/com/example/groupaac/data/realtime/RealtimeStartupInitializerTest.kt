@@ -27,6 +27,7 @@ class RealtimeStartupInitializerTest {
                     },
                     realtimeClientManager =
                         RecordingRealtimeClientManager(),
+                    requestOutboxDispatch = {},
                     startSessionSubscriptions = {
                         startCount += 1
                     }
@@ -60,6 +61,7 @@ class RealtimeStartupInitializerTest {
                     },
                     realtimeClientManager =
                         object : RealtimeClientManager {
+                            override val activeUserId: String? = null
                             override suspend fun activateUser(
                                 uid: String
                             ) {
@@ -72,6 +74,7 @@ class RealtimeStartupInitializerTest {
                                     SessionRealtimeClient =
                                 FakeSessionRealtimeClient()
                         },
+                    requestOutboxDispatch = {},
                     startSessionSubscriptions = {}
                 )
 
@@ -103,6 +106,7 @@ class RealtimeStartupInitializerTest {
                     },
                     realtimeClientManager =
                         object : RealtimeClientManager {
+                            override val activeUserId: String? = null
                             override suspend fun activateUser(
                                 uid: String
                             ) {
@@ -115,6 +119,7 @@ class RealtimeStartupInitializerTest {
                                     SessionRealtimeClient =
                                 FakeSessionRealtimeClient()
                         },
+                    requestOutboxDispatch = {},
                     startSessionSubscriptions = {}
                 )
 
@@ -145,6 +150,7 @@ class RealtimeStartupInitializerTest {
                 },
                 realtimeClientManager =
                     object : RealtimeClientManager {
+                        override val activeUserId: String? = null
                         override suspend fun activateUser(
                             uid: String
                         ) {
@@ -157,6 +163,7 @@ class RealtimeStartupInitializerTest {
                                 SessionRealtimeClient =
                             FakeSessionRealtimeClient()
                     },
+                requestOutboxDispatch = {},
                 startSessionSubscriptions = {}
             )
 
@@ -194,12 +201,17 @@ class RealtimeStartupInitializerTest {
 private class RecordingRealtimeClientManager :
     RealtimeClientManager {
     val activatedUsers = mutableListOf<String>()
+    override var activeUserId: String? = null
+        private set
 
     override suspend fun activateUser(uid: String) {
         activatedUsers += uid
+        activeUserId = uid
     }
 
-    override suspend fun deactivateUser() = Unit
+    override suspend fun deactivateUser() {
+        activeUserId = null
+    }
 
     override fun requireClient(): SessionRealtimeClient =
         FakeSessionRealtimeClient()

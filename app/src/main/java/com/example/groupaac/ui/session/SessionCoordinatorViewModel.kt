@@ -785,10 +785,11 @@ class SessionCoordinatorViewModel(
 
         viewModelScope.launch {
             try {
-                sessionRepository.endSession(
+                val result =
+                    sessionRepository.endSession(
                     sessionId = session.sessionId,
                     actorUserId = session.userId
-                )
+                    )
                 sessionRepository.leaveSession(
                     userId = session.userId,
                     sessionId = session.sessionId
@@ -797,7 +798,9 @@ class SessionCoordinatorViewModel(
                     connectionState =
                         SessionConnectionState.NotInSession,
                     participantLookupState =
-                        ParticipantLookupUiState.Idle
+                        ParticipantLookupUiState.Idle,
+                    errorMessage =
+                        result.cleanupWarning
                 )
             } catch (error: CancellationException) {
                 throw error

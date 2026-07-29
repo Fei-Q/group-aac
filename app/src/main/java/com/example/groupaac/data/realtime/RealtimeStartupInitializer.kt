@@ -40,6 +40,8 @@ class RealtimeStartupInitializer(
     private val activeSessionProvider:
         (String) -> Flow<ActiveSession?>,
     private val realtimeClientManager: RealtimeClientManager,
+    private val requestOutboxDispatch:
+        () -> Unit = {},
     private val startSessionSubscriptions:
         () -> Unit,
     private val sessionRecovery: StartupSessionRecovery = StartupSessionRecovery { _, _ ->
@@ -81,6 +83,7 @@ class RealtimeStartupInitializer(
                 realtimeClientManager.activateUser(
                     persistedUserId
                 )
+                requestOutboxDispatch()
             }
 
             val restoredSession =

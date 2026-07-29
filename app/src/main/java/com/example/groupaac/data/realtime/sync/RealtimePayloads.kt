@@ -26,11 +26,13 @@ data class SessionPayload(
     val hostUserId: String? = null,
     val status: String,
     val displayMode: String,
+    val displayId: String? = null,
     val createdAt: Long,
     val scheduledStartAt: Long? = null,
     val scheduledDurationMinutes: Int? = null,
     val actualStartedAt: Long? = null,
     val actualEndedAt: Long? = null,
+    val expiresAt: Long? = null,
     val updatedAt: Long
 )
 
@@ -169,11 +171,13 @@ fun SessionEntity.toRealtimePayload(): SessionPayload = SessionPayload(
     hostUserId = hostUserId,
     status = status.name,
     displayMode = displayMode.name,
+    displayId = displayId,
     createdAt = createdAt,
     scheduledStartAt = scheduledStartAt,
     scheduledDurationMinutes = scheduledDurationMinutes,
     actualStartedAt = actualStartedAt,
     actualEndedAt = actualEndedAt,
+    expiresAt = expiresAt,
     updatedAt = updatedAt
 )
 
@@ -184,11 +188,13 @@ fun SessionPayload.toEntity(): SessionEntity = SessionEntity(
     hostUserId = hostUserId,
     status = SessionStatus.fromName(status),
     displayMode = com.example.groupaac.model.DisplayMode.fromName(displayMode),
+    displayId = displayId,
     createdAt = createdAt,
     scheduledStartAt = scheduledStartAt,
     scheduledDurationMinutes = scheduledDurationMinutes,
     actualStartedAt = actualStartedAt,
     actualEndedAt = actualEndedAt,
+    expiresAt = expiresAt,
     updatedAt = updatedAt
 )
 

@@ -614,6 +614,7 @@ private fun kotlinx.coroutines.test.TestScope.coordinatorFixture(
 private class TestRealtimeClientManager(
     var client: TrackingRealtimeClient
 ) : RealtimeClientManager {
+    override val activeUserId: String? = "test-user"
     override suspend fun activateUser(uid: String) = Unit
 
     override suspend fun deactivateUser() = Unit

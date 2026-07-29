@@ -10,6 +10,7 @@ import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.pi.DisplayBindingCoordinator
 import com.example.groupaac.data.pi.DisplayBindingResult
+import com.example.groupaac.data.pi.DisplayUnbindResult
 import com.example.groupaac.data.pi.DisplayPairingPayload
 import com.example.groupaac.data.pi.LaunchSessionResult
 import com.example.groupaac.data.pi.NoOpDisplayBindingCoordinator
@@ -20,6 +21,7 @@ import com.example.groupaac.data.realtime.reliability.OutboxDispatching
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.data.session.ActiveSessionStore
+import com.example.groupaac.data.sessiondirectory.RemoveDirectoryEntryResult
 import com.example.groupaac.data.sessiondirectory.RegisterSessionResult
 import com.example.groupaac.data.sessiondirectory.ResolveJoinCodeResult
 import com.example.groupaac.data.sessiondirectory.SessionDirectory
@@ -63,6 +65,10 @@ sealed interface InvitationLookupResult {
         val message: String
     ) : InvitationLookupResult
 }
+
+data class EndSessionResult(
+    val cleanupWarning: String? = null
+)
 
 class SessionRepository(
     private val transactionRunner: TransactionRunner,
@@ -1721,10 +1727,10 @@ class SessionRepository(
     suspend fun endSession(
         sessionId: String,
         actorUserId: String
-    ) {
+    ): EndSessionResult {
         val session =
             sessionDao.getSession(sessionId)
-                ?: return
+                ?: return EndSessionResult()
 
         check(
             session.hostUserId ==
@@ -1733,41 +1739,49 @@ class SessionRepository(
             "Only the session host may end the session."
         }
 
-        if (
-            session.status ==
-            SessionStatus.ENDED
-        ) {
-            return
-        }
-
-        val now = TimeUtils.now()
-
         val ended =
-            session.copy(
-                status =
-                    SessionStatus.ENDED,
-                actualEndedAt = now,
-                updatedAt = now
-            )
-
-        transactionRunner.inTransaction {
-            sessionDao.upsertSession(
-                ended
-            )
-
-            sessionRealtimeSync
-                .publishSessionEnded(
-                    ended,
-                    actorUserId
+            if (
+                session.status ==
+                SessionStatus.ENDED
+            ) {
+                session
+            } else {
+                val now = TimeUtils.now()
+                session.copy(
+                    status =
+                        SessionStatus.ENDED,
+                    actualEndedAt =
+                        session.actualEndedAt
+                            ?: now,
+                    updatedAt = now
                 )
+            }
+
+        if (session.status != SessionStatus.ENDED) {
+            transactionRunner.inTransaction {
+                sessionDao.upsertSession(
+                    ended
+                )
+
+                sessionRealtimeSync
+                    .publishSessionEnded(
+                        ended,
+                        actorUserId
+                    )
+            }
+
+            outboxDispatcher
+                .requestImmediateDispatch()
         }
 
-        outboxDispatcher
-            .requestImmediateDispatch()
+        val cleanupWarning =
+            endSessionCleanup(
+                session = ended,
+                ownerUserId = actorUserId
+            )
 
-        sessionDirectory.remove(
-            joinCode = ended.joinCode,
-            sessionId = ended.id
+        return EndSessionResult(
+            cleanupWarning = cleanupWarning
         )
     }
 
@@ -2184,6 +2198,75 @@ class SessionRepository(
                 // Best-effort cleanup.
             }
         }
+    }
+
+    private suspend fun endSessionCleanup(
+        session: SessionEntity,
+        ownerUserId: String
+    ): String? {
+        val warnings = mutableListOf<String>()
+
+        withContext(NonCancellable) {
+            try {
+                when (
+                    val result =
+                        sessionDirectory.remove(
+                            joinCode = session.joinCode,
+                            sessionId = session.id
+                        )
+                ) {
+                    RemoveDirectoryEntryResult.Removed,
+                    RemoveDirectoryEntryResult.NotFound -> Unit
+
+                    RemoveDirectoryEntryResult.SessionMismatch -> {
+                        warnings +=
+                            "The session ended locally, but the join-code directory may still require cleanup."
+                    }
+
+                    is RemoveDirectoryEntryResult.Failure -> {
+                        warnings +=
+                            "The session ended locally, but removing the join code failed: ${result.message}"
+                    }
+                }
+            } catch (error: Exception) {
+                warnings +=
+                    "The session ended locally, but removing the join code failed: ${error.message ?: "unknown error"}"
+            }
+
+            val displayId = session.displayId
+            if (displayId != null) {
+                try {
+                    when (
+                        val result =
+                            displayBindingCoordinator.unbind(
+                                displayId = displayId,
+                                sessionId = session.id,
+                                requestedByUserId =
+                                    ownerUserId
+                            )
+                    ) {
+                        DisplayUnbindResult.Unbound -> Unit
+                        DisplayUnbindResult.TimedOut -> {
+                            warnings +=
+                                "The session ended, but the display did not confirm unbinding. It may need reconnection or reset."
+                        }
+
+                        is DisplayUnbindResult.Failure -> {
+                            warnings +=
+                                "The session ended, but the display may still require reconnection or reset: ${result.message}"
+                        }
+                    }
+                } catch (error: Exception) {
+                    warnings +=
+                        "The session ended, but the display may still require reconnection or reset: ${error.message ?: "unknown error"}"
+                }
+            }
+        }
+
+        return warnings
+            .distinct()
+            .takeIf { it.isNotEmpty() }
+            ?.joinToString(" ")
     }
 }
 
