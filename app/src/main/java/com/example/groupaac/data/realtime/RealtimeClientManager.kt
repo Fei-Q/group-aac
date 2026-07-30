@@ -1,7 +1,13 @@
 package com.example.groupaac.data.realtime
 
+data class ActiveRealtimeAccount(
+    val userId: String,
+    val client: SessionRealtimeClient
+)
+
 interface RealtimeClientManager {
     val activeUserId: String?
+    fun currentAccount(): ActiveRealtimeAccount?
     suspend fun activateUser(uid: String)
     suspend fun deactivateUser()
     fun requireClient(): SessionRealtimeClient
@@ -28,30 +34,49 @@ class AccountScopedRealtimeClientManager(
     private val clientFactory: suspend (String) -> SessionRealtimeClient,
     private val sessionAuthority: SessionAuthority = AllowAllSessionAuthority()
 ) : RealtimeClientManager {
+    private val lock = Any()
     private var activeUid: String? = null
     private var activeClient: SessionRealtimeClient = defaultClientFactory()
     override val activeUserId: String?
-        get() = activeUid
+        get() = synchronized(lock) { activeUid }
+
+    override fun currentAccount(): ActiveRealtimeAccount? {
+        return synchronized(lock) {
+            val uid = activeUid ?: return null
+            ActiveRealtimeAccount(
+                userId = uid,
+                client = activeClient
+            )
+        }
+    }
 
     override suspend fun activateUser(uid: String) {
-        if (activeUid == uid) {
-            return
-        }
         check(sessionAuthority.canActivate(uid)) {
             "Realtime activation denied for $uid."
         }
         val nextClient = clientFactory(uid)
-        val previousClient = activeClient
-        activeUid = uid
-        activeClient = nextClient
+        val previousClient = synchronized(lock) {
+            if (activeUid == uid) {
+                return
+            }
+            val previousClient = activeClient
+            activeUid = uid
+            activeClient = nextClient
+            previousClient
+        }
         previousClient.close()
     }
 
     override suspend fun deactivateUser() {
-        activeClient.close()
-        activeUid = null
-        activeClient = defaultClientFactory()
+        val previousClient = synchronized(lock) {
+            val previousClient = activeClient
+            activeUid = null
+            activeClient = defaultClientFactory()
+            previousClient
+        }
+        previousClient.close()
     }
 
-    override fun requireClient(): SessionRealtimeClient = activeClient
+    override fun requireClient(): SessionRealtimeClient =
+        synchronized(lock) { activeClient }
 }

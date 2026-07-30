@@ -75,6 +75,24 @@ interface ReliabilityDao {
     @Query(
         """
         UPDATE outbox_events
+        SET state = 'PENDING',
+            attemptCount = :attemptCount,
+            nextAttemptAt = :now
+        WHERE eventId = :eventId
+          AND actorUserId = :actorUserId
+          AND state = 'SENDING'
+        """
+    )
+    suspend fun releaseClaimedOutboxEvent(
+        eventId: String,
+        actorUserId: String,
+        attemptCount: Int,
+        now: Long
+    ): Int
+
+    @Query(
+        """
+        UPDATE outbox_events
         SET state = :state,
             attemptCount = :attemptCount,
             nextAttemptAt = :nextAttemptAt

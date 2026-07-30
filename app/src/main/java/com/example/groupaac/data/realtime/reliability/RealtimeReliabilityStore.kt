@@ -69,6 +69,20 @@ class RealtimeReliabilityStore(
         )
     }
 
+    suspend fun releaseClaim(
+        eventId: String,
+        actorUserId: String,
+        attemptCount: Int,
+        now: Long
+    ): Boolean {
+        return reliabilityDao.releaseClaimedOutboxEvent(
+            eventId = eventId,
+            actorUserId = actorUserId,
+            attemptCount = attemptCount,
+            now = now
+        ) == 1
+    }
+
     suspend fun markSent(eventId: String, acceptedTimetoken: Long?) {
         reliabilityDao.markOutboxSent(eventId, acceptedTimetoken)
     }

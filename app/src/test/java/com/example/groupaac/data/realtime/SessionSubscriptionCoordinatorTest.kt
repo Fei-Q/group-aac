@@ -615,6 +615,11 @@ private class TestRealtimeClientManager(
     var client: TrackingRealtimeClient
 ) : RealtimeClientManager {
     override val activeUserId: String? = "test-user"
+    override fun currentAccount(): ActiveRealtimeAccount? =
+        ActiveRealtimeAccount(
+            userId = requireNotNull(activeUserId),
+            client = client
+        )
     override suspend fun activateUser(uid: String) = Unit
 
     override suspend fun deactivateUser() = Unit

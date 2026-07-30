@@ -68,7 +68,10 @@ class OutboxDispatcher(
     }
 
     suspend fun dispatchDueEvents(now: Long = clock()) {
-        val activeUid = realtimeClientManager.activeUserId ?: return
+        val activeAccount =
+            realtimeClientManager.currentAccount()
+                ?: return
+        val activeUid = activeAccount.userId
         reliabilityStore.recoverStaleSending(
             actorUserId = activeUid,
             now = now
@@ -85,7 +88,6 @@ class OutboxDispatcher(
                 return
             }
 
-            val client = realtimeClientManager.requireClient()
             due.forEach { entry ->
                 val attemptTime = clock()
                 val nextAttempt = entry.attemptCount + 1
@@ -100,6 +102,8 @@ class OutboxDispatcher(
                 }
                 try {
                     val event = reliabilityStore.decodeOutboxEvent(entry)
+                    val publishAccount =
+                        realtimeClientManager.currentAccount()
                     check(entry.actorUserId == activeUid) {
                         "Outbox row actorUserId does not match active realtime UID."
                     }
@@ -109,7 +113,23 @@ class OutboxDispatcher(
                     check(event.actorUserId == entry.actorUserId) {
                         "Decoded outbox event actorUserId does not match stored row actorUserId."
                     }
-                    val timetoken = client.publish(entry.channel, event)
+                    if (
+                        publishAccount == null ||
+                        publishAccount.userId != entry.actorUserId
+                    ) {
+                        reliabilityStore.releaseClaim(
+                            eventId = entry.eventId,
+                            actorUserId = entry.actorUserId
+                                ?: return@forEach,
+                            attemptCount = entry.attemptCount,
+                            now = clock()
+                        )
+                        return
+                    }
+                    val timetoken = publishAccount.client.publish(
+                        entry.channel,
+                        event
+                    )
                     reliabilityStore.markSent(entry.eventId, timetoken)
                     if (entry.domainType == OutboxDomainType.DISPLAY) {
                         reliabilityStore.markDisplayCommandPublished(

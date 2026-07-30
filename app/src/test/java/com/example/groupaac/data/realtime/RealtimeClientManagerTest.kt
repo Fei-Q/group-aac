@@ -24,11 +24,14 @@ class RealtimeClientManagerTest {
         val aliceClient = manager.requireClient() as RecordingRealtimeClient
         manager.activateUser("bob")
         val bobClient = manager.requireClient() as RecordingRealtimeClient
+        val snapshot = manager.currentAccount()
 
         assertTrue(initial.closed)
         assertTrue(aliceClient.closed)
         assertSame(bobClient, manager.requireClient())
         assertEquals("bob", manager.activeUserId)
+        assertEquals("bob", snapshot?.userId)
+        assertSame(bobClient, snapshot?.client)
         assertEquals(3, createdClients.size)
     }
 

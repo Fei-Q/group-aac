@@ -62,6 +62,7 @@ class RealtimeStartupInitializerTest {
                     realtimeClientManager =
                         object : RealtimeClientManager {
                             override val activeUserId: String? = null
+                            override fun currentAccount(): ActiveRealtimeAccount? = null
                             override suspend fun activateUser(
                                 uid: String
                             ) {
@@ -107,6 +108,7 @@ class RealtimeStartupInitializerTest {
                     realtimeClientManager =
                         object : RealtimeClientManager {
                             override val activeUserId: String? = null
+                            override fun currentAccount(): ActiveRealtimeAccount? = null
                             override suspend fun activateUser(
                                 uid: String
                             ) {
@@ -151,6 +153,7 @@ class RealtimeStartupInitializerTest {
                 realtimeClientManager =
                     object : RealtimeClientManager {
                         override val activeUserId: String? = null
+                        override fun currentAccount(): ActiveRealtimeAccount? = null
                         override suspend fun activateUser(
                             uid: String
                         ) {
@@ -203,6 +206,14 @@ private class RecordingRealtimeClientManager :
     val activatedUsers = mutableListOf<String>()
     override var activeUserId: String? = null
         private set
+
+    override fun currentAccount(): ActiveRealtimeAccount? =
+        activeUserId?.let {
+            ActiveRealtimeAccount(
+                userId = it,
+                client = FakeSessionRealtimeClient()
+            )
+        }
 
     override suspend fun activateUser(uid: String) {
         activatedUsers += uid

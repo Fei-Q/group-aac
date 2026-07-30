@@ -11,6 +11,7 @@ import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.repository.ImmediateTransactionRunner
 import com.example.groupaac.data.repository.MessageRepository
+import com.example.groupaac.data.realtime.ActiveRealtimeAccount
 import com.example.groupaac.data.realtime.RealtimeClientManager
 import com.example.groupaac.data.realtime.RealtimeConnectionState
 import com.example.groupaac.data.realtime.RealtimeSubscription
@@ -234,6 +235,25 @@ class OutboxDispatcherTest {
     }
 
     @Test
+    fun switchAliceToBobAfterClaimBeforePublishNeverPublishesThroughBobAndKeepsRowRetryable() = runTest {
+        enqueueMessageOutbox(
+            messageId = "msg-switch",
+            eventId = "evt-switch",
+            actorUserId = "alice"
+        )
+        manager.switchToUserOnCurrentAccountCall = 2 to "bob"
+
+        dispatcher(this).dispatchDueEvents()
+
+        val outbox = database.reliabilityDao().getOutboxEvent("evt-switch")
+        assertEquals(0, aliceClient.publishAttempts)
+        assertEquals(0, bobClient.publishAttempts)
+        assertEquals(OutboxEventState.PENDING, outbox?.state)
+        assertEquals(0, outbox?.attemptCount)
+        assertEquals(clock, outbox?.nextAttemptAt)
+    }
+
+    @Test
     fun switchingBackToAliceDispatchesHerRow() = runTest {
         enqueueMessageOutbox(
             messageId = "msg-return",
@@ -250,6 +270,33 @@ class OutboxDispatcherTest {
         assertEquals(
             OutboxEventState.SENT,
             database.reliabilityDao().getOutboxEvent("evt-return")?.state
+        )
+    }
+
+    @Test
+    fun switchingBackToAlicePublishesClaimReleasedRowSuccessfully() = runTest {
+        enqueueMessageOutbox(
+            messageId = "msg-retryable",
+            eventId = "evt-retryable",
+            actorUserId = "alice"
+        )
+        manager.switchToUserOnCurrentAccountCall = 2 to "bob"
+
+        dispatcher(this).dispatchDueEvents()
+        assertEquals(
+            OutboxEventState.PENDING,
+            database.reliabilityDao().getOutboxEvent("evt-retryable")?.state
+        )
+
+        manager.activeUserId = "alice"
+        manager.switchToUserOnCurrentAccountCall = null
+        dispatcher(this).dispatchDueEvents()
+
+        assertEquals(1, aliceClient.publishAttempts)
+        assertEquals(0, bobClient.publishAttempts)
+        assertEquals(
+            OutboxEventState.SENT,
+            database.reliabilityDao().getOutboxEvent("evt-retryable")?.state
         )
     }
 
@@ -468,6 +515,25 @@ private class TestRealtimeClientManager(
     private val clients: Map<String, ControllableRealtimeClient>,
     override var activeUserId: String?
 ) : RealtimeClientManager {
+    var currentAccountCalls: Int = 0
+    var switchToUserOnCurrentAccountCall: Pair<Int, String>? = null
+
+    override fun currentAccount(): ActiveRealtimeAccount? {
+        currentAccountCalls += 1
+        switchToUserOnCurrentAccountCall?.let { (callIndex, nextUser) ->
+            if (currentAccountCalls == callIndex) {
+                activeUserId = nextUser
+            }
+        }
+        val userId = activeUserId ?: return null
+        val client = clients[userId]
+            ?: error("No active client for $userId")
+        return ActiveRealtimeAccount(
+            userId = userId,
+            client = client
+        )
+    }
+
     override suspend fun activateUser(uid: String) {
         activeUserId = uid
     }
