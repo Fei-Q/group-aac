@@ -90,16 +90,26 @@ fun AdvancedHomeScreen(
     onManageSessions: () -> Unit,
     onOpenLiveSession: (SessionEntity) -> Unit,
     onStartScheduledSession: (SessionEntity) -> Unit,
+    today: LocalDate =
+        LocalDate.now(
+            ZoneId.systemDefault()
+        ),
     modifier: Modifier = Modifier
 ) {
-    val today = remember { LocalDate.now(ZoneId.systemDefault()) }
     var showCreateDialog by rememberSaveable {
         mutableStateOf(false)
     }
-    var selectedDate by rememberSaveable(stateSaver = LocalDateSaver) {
+    var selectedDate by rememberSaveable(
+        today,
+        stateSaver = LocalDateSaver
+    ) {
         mutableStateOf(today)
     }
-    var displayedAnchorDate by rememberSaveable(stateSaver = LocalDateSaver) {
+
+    var displayedAnchorDate by rememberSaveable(
+        today,
+        stateSaver = LocalDateSaver
+    ) {
         mutableStateOf(today)
     }
 
@@ -107,12 +117,19 @@ fun AdvancedHomeScreen(
         displayedAnchorDate = selectedDate
     }
 
-    val homeSessions = remember(liveSessions, upcomingSessions) {
-        buildHomeSessionItems(
-            liveSessions = liveSessions,
-            upcomingSessions = upcomingSessions
-        )
-    }
+    val homeSessions =
+        remember(
+            liveSessions,
+            upcomingSessions,
+            today
+        ) {
+            buildHomeSessionItems(
+                liveSessions = liveSessions,
+                upcomingSessions =
+                    upcomingSessions,
+                today = today
+            )
+        }
     val nextHeroSession = remember(homeSessions) {
         homeSessions.firstOrNull { it.isLive }
             ?: homeSessions
@@ -193,6 +210,7 @@ fun AdvancedHomeScreen(
         item {
             NextSessionHeroCard(
                 heroSession = nextHeroSession,
+                today = today,
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 1080.dp),
@@ -280,51 +298,75 @@ fun AdvancedHomeScreen(
 
 private fun buildHomeSessionItems(
     liveSessions: List<SessionEntity>,
-    upcomingSessions: List<SessionEntity>
+    upcomingSessions: List<SessionEntity>,
+    today: LocalDate
 ): List<HomeSessionItem> {
-    val liveItems = liveSessions
-        .filter { it.actualStartedAt != null && it.actualEndedAt == null }
-        .mapNotNull { session ->
-            session.actualStartedAt?.let { startedAt ->
-                HomeSessionItem(
-                    session = session,
-                    occursAt = startedAt,
-                    isLive = true
-                )
+    val liveItems =
+        liveSessions
+            .filter {
+                it.actualStartedAt != null &&
+                        it.actualEndedAt == null
             }
-        }
-    val liveIds = liveItems.map { it.session.id }.toSet()
-    val upcomingItems = upcomingSessions
-        .filter { it.id !in liveIds }
-        .mapNotNull { session ->
-            session.scheduledStartAt?.let { scheduledStartAt ->
-                HomeSessionItem(
-                    session = session,
-                    occursAt = scheduledStartAt,
-                    isLive = false
-                )
+            .mapNotNull { session ->
+                session.actualStartedAt?.let {
+                        startedAt ->
+                    HomeSessionItem(
+                        session = session,
+                        occursAt = startedAt,
+                        isLive = true
+                    )
+                }
             }
-        }
-        .filter { item ->
-            item.session.actualEndedAt == null &&
-                !item.localDate().isBefore(LocalDate.now(ZoneId.systemDefault()))
-        }
+
+    val liveIds =
+        liveItems
+            .map { it.session.id }
+            .toSet()
+
+    val upcomingItems =
+        upcomingSessions
+            .filter {
+                it.id !in liveIds
+            }
+            .mapNotNull { session ->
+                session.scheduledStartAt?.let {
+                        scheduledStartAt ->
+                    HomeSessionItem(
+                        session = session,
+                        occursAt =
+                            scheduledStartAt,
+                        isLive = false
+                    )
+                }
+            }
+            .filter { item ->
+                item.session.actualEndedAt == null &&
+                        !item.localDate()
+                            .isBefore(today)
+            }
 
     return (liveItems + upcomingItems)
         .sortedWith(
-            compareBy<HomeSessionItem> { !it.isLive }
+            compareBy<HomeSessionItem> {
+                !it.isLive
+            }
                 .thenBy { it.occursAt }
-                .thenBy { it.session.name }
+                .thenBy {
+                    it.session.name
+                }
         )
 }
 
 @Composable
 private fun NextSessionHeroCard(
     heroSession: HomeSessionItem?,
+    today: LocalDate,
     onCreateSession: () -> Unit,
     onManageSessions: () -> Unit,
-    onOpenLiveSession: (SessionEntity) -> Unit,
-    onStartScheduledSession: (SessionEntity) -> Unit,
+    onOpenLiveSession:
+        (SessionEntity) -> Unit,
+    onStartScheduledSession:
+        (SessionEntity) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -366,9 +408,8 @@ private fun NextSessionHeroCard(
                 val session = heroSession.session
                 val sessionDate = heroSession.localDate()
                 val canStartScheduledSession =
-                    !heroSession.isLive && !sessionDate.isAfter(
-                        LocalDate.now(ZoneId.systemDefault())
-                    )
+                    !heroSession.isLive &&
+                            !sessionDate.isAfter(today)
                 Column(
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {

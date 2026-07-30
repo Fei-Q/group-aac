@@ -1,12 +1,18 @@
 package com.example.groupaac.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -14,6 +20,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.groupaac.LocalAppContainer
+import com.example.groupaac.data.realtime.AppStartupState
 import com.example.groupaac.model.ActiveSession
 import com.example.groupaac.model.SessionConnectionState
 import com.example.groupaac.ui.account.AccountViewModel
@@ -38,6 +45,26 @@ fun AppNavGraph(
     navController: NavHostController = rememberNavController()
 ) {
     val container = LocalAppContainer.current
+    val startupState by container.startupState
+        .collectAsStateWithLifecycle()
+
+    when (val startup = startupState) {
+        AppStartupState.Initializing -> {
+            FullScreenLoadingIndicator()
+            return
+        }
+
+        is AppStartupState.Failed -> {
+            StartupFailureScreen(
+                message = startup.message
+            )
+            return
+        }
+
+        AppStartupState.Ready -> {
+            // Continue to the existing account/session flow.
+        }
+    }
 
     val accountViewModel: AccountViewModel = viewModel(
         factory = AccountViewModelFactory(
@@ -51,7 +78,9 @@ fun AppNavGraph(
         viewModel(
             factory = SessionCoordinatorViewModelFactory(
                 accountRepository = container.accountRepository,
-                sessionRepository = container.sessionRepository
+                sessionRepository = container.sessionRepository,
+                sessionSubscriptionCoordinator =
+                    container.sessionSubscriptionCoordinator
             )
         )
     val sessionState by sessionCoordinatorViewModel.uiState
@@ -73,7 +102,7 @@ fun AppNavGraph(
                     LoginScreen(
                         uiState = accountState,
                         onUserSelected = { user ->
-                            accountViewModel.switchUser(user.id)
+                            accountViewModel.switchUser(user.uid)
                         },
                         onCreateAccount = {
                             navController.navigate(
@@ -88,12 +117,16 @@ fun AppNavGraph(
                         onBack = {
                             navController.popBackStack()
                         },
-                        onCreate = { name, homeExperience ->
+                        onCreate = { uid, displayName, homeExperience ->
                             accountViewModel.createUser(
-                                name,
+                                uid,
+                                displayName,
                                 homeExperience
                             )
-                        }
+                        },
+                        createAccountResult = accountState.createAccountResult,
+                        onConsumeCreateAccountResult =
+                            accountViewModel::clearCreateAccountResult
                     )
                 }
             }
@@ -119,8 +152,22 @@ fun AppNavGraph(
                         sessionUiState = sessionState,
                         onCreateSessionNow =
                             sessionCoordinatorViewModel::createSession,
-                        onJoinSession =
-                            sessionCoordinatorViewModel::joinSession,
+                        onRequestDisplayLaunch =
+                            sessionCoordinatorViewModel::requestDisplayLaunch,
+                        onDisplayPairingScanned =
+                            sessionCoordinatorViewModel::launchSessionOnDisplay,
+                        onCancelDisplayLaunch =
+                            sessionCoordinatorViewModel::cancelDisplayLaunch,
+                        onParticipantLookupCodeChanged =
+                            sessionCoordinatorViewModel::updateParticipantLookupCode,
+                        onConfirmParticipantJoin =
+                            sessionCoordinatorViewModel::confirmParticipantJoin,
+                        onParticipantInvitationScanned =
+                            sessionCoordinatorViewModel::previewParticipantInvitation,
+                        onParticipantScanFailed =
+                            sessionCoordinatorViewModel::onParticipantQrScanFailed,
+                        onParticipantScanCancelled =
+                            sessionCoordinatorViewModel::onParticipantQrScanCancelled,
                         onCancelFacilitatorRequest =
                             sessionCoordinatorViewModel::cancelFacilitatorRequest
                     )
@@ -139,16 +186,22 @@ fun AppNavGraph(
                 }
 
                 AppShell.FacilitatorInSession -> {
+                    val activeSession =
+                        sessionState.connectionState
+                            .requireActiveSession()
                     FacilitatorInSessionNavGraph(
-                        activeSession =
-                            sessionState.connectionState
-                                .requireActiveSession(),
+                        activeSession = activeSession,
                         connectionState =
                             sessionState.connectionState,
                         onLeaveSession =
                             sessionCoordinatorViewModel::leaveSession,
-                        onEndSession =
+                        onEndSession = if (
+                            activeSession.role == com.example.groupaac.model.SessionRole.HOST
+                        ) {
                             sessionCoordinatorViewModel::endSession
+                        } else {
+                            null
+                        }
                     )
                 }
             }
@@ -163,6 +216,32 @@ private fun FullScreenLoadingIndicator() {
         contentAlignment = Alignment.Center
     ) {
         CircularProgressIndicator()
+    }
+}
+
+@Composable
+private fun StartupFailureScreen(
+    message: String
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(24.dp)
+        ) {
+            Text(
+                text = "Unable to restore the app",
+                style = MaterialTheme.typography.titleLarge,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 

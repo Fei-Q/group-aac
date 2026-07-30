@@ -16,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.groupaac.data.entity.UserEntity
-import com.example.groupaac.model.UserRole
 import com.example.groupaac.ui.common.AppCard
 import com.example.groupaac.ui.common.AppWindowSize
 import com.example.groupaac.ui.common.SecondaryButton
@@ -223,9 +222,8 @@ private fun SocialRow(
 }
 
 private fun previewUser() = UserEntity(
-    id = "u1",
+    uid = "u1",
     displayName = "Alice",
-    role = UserRole.PARTICIPANT,
     createdAt = 0
 )
 

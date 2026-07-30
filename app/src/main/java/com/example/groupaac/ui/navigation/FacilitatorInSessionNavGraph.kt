@@ -33,7 +33,7 @@ fun FacilitatorInSessionNavGraph(
     activeSession: ActiveSession,
     connectionState: SessionConnectionState,
     onLeaveSession: () -> Unit,
-    onEndSession: () -> Unit,
+    onEndSession: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     val container = LocalAppContainer.current
@@ -121,10 +121,16 @@ fun FacilitatorInSessionNavGraph(
                     uiState = uiState,
                     onSave =
                         facilitatorViewModel::saveMessage,
-                    onDisplay =
+                    onShow =
                         facilitatorViewModel::displayMessage,
+                    onRestore =
+                        facilitatorViewModel::restoreMessage,
                     onDelete =
                         facilitatorViewModel::deleteMessage,
+                    onPinDisplayedMessage =
+                        facilitatorViewModel::pinDisplayedMessage,
+                    onUnpinDisplayedMessage =
+                        facilitatorViewModel::unpinDisplayedMessage,
                     onClearDisplay =
                         facilitatorViewModel::clearDisplay,
                     modifier = Modifier.fillMaxSize()

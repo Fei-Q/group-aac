@@ -32,7 +32,7 @@ fun ParticipantSettingsScreen(
     ParticipantSettingsScreen(
         user = uiState.user,
         settings = uiState.settings ?: UserSettingsEntity(
-            userId = uiState.user?.id.orEmpty()
+            userId = uiState.user?.uid.orEmpty()
         ),
         onUpdateSettings = onUpdateSettings,
         modifier = modifier

@@ -9,17 +9,28 @@ import com.example.groupaac.data.entity.SessionJoinRequestEntity
 import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
-import com.example.groupaac.data.pi.DisplayCommand
-import com.example.groupaac.data.pi.PiClient
-import com.example.groupaac.data.pi.PiJoinRequest
-import com.example.groupaac.data.pi.PiMessagePayload
-import com.example.groupaac.data.pi.PiSessionEvent
-import com.example.groupaac.data.pi.PiSignalPayload
+import com.example.groupaac.data.pi.DisplayBindingCoordinator
+import com.example.groupaac.data.pi.DisplayBindingResult
+import com.example.groupaac.data.pi.DisplayUnbindResult
+import com.example.groupaac.data.pi.DisplayPairingPayload
+import com.example.groupaac.data.pi.LaunchSessionResult
+import com.example.groupaac.data.pi.SessionInvitationPayload
+import com.example.groupaac.data.realtime.StartupRecoveryState
+import com.example.groupaac.data.realtime.reliability.NoOpOutboxDispatcher
+import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
+import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.data.session.ActiveSessionStore
+import com.example.groupaac.data.sessiondirectory.FakeSessionDirectory
+import com.example.groupaac.data.sessiondirectory.ResolveJoinCodeResult
+import com.example.groupaac.data.sessiondirectory.SessionDirectoryEntry
+import com.example.groupaac.model.ActiveSession
+import com.example.groupaac.model.DisplayCommandOrigin
+import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.JoinRequestStatus
 import com.example.groupaac.model.JoinSessionResult
 import com.example.groupaac.model.SessionRole
-import com.example.groupaac.model.UserRole
+import com.example.groupaac.model.SessionStatus
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -34,33 +45,81 @@ import org.junit.Test
 
 class SessionRepositoryTest {
     @Test
-    fun createSessionNowCreatesHostMembershipAndActivates() = runTest {
-        val fixture = sessionFixture()
+    fun participantJoinPersistsResolvedSessionShellBeforeMembership() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
 
-        val activeSession = fixture.repository.createSessionNow(
-            name = "Live Planning",
-            ownerUserId = fixture.host.id,
-            displayName = fixture.host.displayName
+        val result = fixture.repository.joinSession(
+            joinCode = fixture.session.joinCode,
+            userId = fixture.participant.uid,
+            displayName = fixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
         )
 
-        assertEquals(SessionRole.HOST, activeSession.role)
-        assertEquals(
-            activeSession.sessionId,
-            fixture.activeSessionStore.activeSessions[fixture.host.id]
+        assertTrue(result is JoinSessionResult.Joined)
+        assertNotNull(fixture.sessionDao.getSession(fixture.session.id))
+        assertNotNull(
+            fixture.sessionDao.getMember(
+                fixture.session.id,
+                fixture.participant.uid
+            )
         )
-
-        val createdSession = fixture.sessionDao.getSession(activeSession.sessionId)
-        assertNotNull(createdSession)
-        assertNotNull(createdSession?.actualStartedAt)
-        assertEquals(fixture.host.id, createdSession?.hostUserId)
-
-        val hostMember = fixture.sessionDao.getMember(
-            activeSession.sessionId,
-            fixture.host.id
-        )
-        assertNotNull(hostMember)
-        assertEquals(SessionRole.HOST, hostMember?.role)
     }
+
+    @Test
+    fun createSessionNowCreatesDraftHostMembershipWithoutActivation() =
+        runTest {
+            val fixture = sessionFixture()
+
+            val draftSession =
+                fixture.repository.createSessionNow(
+                    name = "Live Planning",
+                    ownerUserId = fixture.host.uid,
+                    displayName = fixture.host.displayName
+                )
+
+            assertEquals(
+                SessionRole.HOST,
+                draftSession.role
+            )
+
+            assertNull(
+                fixture.activeSessionStore
+                    .activeSessions[fixture.host.uid]
+            )
+
+            val createdSession =
+                fixture.sessionDao.getSession(
+                    draftSession.sessionId
+                )
+
+            assertNotNull(createdSession)
+            assertEquals(
+                SessionStatus.DRAFT,
+                createdSession?.status
+            )
+            assertNull(
+                createdSession?.actualStartedAt
+            )
+            assertNull(
+                createdSession?.displayId
+            )
+            assertEquals(
+                fixture.host.uid,
+                createdSession?.hostUserId
+            )
+
+            val hostMember =
+                fixture.sessionDao.getMember(
+                    draftSession.sessionId,
+                    fixture.host.uid
+                )
+
+            assertNotNull(hostMember)
+            assertEquals(
+                SessionRole.HOST,
+                hostMember?.role
+            )
+        }
 
     @Test
     fun scheduleSessionDoesNotActivate() = runTest {
@@ -68,30 +127,117 @@ class SessionRepositoryTest {
 
         val scheduledSession = fixture.repository.scheduleSession(
             name = "Tuesday Support Group",
-            ownerUserId = fixture.host.id,
+            ownerUserId = fixture.host.uid,
             scheduledStartAt = 5_000L,
             scheduledDurationMinutes = 60
         )
 
-        assertNull(fixture.activeSessionStore.activeSessions[fixture.host.id])
+        assertNull(fixture.activeSessionStore.activeSessions[fixture.host.uid])
         assertNull(scheduledSession.actualStartedAt)
         assertEquals(5_000L, scheduledSession.scheduledStartAt)
         assertEquals(60, scheduledSession.scheduledDurationMinutes)
-        assertEquals(fixture.host.id, scheduledSession.hostUserId)
+        assertEquals(fixture.host.uid, scheduledSession.hostUserId)
         assertNotNull(
             fixture.sessionDao.getMember(
                 scheduledSession.id,
-                fixture.host.id
+                fixture.host.uid
             )
         )
     }
+
+    @Test
+    fun launchSessionOnDisplayActivatesHostAndMarksSessionLive() =
+        runTest {
+            val sessionDao = FakeSessionDao()
+            val joinRequestDao = FakeSessionJoinRequestDao()
+            val userDao = FakeUserDao()
+            val activeSessionStore = FakeActiveSessionStore()
+            val sessionDirectory = FakeSessionDirectory(nowProvider = { 0L })
+
+            val host = UserEntity(
+                uid = "host_1",
+                displayName = "Host",
+                createdAt = 1L
+            )
+
+            userDao.seed(host)
+            userDao.seedSettings(
+                UserSettingsEntity(userId = host.uid)
+            )
+
+            val repository = SessionRepository(
+                transactionRunner = ImmediateTransactionRunner,
+                sessionDao = sessionDao,
+                sessionJoinRequestDao = joinRequestDao,
+                userDao = userDao,
+                activeSessionStore = activeSessionStore,
+                sessionDirectory = sessionDirectory,
+                displayBindingCoordinator =
+                    AlwaysBoundDisplayBindingCoordinator,
+                outboxDispatcher = NoOpOutboxDispatcher,
+                sessionRealtimeSync = NoOpSessionRealtimeSync,
+                joinCodeGenerator = { "1234-5678" }
+            )
+
+            val draft =
+                repository.createSessionNow(
+                    name = "Launch Test",
+                    ownerUserId = host.uid,
+                    displayName = host.displayName
+                )
+
+            val result =
+                repository.launchSessionOnDisplay(
+                    sessionId = draft.sessionId,
+                    ownerUserId = host.uid,
+                    pairing =
+                        DisplayPairingPayload(
+                            displayId = "pi-1",
+                            displayName = "Room Display",
+                            pairingNonce = "nonce-1",
+                            pairingExpiresAt = Long.MAX_VALUE
+                        )
+                )
+
+            assertTrue(result is LaunchSessionResult.Launched)
+            assertEquals(
+                draft.sessionId,
+                activeSessionStore.activeSessions[host.uid]
+            )
+
+            val liveSession =
+                sessionDao.getSession(draft.sessionId)
+
+            assertEquals(
+                SessionStatus.LIVE,
+                liveSession?.status
+            )
+            assertEquals(
+                "pi-1",
+                liveSession?.displayId
+            )
+
+            val directoryEntry =
+                (sessionDirectory.resolve("1234-5678")
+                    as ResolveJoinCodeResult.Found)
+                    .entry
+
+            assertEquals(
+                draft.sessionId,
+                directoryEntry.sessionId
+            )
+            assertEquals(
+                "pi-1",
+                directoryEntry.displayId
+            )
+        }
 
     @Test
     fun startScheduledSessionIsHostOnly() = runTest {
         val fixture = sessionFixture()
         val scheduledSession = fixture.repository.scheduleSession(
             name = "Wednesday Check-in",
-            ownerUserId = fixture.host.id,
+            ownerUserId = fixture.host.uid,
             scheduledStartAt = 7_000L,
             scheduledDurationMinutes = 45
         )
@@ -99,7 +245,7 @@ class SessionRepositoryTest {
         try {
             fixture.repository.startScheduledSession(
                 sessionId = scheduledSession.id,
-                ownerUserId = fixture.participant.id
+                ownerUserId = fixture.participant.uid
             )
             fail("Expected only the host to be able to start the session.")
         } catch (_: IllegalStateException) {
@@ -113,7 +259,7 @@ class SessionRepositoryTest {
 
         val result = fixture.repository.joinSession(
             joinCode = fixture.session.joinCode,
-            userId = fixture.participant.id,
+            userId = fixture.participant.uid,
             displayName = fixture.participant.displayName,
             requestedRole = SessionRole.PARTICIPANT
         )
@@ -123,15 +269,124 @@ class SessionRepositoryTest {
         assertEquals(SessionRole.PARTICIPANT, joined.activeSession.role)
         assertEquals(
             fixture.session.id,
-            fixture.activeSessionStore.activeSessions[fixture.participant.id]
+            fixture.activeSessionStore.activeSessions[fixture.participant.uid]
         )
         assertNotNull(
             fixture.sessionDao.getMember(
                 fixture.session.id,
-                fixture.participant.id
+                fixture.participant.uid
             )
         )
         assertTrue(fixture.joinRequestDao.requests.isEmpty())
+        assertEquals(1, fixture.sessionDirectory.resolveCallCount)
+    }
+
+    @Test
+    fun validDirectParticipantInvitation() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        val result = fixture.repository.joinInvitation(
+            invitation = fixture.sessionInvitation(),
+            userId = fixture.participant.uid,
+            displayName = fixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        assertTrue(result is JoinSessionResult.Joined)
+        val joined = result as JoinSessionResult.Joined
+        assertEquals(fixture.session.id, joined.activeSession.sessionId)
+        assertEquals(
+            fixture.session.id,
+            fixture.activeSessionStore.activeSessions[fixture.participant.uid]
+        )
+        assertNotNull(
+            fixture.sessionDao.getSession(fixture.session.id)
+        )
+        assertNotNull(
+            fixture.sessionDao.getMember(
+                fixture.session.id,
+                fixture.participant.uid
+            )
+        )
+    }
+
+    @Test
+    fun directInvitationDoesNotCallDirectory() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        fixture.repository.joinInvitation(
+            invitation = fixture.sessionInvitation(),
+            userId = fixture.participant.uid,
+            displayName = fixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        assertEquals(0, fixture.sessionDirectory.resolveCallCount)
+    }
+
+    @Test
+    fun numberCodeJoinCallsDirectoryOnce() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        fixture.repository.joinSession(
+            joinCode = fixture.session.joinCode,
+            userId = fixture.participant.uid,
+            displayName = fixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        assertEquals(1, fixture.sessionDirectory.resolveCallCount)
+    }
+
+    @Test
+    fun directAndDirectoryJoinPathsCreateEquivalentState() = runTest {
+        val directFixture = sessionFixture(seedLocalSession = false)
+        val codeFixture = sessionFixture(seedLocalSession = false)
+
+        directFixture.repository.joinInvitation(
+            invitation = directFixture.sessionInvitation(),
+            userId = directFixture.participant.uid,
+            displayName = directFixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        codeFixture.repository.joinSession(
+            joinCode = codeFixture.session.joinCode,
+            userId = codeFixture.participant.uid,
+            displayName = codeFixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        assertEquivalentJoinedState(
+            directFixture = directFixture,
+            codeFixture = codeFixture,
+            userId = directFixture.participant.uid
+        )
+    }
+
+    @Test
+    fun directFacilitatorInvitationReturnsAwaitingApproval() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        val result = fixture.repository.joinInvitation(
+            invitation = fixture.sessionInvitation(),
+            userId = fixture.facilitator.uid,
+            displayName = fixture.facilitator.displayName,
+            requestedRole = SessionRole.FACILITATOR
+        )
+
+        assertTrue(result is JoinSessionResult.AwaitingApproval)
+        val request =
+            (result as JoinSessionResult.AwaitingApproval).request
+
+        assertEquals(JoinRequestStatus.PENDING, request.status)
+        assertNull(
+            fixture.sessionDao.getMember(
+                fixture.session.id,
+                fixture.facilitator.uid
+            )
+        )
+        assertEquals(0, fixture.sessionDirectory.resolveCallCount)
     }
 
     @Test
@@ -140,13 +395,13 @@ class SessionRepositoryTest {
 
         val first = fixture.repository.joinSession(
             joinCode = fixture.session.joinCode,
-            userId = fixture.facilitator.id,
+            userId = fixture.facilitator.uid,
             displayName = fixture.facilitator.displayName,
             requestedRole = SessionRole.FACILITATOR
         )
         val second = fixture.repository.joinSession(
             joinCode = fixture.session.joinCode,
-            userId = fixture.facilitator.id,
+            userId = fixture.facilitator.uid,
             displayName = fixture.facilitator.displayName,
             requestedRole = SessionRole.FACILITATOR
         )
@@ -160,11 +415,11 @@ class SessionRepositoryTest {
         assertNull(
             fixture.sessionDao.getMember(
                 fixture.session.id,
-                fixture.facilitator.id
+                fixture.facilitator.uid
             )
         )
         assertNull(
-            fixture.activeSessionStore.activeSessions[fixture.facilitator.id]
+            fixture.activeSessionStore.activeSessions[fixture.facilitator.uid]
         )
     }
 
@@ -173,7 +428,7 @@ class SessionRepositoryTest {
         val fixture = sessionFixture()
         val pending = fixture.repository.joinSession(
             joinCode = fixture.session.joinCode,
-            userId = fixture.facilitator.id,
+            userId = fixture.facilitator.uid,
             displayName = fixture.facilitator.displayName,
             requestedRole = SessionRole.FACILITATOR
         ) as JoinSessionResult.AwaitingApproval
@@ -182,7 +437,7 @@ class SessionRepositoryTest {
         try {
             fixture.repository.approveJoinRequest(
                 requestId = pending.request.id,
-                decidedByUserId = fixture.participant.id
+                decidedByUserId = fixture.participant.uid
             )
         } catch (_: IllegalStateException) {
             threw = true
@@ -193,7 +448,7 @@ class SessionRepositoryTest {
         assertNull(
             fixture.sessionDao.getMember(
                 fixture.session.id,
-                fixture.facilitator.id
+                fixture.facilitator.uid
             )
         )
     }
@@ -203,20 +458,20 @@ class SessionRepositoryTest {
         val fixture = sessionFixture()
         val pending = fixture.repository.joinSession(
             joinCode = fixture.session.joinCode,
-            userId = fixture.facilitator.id,
+            userId = fixture.facilitator.uid,
             displayName = fixture.facilitator.displayName,
             requestedRole = SessionRole.FACILITATOR
         ) as JoinSessionResult.AwaitingApproval
 
         val approved = fixture.repository.approveJoinRequest(
             requestId = pending.request.id,
-            decidedByUserId = fixture.host.id
+            decidedByUserId = fixture.host.uid
         )
 
         assertTrue(approved)
         val member = fixture.sessionDao.getMember(
             fixture.session.id,
-            fixture.facilitator.id
+            fixture.facilitator.uid
         )
         assertNotNull(member)
         assertEquals(SessionRole.FACILITATOR, member?.role)
@@ -231,21 +486,21 @@ class SessionRepositoryTest {
         val fixture = sessionFixture()
         val pending = fixture.repository.joinSession(
             joinCode = fixture.session.joinCode,
-            userId = fixture.facilitator.id,
+            userId = fixture.facilitator.uid,
             displayName = fixture.facilitator.displayName,
             requestedRole = SessionRole.FACILITATOR
         ) as JoinSessionResult.AwaitingApproval
 
         val declined = fixture.repository.declineJoinRequest(
             requestId = pending.request.id,
-            decidedByUserId = fixture.host.id
+            decidedByUserId = fixture.host.uid
         )
 
         assertTrue(declined)
         assertNull(
             fixture.sessionDao.getMember(
                 fixture.session.id,
-                fixture.facilitator.id
+                fixture.facilitator.uid
             )
         )
         assertEquals(
@@ -254,58 +509,453 @@ class SessionRepositoryTest {
         )
     }
 
-    private fun sessionFixture(): SessionFixture {
+    @Test
+    fun approvalPublishesPrivateApprovalAndPublicRosterUpdate() = runTest {
+        val sync = RecordingSessionRealtimeSync()
+        val fixture = sessionFixture(sessionRealtimeSync = sync)
+        val pending = fixture.repository.joinSession(
+            joinCode = fixture.session.joinCode,
+            userId = fixture.facilitator.uid,
+            displayName = fixture.facilitator.displayName,
+            requestedRole = SessionRole.FACILITATOR
+        ) as JoinSessionResult.AwaitingApproval
+
+        val approved = fixture.repository.approveJoinRequest(
+            requestId = pending.request.id,
+            decidedByUserId = fixture.host.uid
+        )
+
+        assertTrue(approved)
+        assertNotNull(sync.facilitatorApproved)
+        assertNotNull(sync.memberJoined)
+        assertEquals(pending.request.id, sync.facilitatorApproved?.request?.id)
+        assertEquals(fixture.facilitator.uid, sync.facilitatorApproved?.member?.userId)
+        assertEquals(SessionRole.FACILITATOR, sync.facilitatorApproved?.member?.role)
+        assertEquals(fixture.session.id, sync.memberJoined?.session?.id)
+        assertEquals(fixture.host.uid, sync.memberJoined?.actorUserId)
+    }
+
+    @Test
+    fun declinePublishesPrivateDecline() = runTest {
+        val sync = RecordingSessionRealtimeSync()
+        val fixture = sessionFixture(sessionRealtimeSync = sync)
+        val pending = fixture.repository.joinSession(
+            joinCode = fixture.session.joinCode,
+            userId = fixture.facilitator.uid,
+            displayName = fixture.facilitator.displayName,
+            requestedRole = SessionRole.FACILITATOR
+        ) as JoinSessionResult.AwaitingApproval
+
+        val declined = fixture.repository.declineJoinRequest(
+            requestId = pending.request.id,
+            decidedByUserId = fixture.host.uid
+        )
+
+        assertTrue(declined)
+        assertNotNull(sync.facilitatorDeclined)
+        assertEquals(pending.request.id, sync.facilitatorDeclined?.first?.id)
+        assertEquals(fixture.session.id, sync.facilitatorDeclined?.second?.id)
+    }
+
+    @Test
+    fun explicitLeaveRemovesMembershipAndPublishesMemberLeft() = runTest {
+        val sync = RecordingSessionRealtimeSync()
+        val fixture = sessionFixture(sessionRealtimeSync = sync)
+        fixture.repository.joinSession(
+            joinCode = fixture.session.joinCode,
+            userId = fixture.participant.uid,
+            displayName = fixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+
+        fixture.repository.leaveSession(
+            userId = fixture.participant.uid,
+            sessionId = fixture.session.id
+        )
+
+        assertNull(
+            fixture.sessionDao.getMember(
+                fixture.session.id,
+                fixture.participant.uid
+            )
+        )
+        assertNotNull(sync.memberLeft)
+        assertEquals(fixture.participant.uid, sync.memberLeft?.second?.userId)
+    }
+
+    @Test
+    fun cancelledUnlaunchedSessionCannotBeJoined() = runTest {
+        val fixture = sessionFixture()
+
+        val scheduled = fixture.repository.scheduleSession(
+            name = "Thursday Group",
+            ownerUserId = fixture.host.uid,
+            scheduledStartAt = 20_000L,
+            scheduledDurationMinutes = 60
+        )
+
+        val cancelled = fixture.repository.cancelScheduledSession(
+            sessionId = scheduled.id,
+            ownerUserId = fixture.host.uid
+        )
+
+        assertTrue(cancelled)
+
+        val storedSession = fixture.sessionDao.getSession(
+            scheduled.id
+        )
+
+        assertEquals(
+            SessionStatus.CANCELLED,
+            storedSession?.status
+        )
+
+        try {
+            fixture.repository.joinSession(
+                joinCode = scheduled.joinCode,
+                userId = fixture.participant.uid,
+                displayName = fixture.participant.displayName
+            )
+
+            fail(
+                "Expected an unlaunched cancelled session " +
+                        "to be unavailable through its code."
+            )
+        } catch (expected: IllegalStateException) {
+            assertEquals(
+                "No session found for this code.",
+                expected.message
+            )
+        }
+    }
+
+    @Test
+    fun hostCanEndSession() = runTest {
+        val fixture = sessionFixture()
+        val active = fixture.repository.createSessionNow(
+            name = "Host End Test",
+            ownerUserId = fixture.host.uid,
+            displayName = fixture.host.displayName
+        )
+
+        fixture.repository.endSession(
+            sessionId = active.sessionId,
+            actorUserId = fixture.host.uid
+        )
+
+        val ended = fixture.sessionDao.getSession(active.sessionId)
+        assertEquals(SessionStatus.ENDED, ended?.status)
+        assertNotNull(ended?.actualEndedAt)
+    }
+
+    @Test
+    fun normalEndCallsUnbindWithCorrectIdentifiers() = runTest {
+        val displayBindingCoordinator =
+            RecordingDisplayBindingCoordinator()
+        val fixture = sessionFixture(
+            displayBindingCoordinator =
+                displayBindingCoordinator
+        )
+
+        val result =
+            fixture.repository.endSession(
+                sessionId = fixture.session.id,
+                actorUserId = fixture.host.uid
+            )
+
+        assertEquals(null, result.cleanupWarning)
+        assertEquals(1, displayBindingCoordinator.unbindCalls.size)
+        assertEquals(
+            UnbindCall(
+                displayId = "pi-test",
+                sessionId = fixture.session.id,
+                requestedByUserId = fixture.host.uid
+            ),
+            displayBindingCoordinator.unbindCalls.single()
+        )
+    }
+
+    @Test
+    fun noDisplayIdSkipsUnbinding() = runTest {
+        val displayBindingCoordinator =
+            RecordingDisplayBindingCoordinator()
+        val fixture = sessionFixture(
+            displayBindingCoordinator =
+                displayBindingCoordinator
+        )
+        fixture.sessionDao.upsertSession(
+            fixture.session.copy(displayId = null)
+        )
+
+        val result =
+            fixture.repository.endSession(
+                sessionId = fixture.session.id,
+                actorUserId = fixture.host.uid
+            )
+
+        assertEquals(null, result.cleanupWarning)
+        assertTrue(displayBindingCoordinator.unbindCalls.isEmpty())
+    }
+
+    @Test
+    fun alreadyEndedSessionRetriesCleanup() = runTest {
+        val displayBindingCoordinator =
+            RecordingDisplayBindingCoordinator()
+        val fixture = sessionFixture(
+            displayBindingCoordinator =
+                displayBindingCoordinator
+        )
+
+        fixture.repository.endSession(
+            sessionId = fixture.session.id,
+            actorUserId = fixture.host.uid
+        )
+
+        fixture.repository.endSession(
+            sessionId = fixture.session.id,
+            actorUserId = fixture.host.uid
+        )
+
+        assertEquals(2, displayBindingCoordinator.unbindCalls.size)
+        assertEquals(
+            SessionStatus.ENDED,
+            fixture.sessionDao.getSession(
+                fixture.session.id
+            )?.status
+        )
+    }
+
+    @Test
+    fun unbindFailureLeavesSessionEnded() = runTest {
+        val displayBindingCoordinator =
+            RecordingDisplayBindingCoordinator(
+                unbindResult =
+                    DisplayUnbindResult.Failure(
+                        "Pi did not respond."
+                    )
+            )
+        val fixture = sessionFixture(
+            displayBindingCoordinator =
+                displayBindingCoordinator
+        )
+
+        val result =
+            fixture.repository.endSession(
+                sessionId = fixture.session.id,
+                actorUserId = fixture.host.uid
+            )
+
+        assertEquals(
+            SessionStatus.ENDED,
+            fixture.sessionDao.getSession(
+                fixture.session.id
+            )?.status
+        )
+        assertTrue(
+            result.cleanupWarning
+                ?.contains(
+                    "display",
+                    ignoreCase = true
+                ) == true
+        )
+    }
+
+    @Test
+    fun successfulEndRemovesDirectoryEntry() = runTest {
+        val displayBindingCoordinator =
+            RecordingDisplayBindingCoordinator()
+        val fixture = sessionFixture(
+            displayBindingCoordinator =
+                displayBindingCoordinator
+        )
+
+        fixture.repository.endSession(
+            sessionId = fixture.session.id,
+            actorUserId = fixture.host.uid
+        )
+
+        assertTrue(
+            fixture.sessionDirectory.resolve(
+                fixture.session.joinCode
+            ) is ResolveJoinCodeResult.NotFound
+        )
+    }
+
+    @Test
+    fun facilitatorCannotEndSession() = runTest {
+        val fixture = sessionFixture()
+        val active = fixture.repository.createSessionNow(
+            name = "Facilitator End Test",
+            ownerUserId = fixture.host.uid,
+            displayName = fixture.host.displayName
+        )
+        fixture.sessionDao.upsertMember(
+            SessionMemberEntity(
+                sessionId = active.sessionId,
+                userId = fixture.facilitator.uid,
+                displayName = fixture.facilitator.displayName,
+                role = SessionRole.FACILITATOR,
+                joinedAt = 20L
+            )
+        )
+
+        try {
+            fixture.repository.endSession(
+                sessionId = active.sessionId,
+                actorUserId = fixture.facilitator.uid
+            )
+            fail("Expected facilitator end-session attempt to fail.")
+        } catch (expected: IllegalStateException) {
+            assertTrue(expected.message?.contains("host", ignoreCase = true) == true)
+        }
+    }
+
+    @Test
+    fun createSessionUsesAutoLatestWhenAccountDoesNotRequireManualApproval() = runTest {
+        val fixture = sessionFixture(
+            hostSettings = UserSettingsEntity(
+                userId = "host_1",
+                monitorRequireManualApproval = false
+            )
+        )
+
+        val active = fixture.repository.createSessionNow(
+            name = "Auto Session",
+            ownerUserId = fixture.host.uid,
+            displayName = fixture.host.displayName
+        )
+
+        assertEquals(
+            DisplayMode.AUTO_LATEST,
+            fixture.sessionDao.getSession(active.sessionId)?.displayMode
+        )
+    }
+
+    @Test
+    fun createSessionUsesApprovalRequiredWhenAccountRequiresManualApproval() = runTest {
+        val fixture = sessionFixture(
+            hostSettings = UserSettingsEntity(
+                userId = "host_1",
+                monitorRequireManualApproval = true
+            )
+        )
+
+        val active = fixture.repository.createSessionNow(
+            name = "Approval Session",
+            ownerUserId = fixture.host.uid,
+            displayName = fixture.host.displayName
+        )
+
+        assertEquals(
+            DisplayMode.APPROVAL_REQUIRED,
+            fixture.sessionDao.getSession(active.sessionId)?.displayMode
+        )
+    }
+
+    @Test
+    fun liveSessionModeUpdatePersistsAndPublishesBothEvents() = runTest {
+        val sync = RecordingSessionRealtimeSync()
+        val fixture = sessionFixture(sessionRealtimeSync = sync)
+
+        fixture.repository.updateSessionDisplayMode(
+            sessionId = fixture.session.id,
+            actorUserId = fixture.host.uid,
+            displayMode = DisplayMode.APPROVAL_REQUIRED
+        )
+
+        val updated = fixture.sessionDao.getSession(fixture.session.id)
+        assertEquals(DisplayMode.APPROVAL_REQUIRED, updated?.displayMode)
+        assertEquals(DisplayMode.APPROVAL_REQUIRED, sync.sessionSettingsChanged?.displayMode)
+        assertEquals(DisplayMode.APPROVAL_REQUIRED, sync.displayModeChanged?.first)
+    }
+
+    private fun sessionFixture(
+        seedLocalSession: Boolean = true,
+        hostSettings: UserSettingsEntity = UserSettingsEntity(userId = "host_1"),
+        sessionRealtimeSync: SessionRealtimeSync = NoOpSessionRealtimeSync,
+        displayBindingCoordinator: DisplayBindingCoordinator =
+            AlwaysBoundDisplayBindingCoordinator
+    ): SessionFixture {
+        val now = System.currentTimeMillis()
         val sessionDao = FakeSessionDao()
         val joinRequestDao = FakeSessionJoinRequestDao()
         val userDao = FakeUserDao()
         val activeSessionStore = FakeActiveSessionStore()
-        val piClient = RecordingPiClient()
+        val sessionDirectory = FakeSessionDirectory(nowProvider = { now })
 
         val host = UserEntity(
-            id = "host-1",
+            uid = "host_1",
             displayName = "Host",
-            role = UserRole.PARTICIPANT,
             createdAt = 1L
         )
         val participant = UserEntity(
-            id = "participant-1",
+            uid = "participant_1",
             displayName = "Participant",
-            role = UserRole.PARTICIPANT,
             createdAt = 2L
         )
         val facilitator = UserEntity(
-            id = "facilitator-1",
+            uid = "facilitator_1",
             displayName = "Facilitator",
-            role = UserRole.PARTICIPANT,
             createdAt = 3L
         )
         userDao.seed(host, participant, facilitator)
+        userDao.seedSettings(
+            hostSettings,
+            UserSettingsEntity(userId = participant.uid),
+            UserSettingsEntity(userId = facilitator.uid)
+        )
 
         val session = SessionEntity(
             id = "session-1",
             name = "Friday Group",
             joinCode = "1234-5678",
-            hostUserId = host.id,
-            createdAt = 10L,
-            actualStartedAt = 10L
+            hostUserId = host.uid,
+            status = SessionStatus.LIVE,
+            displayMode = DisplayMode.AUTO_LATEST,
+            displayId = "pi-test",
+            createdAt = now - 60_000L,
+            actualStartedAt = now - 30_000L,
+            expiresAt = now + 86_400_000L
         )
-        sessionDao.seedSession(session)
-        sessionDao.seedMember(
-            SessionMemberEntity(
+        if (seedLocalSession) {
+            sessionDao.seedSession(session)
+            sessionDao.seedMember(
+                SessionMemberEntity(
+                    sessionId = session.id,
+                    userId = host.uid,
+                    displayName = host.displayName,
+                    role = SessionRole.HOST,
+                    joinedAt = now - 30_000L
+                )
+            )
+        }
+        sessionDirectory.seed(
+            SessionDirectoryEntry(
+                joinCode = session.joinCode,
                 sessionId = session.id,
-                userId = host.id,
-                displayName = host.displayName,
-                role = SessionRole.HOST,
-                joinedAt = 10L
+                sessionName = session.name,
+                hostUserId = host.uid,
+                displayId = requireNotNull(session.displayId),
+                status = SessionStatus.LIVE,
+                displayMode = session.displayMode,
+                createdAt = session.createdAt,
+                actualStartedAt =
+                    requireNotNull(session.actualStartedAt),
+                expiresAt = requireNotNull(session.expiresAt)
             )
         )
 
         val repository = SessionRepository(
+            transactionRunner = ImmediateTransactionRunner,
             sessionDao = sessionDao,
             sessionJoinRequestDao = joinRequestDao,
             userDao = userDao,
             activeSessionStore = activeSessionStore,
-            piClient = piClient
+            sessionDirectory = sessionDirectory,
+            displayBindingCoordinator =
+                displayBindingCoordinator,
+            outboxDispatcher = NoOpOutboxDispatcher,
+            sessionRealtimeSync = sessionRealtimeSync
         )
 
         return SessionFixture(
@@ -313,11 +963,217 @@ class SessionRepositoryTest {
             sessionDao = sessionDao,
             joinRequestDao = joinRequestDao,
             activeSessionStore = activeSessionStore,
+            sessionDirectory = sessionDirectory,
             session = session,
             host = host,
             participant = participant,
             facilitator = facilitator
         )
+    }
+
+    @Test
+    fun endedResolutionReturnsExplicitMessage() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+        fixture.sessionDirectory.seed(
+            SessionDirectoryEntry(
+                joinCode = fixture.session.joinCode,
+                sessionId = fixture.session.id,
+                sessionName = fixture.session.name,
+                hostUserId = fixture.host.uid,
+                displayId = requireNotNull(
+                    fixture.session.displayId
+                ),
+                status = SessionStatus.ENDED,
+                displayMode = fixture.session.displayMode,
+                createdAt = fixture.session.createdAt,
+                actualStartedAt = requireNotNull(
+                    fixture.session.actualStartedAt
+                ),
+                expiresAt = requireNotNull(
+                    fixture.session.expiresAt
+                )
+            )
+        )
+        try {
+            fixture.repository.joinSession(
+                joinCode = fixture.session.joinCode,
+                userId = fixture.participant.uid,
+                displayName = fixture.participant.displayName,
+                requestedRole = SessionRole.PARTICIPANT
+            )
+            fail("Expected ended sessions to be rejected.")
+        } catch (error: IllegalStateException) {
+            assertEquals("This session is not currently open.", error.message)
+        }
+    }
+
+    @Test
+    fun malformedTypeInvitationIsRejected() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        assertJoinInvitationFails(
+            fixture = fixture,
+            invitation =
+                fixture.sessionInvitation(
+                    type = "wrong-type"
+                ),
+            expectedMessage =
+                "QR code is not a Group AAC session invitation."
+        )
+    }
+
+    @Test
+    fun unsupportedInvitationVersionIsRejected() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        assertJoinInvitationFails(
+            fixture = fixture,
+            invitation =
+                fixture.sessionInvitation(
+                    protocolVersion = 99
+                ),
+            expectedMessage =
+                "Unsupported session invitation version: 99"
+        )
+    }
+
+    @Test
+    fun expiredInvitationIsRejected() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        assertJoinInvitationFails(
+            fixture = fixture,
+            invitation =
+                fixture.sessionInvitation(
+                    expiresAt = 0L
+                ),
+            expectedMessage =
+                "This session invitation has expired."
+        )
+    }
+
+    @Test
+    fun nonLiveInvitationIsRejected() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        assertJoinInvitationFails(
+            fixture = fixture,
+            invitation =
+                fixture.sessionInvitation(
+                    status = SessionStatus.ENDED
+                ),
+            expectedMessage =
+                "This session is not currently open."
+        )
+    }
+
+    @Test
+    fun invalidSessionDisplayAndCodeFieldsAreRejected() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+
+        val cases =
+            listOf(
+                fixture.sessionInvitation(
+                    sessionId = " "
+                ) to "Session invitation is missing sessionId.",
+                fixture.sessionInvitation(
+                    sessionName = " "
+                ) to "Session invitation is missing sessionName.",
+                fixture.sessionInvitation(
+                    hostUserId = " "
+                ) to "Session invitation is missing hostUserId.",
+                fixture.sessionInvitation(
+                    displayId = " "
+                ) to "Session invitation is missing displayId.",
+                fixture.sessionInvitation(
+                    joinCode = "12"
+                ) to "Session invitation has an invalid joinCode.",
+                fixture.sessionInvitation(
+                    actualStartedAt = 0L
+                ) to "Session invitation has an invalid actualStartedAt."
+            )
+
+        for ((invitation, message) in cases) {
+            assertJoinInvitationFails(
+                fixture = fixture,
+                invitation = invitation,
+                expectedMessage = message
+            )
+        }
+    }
+
+    @Test
+    fun joinInvitationPropagatesCancellation() = runTest {
+        val fixture = sessionFixture(
+            seedLocalSession = false,
+            sessionRealtimeSync =
+                CancellingSessionRealtimeSync()
+        )
+
+        try {
+            fixture.repository.joinInvitation(
+                invitation = fixture.sessionInvitation(),
+                userId = fixture.participant.uid,
+                displayName = fixture.participant.displayName,
+                requestedRole = SessionRole.PARTICIPANT
+            )
+            fail("Expected cancellation to propagate.")
+        } catch (expected: CancellationException) {
+            assertEquals("cancel join publish", expected.message)
+        }
+    }
+
+    @Test
+    fun joinSessionPropagatesCancellationFromDirectoryResolve() = runTest {
+        val fixture = sessionFixture(seedLocalSession = false)
+        fixture.sessionDirectory.resolveThrowable =
+            CancellationException("cancel resolve")
+
+        try {
+            fixture.repository.joinSession(
+                joinCode = fixture.session.joinCode,
+                userId = fixture.participant.uid,
+                displayName = fixture.participant.displayName,
+                requestedRole = SessionRole.PARTICIPANT
+            )
+            fail("Expected directory cancellation to propagate.")
+        } catch (expected: CancellationException) {
+            assertEquals("cancel resolve", expected.message)
+        }
+    }
+
+    @Test
+    fun restoredHostSessionDoesNotDuplicateBind() = runTest {
+        val bindingCoordinator =
+            RecordingDisplayBindingCoordinator()
+        val fixture = sessionFixture(
+            displayBindingCoordinator =
+                bindingCoordinator
+        )
+
+        val result =
+            fixture.repository
+                .reconcileRestoredSession(
+                    userId = fixture.host.uid,
+                    activeSession =
+                        ActiveSession(
+                            sessionId = fixture.session.id,
+                            joinCode = fixture.session.joinCode,
+                            sessionName = fixture.session.name,
+                            userId = fixture.host.uid,
+                            role = SessionRole.HOST,
+                            joinedAt = 1L,
+                            displayId = fixture.session.displayId,
+                            actualStartedAt =
+                                fixture.session.actualStartedAt
+                        )
+                )
+
+        assertEquals(
+            StartupRecoveryState.Reconciled,
+            result
+        )
+        assertEquals(0, bindingCoordinator.bindCalls)
     }
 }
 
@@ -326,11 +1182,127 @@ private data class SessionFixture(
     val sessionDao: FakeSessionDao,
     val joinRequestDao: FakeSessionJoinRequestDao,
     val activeSessionStore: FakeActiveSessionStore,
+    val sessionDirectory: FakeSessionDirectory,
     val session: SessionEntity,
     val host: UserEntity,
     val participant: UserEntity,
     val facilitator: UserEntity
-)
+) {
+    fun sessionInvitation(
+        type: String = com.example.groupaac.data.pi.SESSION_INVITATION_TYPE,
+        protocolVersion: Int = com.example.groupaac.data.pi.DISPLAY_PROTOCOL_VERSION,
+        sessionId: String = session.id,
+        joinCode: String = session.joinCode,
+        sessionName: String = session.name,
+        hostUserId: String = host.uid,
+        displayId: String = requireNotNull(session.displayId),
+        status: SessionStatus = session.status,
+        displayMode: DisplayMode = session.displayMode,
+        actualStartedAt: Long = requireNotNull(session.actualStartedAt),
+        expiresAt: Long = requireNotNull(session.expiresAt)
+    ): SessionInvitationPayload =
+        SessionInvitationPayload(
+            type = type,
+            protocolVersion = protocolVersion,
+            sessionId = sessionId,
+            joinCode = joinCode,
+            sessionName = sessionName,
+            hostUserId = hostUserId,
+            displayId = displayId,
+            status = status,
+            displayMode = displayMode,
+            actualStartedAt = actualStartedAt,
+            expiresAt = expiresAt
+        )
+}
+
+private class RecordingSessionRealtimeSync : SessionRealtimeSync by NoOpSessionRealtimeSync {
+    data class ApprovalCall(
+        val request: SessionJoinRequestEntity,
+        val member: SessionMemberEntity,
+        val session: SessionEntity,
+        val actorUserId: String
+    )
+
+    data class MemberJoinedCall(
+        val session: SessionEntity,
+        val member: SessionMemberEntity,
+        val actorUserId: String
+    )
+
+    var facilitatorApproved: ApprovalCall? = null
+    var memberJoined: MemberJoinedCall? = null
+    var memberLeft: Pair<SessionEntity, SessionMemberEntity>? = null
+    var facilitatorDeclined: Pair<SessionJoinRequestEntity, SessionEntity>? = null
+    var sessionSettingsChanged: SessionEntity? = null
+    var displayModeChanged: Triple<DisplayMode, String?, DisplayCommandOrigin?>? = null
+
+    override suspend fun publishFacilitatorApproved(
+        request: SessionJoinRequestEntity,
+        member: SessionMemberEntity,
+        session: SessionEntity,
+        actorUserId: String
+    ) {
+        facilitatorApproved = ApprovalCall(request, member, session, actorUserId)
+    }
+
+    override suspend fun publishMemberJoined(
+        session: SessionEntity,
+        member: SessionMemberEntity,
+        actorUserId: String
+    ) {
+        memberJoined = MemberJoinedCall(session, member, actorUserId)
+    }
+
+    override suspend fun publishMemberLeft(
+        session: SessionEntity,
+        member: SessionMemberEntity,
+        actorUserId: String
+    ) {
+        memberLeft = session to member
+    }
+
+    override suspend fun publishSessionSettingsChanged(
+        session: SessionEntity,
+        actorUserId: String
+    ) {
+        sessionSettingsChanged = session
+    }
+
+    override suspend fun publishDisplayModeChanged(
+        eventId: String,
+        sessionId: String,
+        actorUserId: String,
+        displayMode: DisplayMode,
+        currentMessageId: String?,
+        isPinned: Boolean,
+        origin: DisplayCommandOrigin?
+    ) {
+        displayModeChanged = Triple(displayMode, currentMessageId, origin)
+    }
+
+    override suspend fun publishFacilitatorDeclined(
+        request: SessionJoinRequestEntity,
+        session: SessionEntity,
+        actorUserId: String
+    ) {
+        facilitatorDeclined = request to session
+    }
+}
+
+private class CancellingSessionRealtimeSync :
+    SessionRealtimeSync by NoOpSessionRealtimeSync {
+
+    override suspend fun publishMemberJoined(
+        session: SessionEntity,
+        member: SessionMemberEntity,
+        actorUserId: String
+    ) {
+        throw CancellationException(
+            "cancel join publish"
+        )
+    }
+}
 
 private class FakeSessionDao : SessionDao {
     private val sessions = linkedMapOf<String, SessionEntity>()
@@ -445,6 +1417,20 @@ private class FakeSessionDao : SessionDao {
         )
     }
 
+    override suspend fun updateDisplayMode(
+        sessionId: String,
+        displayMode: DisplayMode,
+        updatedAt: Long
+    ) {
+        val session = sessions[sessionId] ?: return
+        seedSession(
+            session.copy(
+                displayMode = displayMode,
+                updatedAt = updatedAt
+            )
+        )
+    }
+
     override suspend fun deleteMembersForSession(sessionId: String) {
         val keysToRemove = members.keys
             .filter { (memberSessionId, _) ->
@@ -470,6 +1456,20 @@ private class FakeSessionDao : SessionDao {
 
     override suspend fun upsertMember(member: SessionMemberEntity) {
         members[member.sessionId to member.userId] = member
+    }
+
+    override suspend fun getMembersForSession(
+        sessionId: String
+    ): List<SessionMemberEntity> =
+        members.values
+            .filter { it.sessionId == sessionId }
+            .sortedBy { it.joinedAt }
+
+    override suspend fun deleteMember(
+        sessionId: String,
+        userId: String
+    ) {
+        members.remove(sessionId to userId)
     }
 
     override fun observeMemberIds(sessionId: String): Flow<List<String>> =
@@ -548,6 +1548,13 @@ private class FakeSessionJoinRequestDao : SessionJoinRequestDao {
     override suspend fun getRequestById(
         requestId: String
     ): SessionJoinRequestEntity? = requests[requestId]
+
+    override suspend fun getRequestsForSession(
+        sessionId: String
+    ): List<SessionJoinRequestEntity> =
+        requests.values
+            .filter { it.sessionId == sessionId }
+            .sortedBy { it.requestedAt }
 
     override suspend fun getPendingRequest(
         sessionId: String,
@@ -641,25 +1648,29 @@ private class FakeUserDao : UserDao {
 
     fun seed(vararg seededUsers: UserEntity) {
         seededUsers.forEach { user ->
-            users[user.id] = user
+            users[user.uid] = user
         }
+    }
+
+    fun seedSettings(vararg seededSettings: UserSettingsEntity) {
+        seededSettings.forEach { settings[it.userId] = it }
     }
 
     override fun observeUsers(): Flow<List<UserEntity>> =
         flowOf(users.values.toList())
 
-    override fun observeUser(id: String): Flow<UserEntity?> =
-        flowOf(users[id])
+    override fun observeUser(uid: String): Flow<UserEntity?> =
+        flowOf(users[uid])
 
-    override suspend fun getUser(id: String): UserEntity? = users[id]
+    override suspend fun getUser(uid: String): UserEntity? = users[uid]
 
     override suspend fun upsertUser(user: UserEntity) {
-        users[user.id] = user
+        users[user.uid] = user
     }
 
-    override suspend fun updateLastLogin(userId: String, timestamp: Long) {
-        val user = users[userId] ?: return
-        users[userId] = user.copy(lastLoginAt = timestamp)
+    override suspend fun insertUser(user: UserEntity) {
+        check(users[user.uid] == null) { "Duplicate user ${user.uid}" }
+        users[user.uid] = user
     }
 
     override fun observeSettings(userId: String): Flow<UserSettingsEntity?> =
@@ -721,19 +1732,126 @@ private class FakeActiveSessionStore : ActiveSessionStore {
     }
 }
 
-private class RecordingPiClient : PiClient {
-    val joinRequests = mutableListOf<PiJoinRequest>()
+private suspend fun assertJoinInvitationFails(
+    fixture: SessionFixture,
+    invitation: SessionInvitationPayload,
+    expectedMessage: String
+) {
+    try {
+        fixture.repository.joinInvitation(
+            invitation = invitation,
+            userId = fixture.participant.uid,
+            displayName = fixture.participant.displayName,
+            requestedRole = SessionRole.PARTICIPANT
+        )
+        fail("Expected join invitation to fail.")
+    } catch (expected: IllegalArgumentException) {
+        assertEquals(expectedMessage, expected.message)
+    }
+}
 
-    override suspend fun joinSession(request: PiJoinRequest) {
-        joinRequests += request
+private suspend fun assertEquivalentJoinedState(
+    directFixture: SessionFixture,
+    codeFixture: SessionFixture,
+    userId: String
+) {
+    val directSession =
+        directFixture.sessionDao.getSession(
+            directFixture.session.id
+        )
+    val codeSession =
+        codeFixture.sessionDao.getSession(
+            codeFixture.session.id
+        )
+
+    assertEquals(directSession?.id, codeSession?.id)
+    assertEquals(directSession?.name, codeSession?.name)
+    assertEquals(directSession?.joinCode, codeSession?.joinCode)
+    assertEquals(directSession?.hostUserId, codeSession?.hostUserId)
+    assertEquals(directSession?.status, codeSession?.status)
+    assertEquals(directSession?.displayId, codeSession?.displayId)
+    assertEquals(directSession?.actualStartedAt, codeSession?.actualStartedAt)
+    assertEquals(directSession?.expiresAt, codeSession?.expiresAt)
+
+    val directMember =
+        directFixture.sessionDao.getMember(
+            directFixture.session.id,
+            userId
+        )
+    val codeMember =
+        codeFixture.sessionDao.getMember(
+            codeFixture.session.id,
+            userId
+        )
+
+    assertEquals(directMember?.sessionId, codeMember?.sessionId)
+    assertEquals(directMember?.userId, codeMember?.userId)
+    assertEquals(directMember?.displayName, codeMember?.displayName)
+    assertEquals(directMember?.role, codeMember?.role)
+
+    assertEquals(
+        directFixture.activeSessionStore.activeSessions[userId],
+        codeFixture.activeSessionStore.activeSessions[userId]
+    )
+}
+
+private object AlwaysBoundDisplayBindingCoordinator :
+    DisplayBindingCoordinator {
+
+    override suspend fun bind(
+        pairing: DisplayPairingPayload,
+        invitation: SessionInvitationPayload,
+        requestedByUserId: String
+    ): DisplayBindingResult =
+        DisplayBindingResult.Bound(
+            commandEventId = "cmd-1"
+        )
+
+    override suspend fun unbind(
+        displayId: String,
+        sessionId: String,
+        requestedByUserId: String
+    ) = error("unbind should not be called in this test")
+}
+
+private data class UnbindCall(
+    val displayId: String,
+    val sessionId: String,
+    val requestedByUserId: String
+)
+
+private class RecordingDisplayBindingCoordinator(
+    private val unbindResult: DisplayUnbindResult =
+        DisplayUnbindResult.Unbound
+) :
+    DisplayBindingCoordinator {
+    var bindCalls = 0
+    val unbindCalls =
+        mutableListOf<UnbindCall>()
+
+    override suspend fun bind(
+        pairing: DisplayPairingPayload,
+        invitation: SessionInvitationPayload,
+        requestedByUserId: String
+    ): DisplayBindingResult {
+        bindCalls += 1
+        return DisplayBindingResult.Bound(
+            commandEventId = "cmd-recorded"
+        )
     }
 
-    override suspend fun sendMessage(payload: PiMessagePayload) = Unit
-
-    override suspend fun sendSignal(payload: PiSignalPayload) = Unit
-
-    override suspend fun sendDisplayCommand(command: DisplayCommand) = Unit
-
-    override fun observeSessionEvents(sessionId: String): Flow<PiSessionEvent> =
-        flowOf(PiSessionEvent.Connected)
+    override suspend fun unbind(
+        displayId: String,
+        sessionId: String,
+        requestedByUserId: String
+    ): DisplayUnbindResult {
+        unbindCalls +=
+            UnbindCall(
+                displayId = displayId,
+                sessionId = sessionId,
+                requestedByUserId =
+                    requestedByUserId
+            )
+        return unbindResult
+    }
 }

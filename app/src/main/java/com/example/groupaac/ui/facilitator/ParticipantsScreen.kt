@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.groupaac.data.entity.SessionJoinRequestEntity
@@ -109,12 +110,16 @@ private fun FacilitatorRequestCard(
                 SecondaryButton(
                     text = "Approve",
                     onClick = onApprove,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("facilitator_request_approve_${request.id}")
                 )
                 SecondaryButton(
                     text = "Decline",
                     onClick = onDecline,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("facilitator_request_decline_${request.id}")
                 )
             }
         }
@@ -125,8 +130,8 @@ private fun FacilitatorRequestCard(
 @Composable
 fun ParticipantsScreenPreview() {
     val mockParticipants = listOf(
-        ParticipantOverview("1", "Alice", SignalType.COMMENT, SignalState.ACTIVE, 5, 0, "Typing...", "2m"),
-        ParticipantOverview("2", "Bob", SignalType.HELP, SignalState.ACTIVE, 2, 1, "Idle", "5m", isLowParticipation = true),
+        ParticipantOverview("1", "Alice", SignalType.COMMENT, SignalState.CURRENT, 5, 0, "Typing...", "2m"),
+        ParticipantOverview("2", "Bob", SignalType.HELP, SignalState.CURRENT, 2, 1, "Idle", "5m", isLowParticipation = true),
         ParticipantOverview("3", "Charlie", null, null, 12, 0, "Active", "10s")
     )
     GroupAacTheme {

@@ -36,6 +36,17 @@ interface SessionJoinRequestDao {
         """
         SELECT * FROM session_join_requests
         WHERE sessionId = :sessionId
+        ORDER BY requestedAt ASC
+        """
+    )
+    suspend fun getRequestsForSession(
+        sessionId: String
+    ): List<SessionJoinRequestEntity>
+
+    @Query(
+        """
+        SELECT * FROM session_join_requests
+        WHERE sessionId = :sessionId
           AND userId = :userId
           AND requestedRole = :requestedRole
           AND status = :pendingStatus

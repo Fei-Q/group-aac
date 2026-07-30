@@ -8,14 +8,13 @@ import com.example.groupaac.model.CalendarViewMode
 import com.example.groupaac.model.FacilitatorDefaultTab
 import com.example.groupaac.model.HomeExperience
 import com.example.groupaac.model.ParticipantDefaultTab
-import com.example.groupaac.model.UserRole
 
 @Entity(
     tableName = "user_settings",
     foreignKeys = [
         ForeignKey(
             entity = UserEntity::class,
-            parentColumns = ["id"],
+            parentColumns = ["uid"],
             childColumns = ["userId"],
             onDelete = ForeignKey.CASCADE
         )
@@ -28,9 +27,6 @@ data class UserSettingsEntity(
     @PrimaryKey
     val userId: String,
 
-    // Common profile/session defaults
-    @Deprecated("Account-level default roles are retained only for Room compatibility.")
-    val defaultRole: UserRole = UserRole.PARTICIPANT,
     val defaultSessionName: String = "Group AAC Session",
     val homeExperience: HomeExperience = HomeExperience.SIMPLE,
     val calendarViewMode: CalendarViewMode = CalendarViewMode.WEEK,
@@ -59,11 +55,9 @@ data class UserSettingsEntity(
     val facilitatorShowRepeatAlerts: Boolean = true,
     val facilitatorShowWaitingAlerts: Boolean = true,
     val facilitatorDefaultSnoozeMinutes: Int = 3,
-    val facilitatorAutoClearResolvedAlerts: Boolean = true,
     val facilitatorQuickLogEnabled: Boolean = true,
     val facilitatorAutoSaveNotes: Boolean = true,
     val facilitatorShowPrivateMessagesInLog: Boolean = true,
-    val facilitatorIncludeResolvedSignalsInSummary: Boolean = true,
 
     // Shared monitor command preferences
     val monitorAutoDisplayGroupMessages: Boolean = false,

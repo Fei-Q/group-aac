@@ -2,22 +2,24 @@ package com.example.groupaac.data
 
 import androidx.room.TypeConverter
 import com.example.groupaac.model.CalendarViewMode
+import com.example.groupaac.model.DisplayCommandOrigin
+import com.example.groupaac.model.DisplayMode
 import com.example.groupaac.model.FacilitatorDefaultTab
 import com.example.groupaac.model.HomeExperience
 import com.example.groupaac.model.JoinRequestStatus
+import com.example.groupaac.model.MessageDisplayStatus
 import com.example.groupaac.model.MessageStatus
+import com.example.groupaac.model.MessageTransportStatus
 import com.example.groupaac.model.MessageTarget
+import com.example.groupaac.model.OutboxDomainType
+import com.example.groupaac.model.OutboxEventState
 import com.example.groupaac.model.ParticipantDefaultTab
 import com.example.groupaac.model.SessionRole
+import com.example.groupaac.model.SessionStatus
 import com.example.groupaac.model.SignalState
 import com.example.groupaac.model.SignalType
-import com.example.groupaac.model.UserRole
 
 class TypeConverters {
-    @TypeConverter fun userRoleToString(value: UserRole): String = value.name
-    @TypeConverter
-    fun stringToUserRole(value: String?): UserRole = UserRole.fromName(value)
-
     @TypeConverter
     fun homeExperienceToString(value: HomeExperience): String = value.name
 
@@ -35,11 +37,33 @@ class TypeConverters {
             ?: CalendarViewMode.WEEK
 
     @TypeConverter
+    fun displayModeToString(value: DisplayMode): String = value.name
+
+    @TypeConverter
+    fun stringToDisplayMode(value: String?): DisplayMode =
+        DisplayMode.fromName(value)
+
+    @TypeConverter
+    fun displayCommandOriginToString(value: DisplayCommandOrigin?): String? =
+        value?.name
+
+    @TypeConverter
+    fun stringToDisplayCommandOrigin(value: String?): DisplayCommandOrigin? =
+        DisplayCommandOrigin.fromName(value)
+
+    @TypeConverter
     fun sessionRoleToString(value: SessionRole): String = value.name
 
     @TypeConverter
     fun stringToSessionRole(value: String?): SessionRole =
         SessionRole.fromName(value)
+
+    @TypeConverter
+    fun sessionStatusToString(value: SessionStatus): String = value.name
+
+    @TypeConverter
+    fun stringToSessionStatus(value: String?): SessionStatus =
+        SessionStatus.fromName(value)
 
     @TypeConverter
     fun joinRequestStatusToString(value: JoinRequestStatus): String = value.name
@@ -76,7 +100,45 @@ class TypeConverters {
     @TypeConverter
     fun stringToMessageStatus(value: String): MessageStatus =
         MessageStatus.entries.firstOrNull { it.name == value }
-            ?: MessageStatus.SENT
+            ?: MessageStatus.ACTIVE
+
+    @TypeConverter
+    fun messageTransportStatusToString(
+        value: MessageTransportStatus
+    ): String = value.name
+
+    @TypeConverter
+    fun stringToMessageTransportStatus(
+        value: String?
+    ): MessageTransportStatus =
+        MessageTransportStatus.entries.firstOrNull { it.name == value }
+            ?: MessageTransportStatus.SENT
+
+    @TypeConverter
+    fun messageDisplayStatusToString(
+        value: MessageDisplayStatus
+    ): String = value.name
+
+    @TypeConverter
+    fun stringToMessageDisplayStatus(
+        value: String?
+    ): MessageDisplayStatus =
+        MessageDisplayStatus.entries.firstOrNull { it.name == value }
+            ?: MessageDisplayStatus.HIDDEN
+
+    @TypeConverter
+    fun outboxEventStateToString(value: OutboxEventState): String = value.name
+
+    @TypeConverter
+    fun stringToOutboxEventState(value: String?): OutboxEventState =
+        OutboxEventState.fromName(value)
+
+    @TypeConverter
+    fun outboxDomainTypeToString(value: OutboxDomainType): String = value.name
+
+    @TypeConverter
+    fun stringToOutboxDomainType(value: String?): OutboxDomainType =
+        OutboxDomainType.fromName(value)
 
     @TypeConverter fun signalTypeToString(value: SignalType): String = value.name
     @TypeConverter

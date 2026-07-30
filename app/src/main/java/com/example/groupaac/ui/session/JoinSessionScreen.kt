@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -65,10 +66,10 @@ import com.example.groupaac.ui.theme.GroupAacTheme
 @Composable
 fun JoinSessionScreen(
     currentUser: UserEntity,
-    isJoining: Boolean,
+    participantLookupState: ParticipantLookupUiState,
     errorMessage: String?,
-    onJoin: (
-        code: String,
+    onLookupCodeChanged: (String) -> Unit,
+    onConfirmJoin: (
         displayName: String,
         sessionRole: SessionRole,
         rememberProfile: Boolean
@@ -82,7 +83,7 @@ fun JoinSessionScreen(
     var codeDigits by rememberSaveable {
         mutableStateOf("")
     }
-    var displayName by rememberSaveable(currentUser.id) {
+    var displayName by rememberSaveable(currentUser.uid) {
         mutableStateOf(currentUser.displayName)
     }
     var selectedRole by rememberSaveable {
@@ -92,22 +93,20 @@ fun JoinSessionScreen(
         mutableStateOf<String?>(null)
     }
 
-    LaunchedEffect(currentUser.id, currentUser.displayName) {
+    LaunchedEffect(currentUser.uid, currentUser.displayName) {
         displayName = currentUser.displayName
     }
 
     fun updateCode(raw: String) {
         codeDigits = normalizeSessionDigits(raw)
         localValidationError = null
+        onLookupCodeChanged(codeDigits)
     }
 
     fun submitJoin() {
         val cleanDisplayName = displayName.trim()
 
         localValidationError = when {
-            codeDigits.length != 8 ->
-                "Enter the complete eight-digit session code."
-
             cleanDisplayName.isBlank() ->
                 "Enter your display name."
 
@@ -115,8 +114,7 @@ fun JoinSessionScreen(
         }
 
         if (localValidationError == null) {
-            onJoin(
-                codeDigits,
+            onConfirmJoin(
                 cleanDisplayName,
                 selectedRole,
                 false
@@ -124,8 +122,10 @@ fun JoinSessionScreen(
         }
     }
 
+    val isJoining =
+        participantLookupState is ParticipantLookupUiState.Joining
     val joinEnabled =
-        codeDigits.length == 8 &&
+        participantLookupState is ParticipantLookupUiState.Preview &&
             displayName.isNotBlank() &&
             !isJoining
 
@@ -143,7 +143,7 @@ fun JoinSessionScreen(
                 selectedRole = it
                 localValidationError = null
             },
-            isJoining = isJoining,
+            participantLookupState = participantLookupState,
             joinEnabled = joinEnabled,
             errorMessage = localValidationError ?: errorMessage,
             onJoin = ::submitJoin,
@@ -165,7 +165,7 @@ fun JoinSessionScreen(
                 selectedRole = it
                 localValidationError = null
             },
-            isJoining = isJoining,
+            participantLookupState = participantLookupState,
             joinEnabled = joinEnabled,
             errorMessage = localValidationError ?: errorMessage,
             onJoin = ::submitJoin,
@@ -184,7 +184,7 @@ private fun PhoneJoinSession(
     onDisplayNameChange: (String) -> Unit,
     selectedRole: SessionRole,
     onRoleChange: (SessionRole) -> Unit,
-    isJoining: Boolean,
+    participantLookupState: ParticipantLookupUiState,
     joinEnabled: Boolean,
     errorMessage: String?,
     onJoin: () -> Unit,
@@ -207,8 +207,14 @@ private fun PhoneJoinSession(
             codeDigits = codeDigits,
             onCodeChange = onCodeChange,
             onScanQrCode = onScanQrCode,
-            enabled = !isJoining,
+            participantLookupState = participantLookupState,
+            enabled = participantLookupState !is ParticipantLookupUiState.Joining,
             modifier = Modifier.fillMaxWidth()
+        )
+
+        LookupStatusSection(
+            participantLookupState = participantLookupState,
+            errorMessage = errorMessage
         )
 
         ProfileCard(
@@ -216,24 +222,30 @@ private fun PhoneJoinSession(
             onDisplayNameChange = onDisplayNameChange,
             selectedRole = selectedRole,
             onRoleChange = onRoleChange,
-            enabled = !isJoining,
+            enabled = participantLookupState !is ParticipantLookupUiState.Joining,
             roleButtonsStacked = true,
             modifier = Modifier.fillMaxWidth()
         )
 
-        errorMessage
-            ?.takeIf(String::isNotBlank)
-            ?.let { ErrorMessageCard(it) }
-
-        if (isJoining) {
+        if (participantLookupState is ParticipantLookupUiState.Joining) {
             JoiningIndicator()
         }
 
         PrimaryButton(
-            text = if (isJoining) "Joining…" else "Join session",
+            text = if (participantLookupState is ParticipantLookupUiState.Joining) {
+                "Joining…"
+            } else {
+                "Join session"
+            },
             onClick = onJoin,
             enabled = joinEnabled,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("join_session_confirm_button")
+                .semantics {
+                    contentDescription =
+                        "Join the selected session"
+                }
         )
     }
 }
@@ -246,7 +258,7 @@ private fun TabletJoinSession(
     onDisplayNameChange: (String) -> Unit,
     selectedRole: SessionRole,
     onRoleChange: (SessionRole) -> Unit,
-    isJoining: Boolean,
+    participantLookupState: ParticipantLookupUiState,
     joinEnabled: Boolean,
     errorMessage: String?,
     onJoin: () -> Unit,
@@ -280,27 +292,35 @@ private fun TabletJoinSession(
                     codeDigits = codeDigits,
                     onCodeChange = onCodeChange,
                     onScanQrCode = onScanQrCode,
-                    enabled = !isJoining,
+                    participantLookupState = participantLookupState,
+                    enabled = participantLookupState !is ParticipantLookupUiState.Joining,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                errorMessage
-                    ?.takeIf(String::isNotBlank)
-                    ?.let { ErrorMessageCard(it) }
+                LookupStatusSection(
+                    participantLookupState = participantLookupState,
+                    errorMessage = errorMessage
+                )
 
-                if (isJoining) {
+                if (participantLookupState is ParticipantLookupUiState.Joining) {
                     JoiningIndicator()
                 }
 
                 PrimaryButton(
-                    text = if (isJoining) {
+                    text = if (participantLookupState is ParticipantLookupUiState.Joining) {
                         "Joining…"
                     } else {
                         "Join session"
                     },
                     onClick = onJoin,
                     enabled = joinEnabled,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("join_session_confirm_button")
+                        .semantics {
+                            contentDescription =
+                                "Join the selected session"
+                        }
                 )
             }
 
@@ -309,7 +329,7 @@ private fun TabletJoinSession(
                 onDisplayNameChange = onDisplayNameChange,
                 selectedRole = selectedRole,
                 onRoleChange = onRoleChange,
-                enabled = !isJoining,
+                enabled = participantLookupState !is ParticipantLookupUiState.Joining,
                 roleButtonsStacked = false,
                 modifier = Modifier.weight(1f)
             )
@@ -346,7 +366,7 @@ private fun JoinScreenHeader(
             )
 
             Text(
-                text = "Enter the code shared by your facilitator.",
+                text = "Enter the code or scan the QR invitation shared by your facilitator.",
                 color = AacTextSecondary,
                 textAlign = TextAlign.Center
             )
@@ -359,6 +379,7 @@ private fun FindSessionCard(
     codeDigits: String,
     onCodeChange: (String) -> Unit,
     onScanQrCode: (() -> Unit)?,
+    participantLookupState: ParticipantLookupUiState,
     enabled: Boolean,
     modifier: Modifier = Modifier
 ) {
@@ -383,6 +404,10 @@ private fun FindSessionCard(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            if (participantLookupState is ParticipantLookupUiState.Resolving) {
+                ResolvingCard()
+            }
+
             Text(
                 text = "or",
                 modifier = Modifier.align(
@@ -398,11 +423,175 @@ private fun FindSessionCard(
                     onScanQrCode?.invoke()
                 },
                 enabled = enabled && onScanQrCode != null,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("join_session_scan_qr")
+                    .semantics {
+                        contentDescription =
+                            "Scan session invitation QR code"
+                    },
                 leadingIconRes = R.drawable.ic_scan_qr_code
             )
-
         }
+    }
+}
+
+@Composable
+private fun LookupStatusSection(
+    participantLookupState: ParticipantLookupUiState,
+    errorMessage: String?
+) {
+    when (participantLookupState) {
+        ParticipantLookupUiState.Idle,
+        is ParticipantLookupUiState.Resolving -> {
+            errorMessage
+                ?.takeIf(String::isNotBlank)
+                ?.let { ErrorMessageCard(it) }
+        }
+
+        is ParticipantLookupUiState.Preview -> {
+            SessionPreviewCard(
+                preview = participantLookupState.preview
+            )
+        }
+
+        is ParticipantLookupUiState.Joining -> {
+            SessionPreviewCard(
+                preview = participantLookupState.preview
+            )
+        }
+
+        is ParticipantLookupUiState.NotFound -> {
+            ErrorMessageCard(
+                "No session found for code ${formatSessionCode(participantLookupState.codeDigits)}."
+            )
+        }
+
+        is ParticipantLookupUiState.Expired -> {
+            ErrorMessageCard(
+                participantLookupState.message
+            )
+        }
+
+        is ParticipantLookupUiState.Invalid -> {
+            ErrorMessageCard(
+                participantLookupState.message
+            )
+        }
+
+        is ParticipantLookupUiState.Failure -> {
+            ErrorMessageCard(
+                participantLookupState.message
+            )
+        }
+    }
+}
+
+@Composable
+private fun ResolvingCard() {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("join_session_lookup_resolving")
+            .semantics {
+                contentDescription =
+                    "Resolving session preview"
+            },
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp
+            )
+            Text(
+                text = "Looking up session…",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SessionPreviewCard(
+    preview: ParticipantSessionPreview
+) {
+    AppCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("join_session_preview_card")
+            .semantics {
+                contentDescription =
+                    "Session preview for ${preview.sessionName}"
+            },
+        contentPadding = PaddingValues(18.dp)
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Session preview",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.secondary,
+                fontWeight = FontWeight.Bold
+            )
+
+            PreviewRow(
+                label = "Session",
+                value = preview.sessionName
+            )
+            PreviewRow(
+                label = "Code",
+                value = preview.formattedCode
+            )
+            preview.startLabel?.let { label ->
+                PreviewRow(
+                    label = "Start",
+                    value = label
+                )
+            }
+            PreviewRow(
+                label = "Display",
+                value = preview.displayIdentity
+            )
+
+            preview.expiryWarning?.let { warning ->
+                Text(
+                    text = warning,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.testTag(
+                        "join_session_expiry_warning"
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviewRow(
+    label: String,
+    value: String
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = label,
+            color = AacTextSecondary,
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 
@@ -439,7 +628,9 @@ private fun ProfileCard(
                 value = displayName,
                 onValueChange = onDisplayNameChange,
                 enabled = enabled,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("join_session_display_name"),
                 singleLine = true,
                 placeholder = {
                     Text("Name")
@@ -523,9 +714,11 @@ private fun SessionRoleSelectionButton(
     }
 
     Box(
-        modifier = modifier.semantics(mergeDescendants = true) {
-            this.selected = selected
-        }.testTag("join_role_${role.name.lowercase()}") 
+        modifier = modifier
+            .semantics(mergeDescendants = true) {
+                this.selected = selected
+            }
+            .testTag("join_role_${role.name.lowercase()}")
     ) {
         RoleSelectionButton(
             role = mappedRole,
@@ -567,6 +760,11 @@ private fun CenteredCodeInputField(
         ),
         modifier = modifier
             .heightIn(min = 56.dp)
+            .testTag("join_session_code")
+            .semantics {
+                contentDescription =
+                    "Session code input"
+            }
             .border(
                 width = 1.dp,
                 color = AacBorder,
@@ -616,7 +814,13 @@ private fun CenteredCodeInputField(
 @Composable
 private fun JoiningIndicator() {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("join_session_joining_indicator")
+            .semantics {
+                contentDescription =
+                    "Joining the selected session"
+            },
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -639,7 +843,12 @@ private fun ErrorMessageCard(
     message: String
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("join_session_lookup_message")
+            .semantics {
+                contentDescription = message
+            },
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.errorContainer
     ) {
@@ -674,14 +883,23 @@ private fun JoinSessionScreenTabletPreview() {
     GroupAacTheme {
         JoinSessionScreen(
             currentUser = UserEntity(
-                id = "1",
+                uid = "alice",
                 displayName = "Alice",
-                role = UserRole.PARTICIPANT,
                 createdAt = 0
             ),
-            isJoining = false,
+            participantLookupState = ParticipantLookupUiState.Preview(
+                ParticipantSessionPreview(
+                    invitation = previewInvitation(),
+                    sessionName = "Friday Group",
+                    formattedCode = "1234-5678",
+                    startLabel = "Started 1:00 PM",
+                    displayIdentity = "Display pi-1",
+                    expiryWarning = null
+                )
+            ),
             errorMessage = null,
-            onJoin = { _, _, _, _ -> }
+            onLookupCodeChanged = {},
+            onConfirmJoin = { _, _, _ -> }
         )
     }
 }
@@ -696,14 +914,30 @@ private fun JoinSessionScreenPhonePreview() {
     GroupAacTheme {
         JoinSessionScreen(
             currentUser = UserEntity(
-                id = "1",
+                uid = "alice",
                 displayName = "Alice",
-                role = UserRole.PARTICIPANT,
                 createdAt = 0
             ),
-            isJoining = false,
-            errorMessage = "No session found for this code.",
-            onJoin = { _, _, _, _ -> }
+            participantLookupState = ParticipantLookupUiState.NotFound(
+                codeDigits = "12345678"
+            ),
+            errorMessage = null,
+            onLookupCodeChanged = {},
+            onConfirmJoin = { _, _, _ -> }
         )
     }
+}
+
+private fun previewInvitation(): com.example.groupaac.data.pi.SessionInvitationPayload {
+    return com.example.groupaac.data.pi.SessionInvitationPayload(
+        sessionId = "session-1",
+        joinCode = "1234-5678",
+        sessionName = "Friday Group",
+        hostUserId = "host-1",
+        displayId = "pi-1",
+        status = com.example.groupaac.model.SessionStatus.LIVE,
+        displayMode = com.example.groupaac.model.DisplayMode.AUTO_LATEST,
+        actualStartedAt = 1L,
+        expiresAt = Long.MAX_VALUE
+    )
 }

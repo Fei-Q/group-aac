@@ -10,12 +10,13 @@ import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.StatusSignalEntity
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.entity.UserSettingsEntity
+import com.example.groupaac.model.MessageDisplayStatus
 import com.example.groupaac.model.MessageStatus
+import com.example.groupaac.model.MessageTransportStatus
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.SessionRole
 import com.example.groupaac.model.SignalState
 import com.example.groupaac.model.SignalType
-import com.example.groupaac.model.UserRole
 import com.example.groupaac.util.TimeUtils
 import kotlinx.coroutines.flow.Flow
 
@@ -126,7 +127,9 @@ class DebugRepository(
                 target = MessageTarget.GROUP,
                 text = "Can you help me with this?",
                 createdAt = now - 3_000,
-                status = MessageStatus.SENT
+                status = MessageStatus.ACTIVE,
+                transportStatus = MessageTransportStatus.SENT,
+                displayStatus = MessageDisplayStatus.HIDDEN
             ),
             MessageEntity(
                 id = DEBUG_MESSAGE_TWO_ID,
@@ -135,7 +138,9 @@ class DebugRepository(
                 target = MessageTarget.FACILITATOR,
                 text = "Please wait a moment.",
                 createdAt = now - 2_000,
-                status = MessageStatus.SENT
+                status = MessageStatus.ACTIVE,
+                transportStatus = MessageTransportStatus.SENT,
+                displayStatus = MessageDisplayStatus.HIDDEN
             ),
             MessageEntity(
                 id = DEBUG_MESSAGE_THREE_ID,
@@ -144,7 +149,9 @@ class DebugRepository(
                 target = MessageTarget.GROUP,
                 text = "I am ready to share again.",
                 createdAt = now - 1_000,
-                status = MessageStatus.DISPLAYED,
+                status = MessageStatus.ACTIVE,
+                transportStatus = MessageTransportStatus.SENT,
+                displayStatus = MessageDisplayStatus.DISPLAYED,
                 displayedOnMonitor = true
             )
         )
@@ -167,20 +174,13 @@ class DebugRepository(
 
         userDao.upsertUser(
             UserEntity(
-                id = userId,
+                uid = userId,
                 displayName = displayName,
-                role = UserRole.PARTICIPANT,
-                createdAt = existingUser?.createdAt ?: now,
-                lastLoginAt = now
+                createdAt = existingUser?.createdAt ?: now
             )
         )
 
-        userDao.upsertSettings(
-            UserSettingsEntity(
-                userId = userId,
-                defaultRole = UserRole.PARTICIPANT
-            )
-        )
+        userDao.upsertSettings(UserSettingsEntity(userId = userId))
 
         sessionDao.upsertMember(
             SessionMemberEntity(

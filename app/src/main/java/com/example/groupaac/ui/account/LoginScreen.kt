@@ -31,7 +31,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.groupaac.R
 import com.example.groupaac.data.entity.UserEntity
-import com.example.groupaac.model.UserRole
 import com.example.groupaac.ui.common.AppCard
 import com.example.groupaac.ui.common.PrimaryButton
 import com.example.groupaac.ui.common.SecondaryButton
@@ -91,7 +90,7 @@ private fun TabletLoginLayout(
                         Spacer(Modifier.width(12.dp))
                         Text("New user", style = MaterialTheme.typography.headlineMedium)
                     }
-                    Text("Create a local profile with your display name, role, and default accessibility preferences.", color = AacTextSecondary)
+                    Text("Create a local profile with an immutable UID, display name, and default accessibility preferences.", color = AacTextSecondary)
                     Image(
                         painter = painterResource(R.drawable.monitor_placeholder),
                         contentDescription = "Session display placeholder",
@@ -145,7 +144,7 @@ private fun SavedUserList(users: List<UserEntity>, onUserSelected: (UserEntity) 
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(user.displayName, style = MaterialTheme.typography.titleMedium)
-                    Text(user.role.label, color = AacTextSecondary)
+                    Text("@${user.uid}", color = AacTextSecondary)
                 }
                 SecondaryButton("Continue", onClick = { onUserSelected(user) })
             }
@@ -160,8 +159,8 @@ fun LoginScreenTabletPreview() {
         LoginScreen(
             uiState = AccountUiState(
                 users = listOf(
-                    UserEntity("1", "Alice", UserRole.PARTICIPANT, 0),
-                    UserEntity("2", "Bob", UserRole.FACILITATOR, 0)
+                    UserEntity("alice", "Alice", 0),
+                    UserEntity("bob", "Bob", 0)
                 ),
                 isLoading = false
             ),
@@ -178,7 +177,7 @@ fun LoginScreenPhonePreview() {
         LoginScreen(
             uiState = AccountUiState(
                 users = listOf(
-                    UserEntity("1", "Alice", UserRole.PARTICIPANT, 0)
+                    UserEntity("alice", "Alice", 0)
                 ),
                 isLoading = false
             ),

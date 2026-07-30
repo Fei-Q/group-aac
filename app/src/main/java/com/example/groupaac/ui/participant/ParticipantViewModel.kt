@@ -107,12 +107,12 @@ class ParticipantViewModel(
                             )
                         }
                     } else {
-                        observeSettings(user.id)
+                        observeSettings(user.uid)
                         rebuildDrafts()
 
                         observeCurrentSignal(
                             sessionId = sessionId,
-                            userId = user.id
+                            userId = user.uid
                         )
                     }
                 }
@@ -137,7 +137,7 @@ class ParticipantViewModel(
     }
 
     private fun rebuildMessageState(rows: List<MessageWithSenderAndAttachments>) {
-        val currentUserId = uiState.value.user?.id
+        val currentUserId = uiState.value.user?.uid
         val drafts = if (currentUserId == null) {
             emptyList()
         } else {
@@ -425,7 +425,7 @@ class ParticipantViewModel(
         viewModelScope.launch {
             val draftId = messageRepository.saveDraft(
                 sessionId = sessionId,
-                senderUserId = user.id,
+                senderUserId = user.uid,
                 text = draftText,
                 target = state.shareTarget,
                 existingDraftId = state.activeDraftId
@@ -462,7 +462,7 @@ class ParticipantViewModel(
         viewModelScope.launch {
             val messageId = messageRepository.sendText(
                 sessionId = sessionId,
-                senderUserId = user.id,
+                senderUserId = user.uid,
                 target = state.shareTarget,
                 text = textToSend,
                 sourceDraftId = state.activeDraftId
@@ -519,7 +519,7 @@ class ParticipantViewModel(
         viewModelScope.launch {
             messageRepository.sendText(
                 sessionId = sessionId,
-                senderUserId = user.id,
+                senderUserId = user.uid,
                 target = target,
                 text = text
             )
@@ -538,7 +538,7 @@ class ParticipantViewModel(
         viewModelScope.launch {
             messageRepository.saveDraft(
                 sessionId = sessionId,
-                senderUserId = user.id,
+                senderUserId = user.uid,
                 text = text,
                 target = state.shareTarget
             )
@@ -557,7 +557,7 @@ class ParticipantViewModel(
         viewModelScope.launch {
             signalRepository.sendSignal(
                 sessionId = sessionId,
-                userId = user.id,
+                userId = user.uid,
                 type = type
             )
 
@@ -629,7 +629,7 @@ class ParticipantViewModel(
         viewModelScope.launch {
             signalRepository.clearCurrentSignal(
                 sessionId = sessionId,
-                userId = user.id
+                userId = user.uid
             )
 
             uiState.update {

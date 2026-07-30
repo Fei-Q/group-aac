@@ -19,11 +19,18 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.LocalDate
 
 @RunWith(RobolectricTestRunner::class)
 class AdvancedHomeScreenTest {
     @get:Rule
     val composeRule = createComposeRule()
+    private val fixedToday =
+        LocalDate.of(
+            2026,
+            7,
+            28
+        )
 
     @Test
     fun liveSessionIsPrioritizedInHero() {
@@ -51,7 +58,8 @@ class AdvancedHomeScreenTest {
                 onJoinSession = {},
                 onManageSessions = {},
                 onOpenLiveSession = {},
-                onStartScheduledSession = {}
+                onStartScheduledSession = {},
+                today = fixedToday
             )
         }
 
@@ -74,12 +82,12 @@ class AdvancedHomeScreenTest {
                     session(
                         id = "later",
                         name = "Monday Debrief",
-                        scheduledStartAt = timeOf(2026, 7, 27, 16, 0)
+                        scheduledStartAt = timeOf(2026, 8, 3, 16, 0)
                     ),
                     session(
                         id = "earlier",
                         name = "Sunday Planning",
-                        scheduledStartAt = timeOf(2026, 7, 26, 9, 0)
+                        scheduledStartAt = timeOf(2026, 8, 2, 9, 0)
                     )
                 ),
                 calendarViewMode = CalendarViewMode.WEEK,
@@ -88,7 +96,8 @@ class AdvancedHomeScreenTest {
                 onJoinSession = {},
                 onManageSessions = {},
                 onOpenLiveSession = {},
-                onStartScheduledSession = {}
+                onStartScheduledSession = {},
+                today = fixedToday
             )
         }
 
@@ -114,7 +123,8 @@ class AdvancedHomeScreenTest {
                 onJoinSession = {},
                 onManageSessions = {},
                 onOpenLiveSession = {},
-                onStartScheduledSession = {}
+                onStartScheduledSession = {},
+                today = fixedToday
             )
         }
 
@@ -132,13 +142,13 @@ class AdvancedHomeScreenTest {
                 upcomingSessions = listOf(
                     session(
                         id = "today",
-                        name = "Saturday Check-in",
-                        scheduledStartAt = timeOf(2026, 7, 25, 10, 0)
+                        name = "Tuesday Check-in",
+                        scheduledStartAt = timeOf(2026, 7, 28, 10, 0)
                     ),
                     session(
                         id = "future",
-                        name = "Tuesday Planning",
-                        scheduledStartAt = timeOf(2026, 7, 28, 11, 0)
+                        name = "Friday Planning",
+                        scheduledStartAt = timeOf(2026, 7, 31, 11, 0)
                     )
                 ),
                 calendarViewMode = CalendarViewMode.MONTH,
@@ -147,31 +157,32 @@ class AdvancedHomeScreenTest {
                 onJoinSession = {},
                 onManageSessions = {},
                 onOpenLiveSession = {},
-                onStartScheduledSession = {}
+                onStartScheduledSession = {},
+                today = fixedToday
             )
         }
 
         assertTrue(
-            composeRule.onAllNodesWithText("Saturday Check-in")
+            composeRule.onAllNodesWithText("Tuesday Check-in")
                 .fetchSemanticsNodes().isNotEmpty()
         )
 
-        composeRule.onNodeWithTag("advanced_home_list")
-            .performScrollToNode(hasTestTag("month_date_2026-07-28"))
+            composeRule.onNodeWithTag("advanced_home_list")
+            .performScrollToNode(hasTestTag("month_date_2026-07-31"))
 
-        composeRule.onNodeWithTag("month_date_2026-07-28")
+        composeRule.onNodeWithTag("month_date_2026-07-31")
             .performClick()
 
         composeRule.onNodeWithTag("advanced_home_list")
-            .performScrollToNode(hasText("Tuesday Planning"))
+            .performScrollToNode(hasText("Friday Planning"))
 
         assertEquals(
             0,
-            composeRule.onAllNodesWithText("Saturday Check-in")
+            composeRule.onAllNodesWithText("Tuesday Check-in")
                 .fetchSemanticsNodes().size
         )
         assertTrue(
-            composeRule.onAllNodesWithText("Tuesday Planning")
+            composeRule.onAllNodesWithText("Friday Planning")
                 .fetchSemanticsNodes().isNotEmpty()
         )
     }
@@ -199,7 +210,8 @@ class AdvancedHomeScreenTest {
                 onJoinSession = {},
                 onManageSessions = {},
                 onOpenLiveSession = {},
-                onStartScheduledSession = {}
+                onStartScheduledSession = {},
+                today = fixedToday
             )
         }
 
@@ -225,12 +237,12 @@ class AdvancedHomeScreenTest {
                     session(
                         id = "past",
                         name = "Friday Review",
-                        scheduledStartAt = timeOf(2026, 7, 24, 9, 0)
+                        scheduledStartAt = timeOf(2026, 7, 27, 9, 0)
                     ),
                     session(
                         id = "future",
                         name = "Sunday Planning",
-                        scheduledStartAt = timeOf(2026, 7, 26, 9, 0)
+                        scheduledStartAt = timeOf(2026, 8, 2, 9, 0)
                     )
                 ),
                 calendarViewMode = CalendarViewMode.WEEK,
@@ -239,7 +251,8 @@ class AdvancedHomeScreenTest {
                 onJoinSession = {},
                 onManageSessions = {},
                 onOpenLiveSession = {},
-                onStartScheduledSession = {}
+                onStartScheduledSession = {},
+                today = fixedToday
             )
         }
 

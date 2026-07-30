@@ -11,7 +11,7 @@ data class StatusSignalEntity(
     val sessionId: String,
     val userId: String,
     val type: SignalType,
-    val state: SignalState = SignalState.ACTIVE,
+    val state: SignalState = SignalState.CURRENT,
     val createdAt: Long,
-    val resolvedAt: Long? = null
+    val clearedAt: Long? = null
 )

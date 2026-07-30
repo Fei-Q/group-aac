@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -42,8 +43,11 @@ import coil.compose.AsyncImage
 import com.example.groupaac.data.dao.MessageWithSender
 import com.example.groupaac.data.dao.MessageWithSenderAndAttachments
 import com.example.groupaac.data.entity.AttachmentEntity
+import com.example.groupaac.data.entity.DisplayStateEntity
 import com.example.groupaac.data.entity.SessionEntity
+import com.example.groupaac.model.MessageDisplayStatus
 import com.example.groupaac.model.MessageStatus
+import com.example.groupaac.model.MessageTransportStatus
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.ui.common.AppCard
 import com.example.groupaac.ui.theme.AacBackground
@@ -55,14 +59,20 @@ import com.example.groupaac.util.TimeUtils
 fun SessionLogScreen(
     uiState: FacilitatorUiState,
     onSave: (String) -> Unit,
-    onDisplay: (String) -> Unit,
+    onShow: (String) -> Unit,
+    onRestore: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onPinDisplayedMessage: () -> Unit,
+    onUnpinDisplayedMessage: () -> Unit,
     onClearDisplay: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val visibleMessages = remember(uiState.messages) {
         uiState.messages
-            .filterNot { it.message.status == MessageStatus.DRAFT || it.message.status == MessageStatus.DELETED }
+            .filterNot {
+                it.message.status == MessageStatus.DRAFT ||
+                    it.message.status == MessageStatus.DELETED
+            }
             .sortedBy { it.message.createdAt }
     }
 
@@ -74,6 +84,7 @@ fun SessionLogScreen(
     ) {
         val useTwoPane = maxWidth >= 900.dp
         val displayedMessageId = uiState.displayedMessage?.message?.id
+        val isPinned = uiState.displayState?.isPinned == true
 
         if (useTwoPane) {
             Row(
@@ -92,8 +103,10 @@ fun SessionLogScreen(
                     SessionMessageTable(
                         messages = visibleMessages,
                         currentlyDisplayedMessageId = displayedMessageId,
+                        isPinned = isPinned,
                         onSave = onSave,
-                        onDisplay = onDisplay,
+                        onShow = onShow,
+                        onRestore = onRestore,
                         onDelete = onDelete,
                         modifier = Modifier.weight(1f)
                     )
@@ -101,6 +114,9 @@ fun SessionLogScreen(
 
                 CurrentlyDisplayedPane(
                     displayedMessage = uiState.displayedMessage,
+                    isPinned = isPinned,
+                    onPinDisplayedMessage = onPinDisplayedMessage,
+                    onUnpinDisplayedMessage = onUnpinDisplayedMessage,
                     onClearDisplay = onClearDisplay,
                     modifier = Modifier.weight(0.75f)
                 )
@@ -117,14 +133,19 @@ fun SessionLogScreen(
 
                 CurrentlyDisplayedPane(
                     displayedMessage = uiState.displayedMessage,
+                    isPinned = isPinned,
+                    onPinDisplayedMessage = onPinDisplayedMessage,
+                    onUnpinDisplayedMessage = onUnpinDisplayedMessage,
                     onClearDisplay = onClearDisplay
                 )
 
                 SessionMessageTable(
                     messages = visibleMessages,
                     currentlyDisplayedMessageId = displayedMessageId,
+                    isPinned = isPinned,
                     onSave = onSave,
-                    onDisplay = onDisplay,
+                    onShow = onShow,
+                    onRestore = onRestore,
                     onDelete = onDelete,
                     modifier = Modifier.weight(1f)
                 )
@@ -173,36 +194,28 @@ private fun SessionStatusChip(
     messageCount: Int
 ) {
     val label = when {
-        session == null -> {
-            "No session loaded"
-        }
-
+        session == null -> "No session loaded"
         session.actualStartedAt != null && session.actualEndedAt == null -> {
             val elapsedMinutes = (
-                    (System.currentTimeMillis() - session.actualStartedAt)
-                        .coerceAtLeast(0L) / 60_000L
-                    ).coerceAtLeast(1L)
-
+                (System.currentTimeMillis() - session.actualStartedAt)
+                    .coerceAtLeast(0L) / 60_000L
+                ).coerceAtLeast(1L)
             "Started ${TimeUtils.clockTime(session.actualStartedAt)} · $elapsedMinutes min · $messageCount messages"
         }
-
         session.actualStartedAt != null && session.actualEndedAt != null -> {
             val durationMinutes = (
-                    (session.actualEndedAt - session.actualStartedAt)
-                        .coerceAtLeast(0L) / 60_000L
-                    ).coerceAtLeast(1L)
-
+                (session.actualEndedAt - session.actualStartedAt)
+                    .coerceAtLeast(0L) / 60_000L
+                ).coerceAtLeast(1L)
             "Ended ${TimeUtils.clockTime(session.actualEndedAt)} · $durationMinutes min · $messageCount messages"
         }
-
         session.scheduledStartAt != null -> {
-            val durationText = session.scheduledDurationMinutes?.let { " · planned $it min" }.orEmpty()
+            val durationText = session.scheduledDurationMinutes
+                ?.let { " · planned $it min" }
+                .orEmpty()
             "Scheduled ${TimeUtils.clockTime(session.scheduledStartAt)}$durationText · $messageCount messages"
         }
-
-        else -> {
-            "Not started · $messageCount messages"
-        }
+        else -> "Not started · $messageCount messages"
     }
 
     Surface(
@@ -227,8 +240,10 @@ private fun SessionStatusChip(
 private fun SessionMessageTable(
     messages: List<MessageWithSenderAndAttachments>,
     currentlyDisplayedMessageId: String?,
+    isPinned: Boolean,
     onSave: (String) -> Unit,
-    onDisplay: (String) -> Unit,
+    onShow: (String) -> Unit,
+    onRestore: (String) -> Unit,
     onDelete: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -250,8 +265,10 @@ private fun SessionMessageTable(
                     MessageTableRow(
                         row = row,
                         currentlyDisplayedMessageId = currentlyDisplayedMessageId,
+                        isPinned = isPinned,
                         onSave = onSave,
-                        onDisplay = onDisplay,
+                        onShow = onShow,
+                        onRestore = onRestore,
                         onDelete = onDelete
                     )
                 }
@@ -317,14 +334,18 @@ private fun EmptyLogCard() {
 private fun MessageTableRow(
     row: MessageWithSenderAndAttachments,
     currentlyDisplayedMessageId: String?,
+    isPinned: Boolean,
     onSave: (String) -> Unit,
-    onDisplay: (String) -> Unit,
+    onShow: (String) -> Unit,
+    onRestore: (String) -> Unit,
     onDelete: (String) -> Unit
 ) {
     val message = row.message
-    val isSaved = message.status == MessageStatus.SAVED || message.saved
+    val isSaved = message.saved
     val isDisplayed = message.id == currentlyDisplayedMessageId ||
-            message.displayedOnMonitor
+        message.displayedOnMonitor
+    val canRestore = !isDisplayed &&
+        message.displayStatus == MessageDisplayStatus.DISPLAYED
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -373,10 +394,21 @@ private fun MessageTableRow(
                 )
 
                 SmallActionButton(
-                    label = if (isDisplayed) "Showing" else "Display",
+                    label = when {
+                        isDisplayed && isPinned -> "Pinned"
+                        isDisplayed -> "Showing"
+                        canRestore -> "Restore"
+                        else -> "Show"
+                    },
                     enabled = !isDisplayed,
                     emphasis = ActionEmphasis.Primary,
-                    onClick = { onDisplay(message.id) }
+                    onClick = {
+                        if (canRestore) {
+                            onRestore(message.id)
+                        } else {
+                            onShow(message.id)
+                        }
+                    }
                 )
 
                 SmallActionButton(
@@ -519,6 +551,9 @@ private fun MediaChip(
 @Composable
 private fun CurrentlyDisplayedPane(
     displayedMessage: MessageWithSenderAndAttachments?,
+    isPinned: Boolean,
+    onPinDisplayedMessage: () -> Unit,
+    onUnpinDisplayedMessage: () -> Unit,
     onClearDisplay: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -584,11 +619,29 @@ private fun CurrentlyDisplayedPane(
                         attachments = displayedMessage.attachments
                     )
 
-                    SmallActionButton(
-                        label = "Clear Screen ×",
-                        emphasis = ActionEmphasis.Secondary,
-                        onClick = onClearDisplay
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        SmallActionButton(
+                            label = if (isPinned) "Unpin Message" else "Pin Message",
+                            enabled = true,
+                            emphasis = ActionEmphasis.Secondary,
+                            modifier = Modifier.testTag("display_pin_toggle"),
+                            onClick = {
+                                if (isPinned) {
+                                    onUnpinDisplayedMessage()
+                                } else {
+                                    onPinDisplayedMessage()
+                                }
+                            }
+                        )
+                        SmallActionButton(
+                            label = "Clear Screen",
+                            emphasis = ActionEmphasis.Secondary,
+                            modifier = Modifier.testTag("display_clear"),
+                            onClick = onClearDisplay
+                        )
+                    }
                 }
             }
         }
@@ -600,6 +653,7 @@ private fun SmallActionButton(
     label: String,
     enabled: Boolean = true,
     emphasis: ActionEmphasis,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(8.dp)
@@ -612,7 +666,7 @@ private fun SmallActionButton(
                 enabled = enabled,
                 shape = shape,
                 contentPadding = contentPadding,
-                modifier = Modifier.heightIn(min = 36.dp)
+                modifier = modifier.heightIn(min = 36.dp)
             ) {
                 Text(
                     text = label,
@@ -629,7 +683,7 @@ private fun SmallActionButton(
                 shape = shape,
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                 contentPadding = contentPadding,
-                modifier = Modifier.heightIn(min = 36.dp)
+                modifier = modifier.heightIn(min = 36.dp)
             ) {
                 Text(
                     text = label,
@@ -649,7 +703,7 @@ private fun SmallActionButton(
                     contentColor = MaterialTheme.colorScheme.error
                 ),
                 contentPadding = contentPadding,
-                modifier = Modifier.heightIn(min = 36.dp)
+                modifier = modifier.heightIn(min = 36.dp)
             ) {
                 Text(
                     text = label,
@@ -683,7 +737,9 @@ fun SessionLogScreenPreview() {
                 "I went to the farmers market with my sister this weekend.",
                 null,
                 now - 23 * 60_000,
-                MessageStatus.SENT,
+                MessageStatus.ACTIVE,
+                MessageTransportStatus.SENT,
+                MessageDisplayStatus.HIDDEN,
                 false,
                 false
             ),
@@ -699,7 +755,9 @@ fun SessionLogScreenPreview() {
                 null,
                 null,
                 now - 13 * 60_000,
-                MessageStatus.SENT,
+                MessageStatus.ACTIVE,
+                MessageTransportStatus.SENT,
+                MessageDisplayStatus.HIDDEN,
                 false,
                 false
             ),
@@ -715,7 +773,9 @@ fun SessionLogScreenPreview() {
                 "I like cooking at home.",
                 null,
                 now - 10 * 60_000,
-                MessageStatus.SENT,
+                MessageStatus.ACTIVE,
+                MessageTransportStatus.SENT,
+                MessageDisplayStatus.HIDDEN,
                 false,
                 false
             ),
@@ -731,7 +791,9 @@ fun SessionLogScreenPreview() {
                 "Please show my last message again.",
                 null,
                 now - 6 * 60_000,
-                MessageStatus.SAVED,
+                MessageStatus.ACTIVE,
+                MessageTransportStatus.SENT,
+                MessageDisplayStatus.HIDDEN,
                 true,
                 false
             ),
@@ -747,7 +809,9 @@ fun SessionLogScreenPreview() {
                 "Gardening on Sunday",
                 null,
                 now,
-                MessageStatus.DISPLAYED,
+                MessageStatus.ACTIVE,
+                MessageTransportStatus.SENT,
+                MessageDisplayStatus.DISPLAYED,
                 false,
                 true
             ),
@@ -759,11 +823,20 @@ fun SessionLogScreenPreview() {
         SessionLogScreen(
             uiState = FacilitatorUiState(
                 messages = mockMessages,
-                displayedMessage = mockMessages.last()
+                displayedMessage = mockMessages.last(),
+                displayState = DisplayStateEntity(
+                    sessionId = "s1",
+                    currentMessageId = "5",
+                    isPinned = true,
+                    localOptimisticUpdatedAt = now
+                )
             ),
             onSave = {},
-            onDisplay = {},
+            onShow = {},
+            onRestore = {},
             onDelete = {},
+            onPinDisplayedMessage = {},
+            onUnpinDisplayedMessage = {},
             onClearDisplay = {}
         )
     }

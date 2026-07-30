@@ -62,13 +62,13 @@ class FacilitatorViewModel(
                         state.copy(
                             facilitator = user,
                             isHost =
-                                state.session?.hostUserId == user?.id
+                                state.session?.hostUserId == user?.uid
                         )
                     }
 
                     settingsObservationJob?.cancel()
                     if (user != null) {
-                        settingsObservationJob = observeSettings(user.id)
+                        settingsObservationJob = observeSettings(user.uid)
                     } else {
                         uiState.update { it.copy(settings = null) }
                     }
@@ -94,7 +94,7 @@ class FacilitatorViewModel(
                             session = session,
                             isHost =
                                 session?.hostUserId ==
-                                    state.facilitator?.id
+                                    state.facilitator?.uid
                         )
                     }
                 }
@@ -112,7 +112,12 @@ class FacilitatorViewModel(
             launch {
                 combine(
                     facilitatorRepository.observeParticipantStats(sessionId),
-                    signalRepository.observeActiveSignals(sessionId),
+                    accountRepository.activeUserId.flatMapLatest { facilitatorId ->
+                        signalRepository.observeActiveSignals(
+                            sessionId = sessionId,
+                            facilitatorUserId = facilitatorId
+                        )
+                    },
                     messageRepository.observeMessagesWithAttachments(sessionId)
                 ) { stats, signals, messages ->
                     buildOverview(stats, signals, messages) to signals
@@ -135,6 +140,12 @@ class FacilitatorViewModel(
             launch {
                 messageRepository.observeDisplayedMessageWithAttachments(sessionId).collect { row ->
                     uiState.update { it.copy(displayedMessage = row) }
+                }
+            }
+
+            launch {
+                messageRepository.observeDisplayState(sessionId).collect { displayState ->
+                    uiState.update { it.copy(displayState = displayState) }
                 }
             }
 
@@ -252,27 +263,25 @@ class FacilitatorViewModel(
         uiState.update { it.copy(selectedParticipantId = userId) }
     }
 
-    fun resolveParticipant(userId: String) {
-        val sessionId = uiState.value.sessionId ?: return
-
-        viewModelScope.launch {
-            signalRepository.resolveSignalsForUser(sessionId, userId)
-        }
-    }
-
-    @Suppress("DEPRECATION")
     fun toggleSnoozeParticipant(userId: String) {
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
         val signal = uiState.value.activeSignals
             .firstOrNull {
                 it.userId == userId &&
-                        (it.state == SignalState.CURRENT || it.state == SignalState.SNOOZED || it.state == SignalState.ACTIVE)
+                        (it.state == SignalState.CURRENT || it.state == SignalState.SNOOZED)
             }
             ?: return
 
         viewModelScope.launch {
             when (signal.state) {
-                SignalState.SNOOZED -> signalRepository.unsnoozeSignal(signal.id)
-                else -> signalRepository.snoozeSignal(signal.id)
+                SignalState.SNOOZED -> signalRepository.unsnoozeSignal(
+                    signal.id,
+                    facilitatorId
+                )
+                else -> signalRepository.snoozeSignal(
+                    signal.id,
+                    facilitatorId
+                )
             }
         }
     }
@@ -286,7 +295,7 @@ class FacilitatorViewModel(
             facilitatorRepository.addNote(
                 sessionId = sessionId,
                 participantUserId = participantUserId,
-                facilitatorUserId = facilitator.id,
+                facilitatorUserId = facilitator.uid,
                 text = text
             )
         }
@@ -301,7 +310,7 @@ class FacilitatorViewModel(
             facilitatorRepository.quickLog(
                 sessionId = sessionId,
                 participantUserId = participantUserId,
-                facilitatorUserId = facilitator.id,
+                facilitatorUserId = facilitator.uid,
                 label = label
             )
         }
@@ -312,7 +321,7 @@ class FacilitatorViewModel(
         viewModelScope.launch {
             sessionRepository.approveJoinRequest(
                 requestId = requestId,
-                decidedByUserId = facilitator.id
+                decidedByUserId = facilitator.uid
             )
         }
     }
@@ -322,7 +331,7 @@ class FacilitatorViewModel(
         viewModelScope.launch {
             sessionRepository.declineJoinRequest(
                 requestId = requestId,
-                decidedByUserId = facilitator.id
+                decidedByUserId = facilitator.uid
             )
         }
     }
@@ -335,29 +344,73 @@ class FacilitatorViewModel(
 
     fun displayMessage(messageId: String) {
         val sessionId = uiState.value.sessionId ?: return
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
 
         viewModelScope.launch {
-            val settings = uiState.value.settings
+            messageRepository.displayMessage(
+                sessionId = sessionId,
+                messageId = messageId,
+                actorUserId = facilitatorId
+            )
+        }
+    }
 
-            if (settings?.monitorRequireManualApproval == true) {
-                messageRepository.displayMessage(sessionId, messageId)
-            } else {
-                messageRepository.displayMessage(sessionId, messageId)
-            }
+    fun restoreMessage(messageId: String) {
+        val sessionId = uiState.value.sessionId ?: return
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
+
+        viewModelScope.launch {
+            messageRepository.restoreMessage(
+                sessionId = sessionId,
+                messageId = messageId,
+                actorUserId = facilitatorId
+            )
         }
     }
 
     fun deleteMessage(messageId: String) {
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
         viewModelScope.launch {
-            messageRepository.deleteMessage(messageId)
+            messageRepository.deleteMessage(
+                messageId = messageId,
+                actorUserId = facilitatorId
+            )
         }
     }
 
     fun clearDisplay() {
         val sessionId = uiState.value.sessionId ?: return
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
 
         viewModelScope.launch {
-            messageRepository.clearDisplay(sessionId)
+            messageRepository.clearDisplay(
+                sessionId = sessionId,
+                actorUserId = facilitatorId
+            )
+        }
+    }
+
+    fun pinDisplayedMessage() {
+        val sessionId = uiState.value.sessionId ?: return
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
+
+        viewModelScope.launch {
+            messageRepository.pinDisplayedMessage(
+                sessionId = sessionId,
+                actorUserId = facilitatorId
+            )
+        }
+    }
+
+    fun unpinDisplayedMessage() {
+        val sessionId = uiState.value.sessionId ?: return
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
+
+        viewModelScope.launch {
+            messageRepository.unpinDisplayedMessage(
+                sessionId = sessionId,
+                actorUserId = facilitatorId
+            )
         }
     }
 

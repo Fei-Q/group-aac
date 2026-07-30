@@ -56,7 +56,9 @@ import com.example.groupaac.data.dao.MessageWithSender
 import com.example.groupaac.data.dao.MessageWithSenderAndAttachments
 import com.example.groupaac.data.entity.AttachmentEntity
 import com.example.groupaac.data.entity.UserEntity
+import com.example.groupaac.model.MessageDisplayStatus
 import com.example.groupaac.model.MessageStatus
+import com.example.groupaac.model.MessageTransportStatus
 import com.example.groupaac.model.MessageTarget
 import com.example.groupaac.model.UserRole
 import com.example.groupaac.ui.common.AppCard
@@ -115,9 +117,9 @@ fun ShareScreen(
     val isCompactHeight = configuration.screenHeightDp < 480
     val useWideLayout = windowSize != AppWindowSize.Phone && !isCompactHeight
 
-    val sharedMessages = remember(uiState.messages, uiState.user?.id) {
+    val sharedMessages = remember(uiState.messages, uiState.user?.uid) {
         uiState.messages.filter {
-            it.message.senderUserId == uiState.user?.id &&
+            it.message.senderUserId == uiState.user?.uid &&
                     it.message.status != MessageStatus.DRAFT &&
                     it.message.status != MessageStatus.DELETED
         }
@@ -230,11 +232,11 @@ private fun ShareScreenCompact(
             onDeleteDraft = onDeleteDraft
         )
 
-        RecentMessagesCard(
-            sharedMessages = sharedMessages,
-            currentUserId = uiState.user?.id
-        )
-    }
+            RecentMessagesCard(
+                sharedMessages = sharedMessages,
+                currentUserId = uiState.user?.uid
+            )
+        }
 }
 
 @Composable
@@ -293,7 +295,7 @@ private fun ShareScreenWide(
 
             RecentMessagesCard(
                 sharedMessages = sharedMessages,
-                currentUserId = uiState.user?.id,
+                currentUserId = uiState.user?.uid,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -1248,7 +1250,9 @@ private fun previewShareUiState(): ParticipantUiState {
                 text = "Hello everyone!",
                 attachmentId = null,
                 createdAt = System.currentTimeMillis() - 600000,
-                status = MessageStatus.SENT,
+                status = MessageStatus.ACTIVE,
+                transportStatus = MessageTransportStatus.SENT,
+                displayStatus = MessageDisplayStatus.HIDDEN,
                 saved = false,
                 displayedOnMonitor = false
             ),
@@ -1265,6 +1269,8 @@ private fun previewShareUiState(): ParticipantUiState {
                 attachmentId = null,
                 createdAt = System.currentTimeMillis() - 500000,
                 status = MessageStatus.DRAFT,
+                transportStatus = MessageTransportStatus.SENT,
+                displayStatus = MessageDisplayStatus.HIDDEN,
                 saved = false,
                 displayedOnMonitor = false
             ),
@@ -1280,7 +1286,9 @@ private fun previewShareUiState(): ParticipantUiState {
                 text = "I have a question.",
                 attachmentId = null,
                 createdAt = System.currentTimeMillis() - 300000,
-                status = MessageStatus.SENT,
+                status = MessageStatus.ACTIVE,
+                transportStatus = MessageTransportStatus.SENT,
+                displayStatus = MessageDisplayStatus.HIDDEN,
                 saved = true,
                 displayedOnMonitor = false
             ),
@@ -1296,7 +1304,9 @@ private fun previewShareUiState(): ParticipantUiState {
                 text = "Can you help me with this?",
                 attachmentId = null,
                 createdAt = System.currentTimeMillis() - 100000,
-                status = MessageStatus.SENT,
+                status = MessageStatus.ACTIVE,
+                transportStatus = MessageTransportStatus.SENT,
+                displayStatus = MessageDisplayStatus.HIDDEN,
                 saved = false,
                 displayedOnMonitor = false
             ),
@@ -1316,9 +1326,8 @@ private fun previewShareUiState(): ParticipantUiState {
 
     return ParticipantUiState(
         user = UserEntity(
-            id = currentUserId,
+            uid = currentUserId,
             displayName = "Alice",
-            role = UserRole.PARTICIPANT,
             createdAt = 0
         ),
         messages = mockMessages,
