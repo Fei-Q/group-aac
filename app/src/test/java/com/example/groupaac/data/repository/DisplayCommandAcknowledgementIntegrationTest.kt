@@ -443,6 +443,99 @@ class DisplayCommandAcknowledgementIntegrationTest {
         assertEquals(1_800L, state?.lastPiAppliedCommandTimetoken)
     }
 
+    @Test
+    fun delegatedFacilitatorDisplayCommandsUseFacilitatorUidAndAreDispatchable() = runTest {
+        primeDisplayedMessage("msg-1", pinned = false)
+
+        messageRepository.displayMessage(
+            SESSION_ID,
+            "msg-1",
+            actorUserId = "facilitator1"
+        )
+        messageRepository.restoreMessage(
+            SESSION_ID,
+            "msg-2",
+            actorUserId = "facilitator1"
+        )
+        messageRepository.pinDisplayedMessage(
+            SESSION_ID,
+            actorUserId = "facilitator1"
+        )
+        messageRepository.unpinDisplayedMessage(
+            SESSION_ID,
+            actorUserId = "facilitator1"
+        )
+        messageRepository.clearDisplay(
+            SESSION_ID,
+            actorUserId = "facilitator1"
+        )
+
+        val facilitatorRows = database.reliabilityDao()
+            .getRetryableOutboxEvents(
+                actorUserId = "facilitator1",
+                now = Long.MAX_VALUE,
+                maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
+                limit = 50
+            )
+            .filter { it.channel == RealtimeChannels.display(SESSION_ID) }
+            .map { reliabilityStore.decodeOutboxEvent(it) }
+
+        assertEquals(
+            setOf(
+                RealtimeEventTypes.DISPLAY_SHOW_MESSAGE,
+                RealtimeEventTypes.DISPLAY_RESTORE_MESSAGE,
+                RealtimeEventTypes.DISPLAY_PIN_MESSAGE,
+                RealtimeEventTypes.DISPLAY_UNPIN_MESSAGE,
+                RealtimeEventTypes.DISPLAY_CLEAR
+            ),
+            facilitatorRows.map { it.type }.toSet()
+        )
+        assertTrue(
+            facilitatorRows.all { it.actorUserId == "facilitator1" }
+        )
+        assertTrue(
+            database.reliabilityDao()
+                .getRetryableOutboxEvents(
+                    actorUserId = "host1",
+                    now = Long.MAX_VALUE,
+                    maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
+                    limit = 50
+                )
+                .none { it.channel == RealtimeChannels.display(SESSION_ID) }
+        )
+    }
+
+    @Test
+    fun deletingAnotherUsersMessageUsesDeletingAccountUidAndIsDispatchable() = runTest {
+        messageRepository.deleteMessage(
+            messageId = "msg-1",
+            actorUserId = "facilitator1"
+        )
+
+        val facilitatorRows = database.reliabilityDao()
+            .getRetryableOutboxEvents(
+                actorUserId = "facilitator1",
+                now = Long.MAX_VALUE,
+                maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
+                limit = 10
+            )
+        val deletion = facilitatorRows.single()
+        val event = reliabilityStore.decodeOutboxEvent(deletion)
+
+        assertEquals(RealtimeEventTypes.MESSAGE_DELETED, event.type)
+        assertEquals("facilitator1", event.actorUserId)
+        assertTrue(
+            database.reliabilityDao()
+                .getRetryableOutboxEvents(
+                    actorUserId = "participant1",
+                    now = Long.MAX_VALUE,
+                    maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
+                    limit = 10
+                )
+                .isEmpty()
+        )
+    }
+
     private suspend fun requireDisplayCommand(): DisplayCommandSnapshot {
         val state = requireNotNull(database.reliabilityDao().getDisplayState(SESSION_ID))
         val eventId = requireNotNull(state.lastIssuedCommandEventId)

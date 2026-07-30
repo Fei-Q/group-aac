@@ -531,7 +531,8 @@ class SessionRepositoryTest {
         assertEquals(pending.request.id, sync.facilitatorApproved?.request?.id)
         assertEquals(fixture.facilitator.uid, sync.facilitatorApproved?.member?.userId)
         assertEquals(SessionRole.FACILITATOR, sync.facilitatorApproved?.member?.role)
-        assertEquals(fixture.session.id, sync.memberJoined?.first?.id)
+        assertEquals(fixture.session.id, sync.memberJoined?.session?.id)
+        assertEquals(fixture.host.uid, sync.memberJoined?.actorUserId)
     }
 
     @Test
@@ -1223,8 +1224,14 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync by NoOpSessionR
         val actorUserId: String
     )
 
+    data class MemberJoinedCall(
+        val session: SessionEntity,
+        val member: SessionMemberEntity,
+        val actorUserId: String
+    )
+
     var facilitatorApproved: ApprovalCall? = null
-    var memberJoined: Pair<SessionEntity, SessionMemberEntity>? = null
+    var memberJoined: MemberJoinedCall? = null
     var memberLeft: Pair<SessionEntity, SessionMemberEntity>? = null
     var facilitatorDeclined: Pair<SessionJoinRequestEntity, SessionEntity>? = null
     var sessionSettingsChanged: SessionEntity? = null
@@ -1241,9 +1248,10 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync by NoOpSessionR
 
     override suspend fun publishMemberJoined(
         session: SessionEntity,
-        member: SessionMemberEntity
+        member: SessionMemberEntity,
+        actorUserId: String
     ) {
-        memberJoined = session to member
+        memberJoined = MemberJoinedCall(session, member, actorUserId)
     }
 
     override suspend fun publishMemberLeft(
@@ -1287,7 +1295,8 @@ private class CancellingSessionRealtimeSync :
 
     override suspend fun publishMemberJoined(
         session: SessionEntity,
-        member: SessionMemberEntity
+        member: SessionMemberEntity,
+        actorUserId: String
     ) {
         throw CancellationException(
             "cancel join publish"

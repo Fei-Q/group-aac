@@ -6,14 +6,40 @@ def display_command(
     event_type: str,
     *,
     message_id: str | None = "msg-1",
+    is_pinned: bool = False,
     origin: str | None = "MANUAL_SHOW",
 ):
-    payload: dict[str, object] = {}
-    if message_id is not None:
-        payload["message"] = {"messageId": message_id}
-        payload["currentMessageId"] = message_id
-    if origin is not None:
-        payload["commandOrigin"] = origin
+    if event_type in {
+        "display.show_message",
+        "display.restore_message",
+    }:
+        payload: dict[str, object] = {
+            "display": {
+                "sessionId": "session-1",
+                "isPinned": is_pinned,
+                "displayMode": "AUTO_LATEST",
+                "message": {"id": message_id},
+            }
+        }
+        if origin is not None:
+            payload["display"] = {
+                **payload["display"],
+                "commandOrigin": origin,
+            }
+    else:
+        payload = {
+            "displayState": {
+                "sessionId": "session-1",
+                "currentMessageId": message_id,
+                "isPinned": is_pinned if event_type != "display.pin_message" else True,
+                "displayMode": "AUTO_LATEST",
+            }
+        }
+        if origin is not None:
+            payload["displayState"] = {
+                **payload["displayState"],
+                "commandOrigin": origin,
+            }
     return {
         "eventId": event_id,
         "type": event_type,
@@ -91,6 +117,7 @@ def test_pinned_auto_latest_is_rejected_but_manual_restore_succeeds():
             "evt-restore",
             "display.restore_message",
             message_id="msg-3",
+            is_pinned=True,
             origin="MANUAL_RESTORE",
         ),
         timetoken=103,

@@ -148,23 +148,37 @@ def display_command(
     display_mode: str = "AUTO_LATEST",
     command_origin: str | None = "MANUAL_SHOW",
 ) -> dict[str, Any]:
-    display: dict[str, Any] = {
-        "sessionId": session_id,
-        "displayMode": display_mode,
-    }
-    if current_message_id is not None:
-        display["currentMessageId"] = (
-            current_message_id
-        )
     if event_type in {
         "display.show_message",
         "display.restore_message",
-        "display.pin_message",
-        "display.unpin_message",
     }:
-        display["isPinned"] = is_pinned
-    if command_origin is not None:
-        display["commandOrigin"] = command_origin
+        display: dict[str, Any] = {
+            "sessionId": session_id,
+            "isPinned": is_pinned,
+            "displayMode": display_mode,
+            "message": {
+                "id": current_message_id,
+            },
+        }
+        if command_origin is not None:
+            display["commandOrigin"] = command_origin
+        payload = {
+            "display": display,
+        }
+    else:
+        display_state: dict[str, Any] = {
+            "sessionId": session_id,
+            "currentMessageId": current_message_id,
+            "isPinned": is_pinned,
+            "displayMode": display_mode,
+        }
+        if command_origin is not None:
+            display_state["commandOrigin"] = (
+                command_origin
+            )
+        payload = {
+            "displayState": display_state,
+        }
 
     return {
         "eventId": event_id,
@@ -172,9 +186,7 @@ def display_command(
         "sessionId": session_id,
         "actorUserId": "host-1",
         "occurredAt": 2_000,
-        "payload": {
-            "display": display,
-        },
+        "payload": payload,
     }
 
 

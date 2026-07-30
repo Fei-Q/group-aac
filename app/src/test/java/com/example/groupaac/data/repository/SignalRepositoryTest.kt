@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -27,6 +29,7 @@ import org.robolectric.RobolectricTestRunner
 class SignalRepositoryTest {
     private lateinit var database: AppDatabase
     private lateinit var repository: SignalRepository
+    private lateinit var sync: RecordingSignalRealtimeSync
 
     @Before
     fun setUp() = runTest {
@@ -35,13 +38,14 @@ class SignalRepositoryTest {
             context,
             AppDatabase::class.java
         ).allowMainThreadQueries().build()
+        sync = RecordingSignalRealtimeSync()
         repository = SignalRepository(
             transactionRunner = ImmediateTransactionRunner,
             signalDao = database.statusSignalDao(),
             sessionDao = database.sessionDao(),
             userDao = database.userDao(),
             outboxDispatcher = NoOpOutboxDispatcher,
-            sessionRealtimeSync = NoOpSessionRealtimeSync
+            sessionRealtimeSync = sync
         )
 
         database.userDao().upsertUser(
@@ -132,5 +136,73 @@ class SignalRepositoryTest {
         ).first()
 
         assertTrue(facilitatorOneSignals.isEmpty())
+    }
+
+    @Test
+    fun facilitatorSnoozeDoesNotClearSignalOrPublishCleared() = runTest {
+        val signalId = repository.sendSignal(
+            sessionId = "session1",
+            userId = "participant1",
+            type = SignalType.HELP
+        )
+
+        repository.snoozeSignal(signalId, "facilitator1")
+
+        val active = repository.observeActiveSignals(
+            sessionId = "session1",
+            facilitatorUserId = "facilitator1"
+        ).first().single()
+
+        assertEquals(SignalState.SNOOZED, active.state)
+        assertEquals(1, sync.snoozedSignals.size)
+        assertTrue(sync.clearedSignals.isEmpty())
+        assertNotNull(database.statusSignalDao().getSignal(signalId))
+    }
+
+    @Test
+    fun participantSelfClearStillClearsAndPublishesNormally() = runTest {
+        val signalId = repository.sendSignal(
+            sessionId = "session1",
+            userId = "participant1",
+            type = SignalType.REPEAT
+        )
+
+        repository.clearCurrentSignal(
+            sessionId = "session1",
+            userId = "participant1"
+        )
+
+        val current = repository.observeCurrentSignal(
+            sessionId = "session1",
+            userId = "participant1"
+        ).first()
+
+        assertEquals(null, current)
+        assertEquals(1, sync.clearedSignals.size)
+        assertEquals("participant1", sync.clearedSignals.single().first)
+        assertEquals(signalId, sync.clearedSignals.single().second.id)
+        assertFalse(sync.snoozedSignals.any { it.id == signalId })
+    }
+}
+
+private class RecordingSignalRealtimeSync :
+    com.example.groupaac.data.realtime.sync.SessionRealtimeSync by NoOpSessionRealtimeSync {
+
+    val snoozedSignals = mutableListOf<com.example.groupaac.data.entity.StatusSignalEntity>()
+    val clearedSignals =
+        mutableListOf<Pair<String, com.example.groupaac.data.entity.StatusSignalEntity>>()
+
+    override suspend fun publishSignalSnoozed(
+        signal: com.example.groupaac.data.entity.StatusSignalEntity,
+        facilitatorUserId: String
+    ) {
+        snoozedSignals += signal
+    }
+
+    override suspend fun publishSignalCleared(
+        signal: com.example.groupaac.data.entity.StatusSignalEntity,
+        actorUserId: String
+    ) {
+        clearedSignals += actorUserId to signal
     }
 }

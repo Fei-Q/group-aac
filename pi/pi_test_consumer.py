@@ -58,8 +58,14 @@ class PiTestConsumer:
         self.last_command_timetoken = timetoken
 
         if event_type in {"display.show_message", "display.restore_message"}:
+            display = payload.get("display", {})
             origin = payload.get("commandOrigin")
-            message_id = payload.get("message", {}).get("messageId") or payload.get("messageId")
+            if not origin:
+                origin = display.get("commandOrigin")
+            message_id = display.get("message", {}).get("id")
+            next_is_pinned = bool(
+                display.get("isPinned", self.is_pinned)
+            )
             if self.is_pinned and origin == "AUTO_LATEST":
                 return self._acknowledgement(
                     event_type="display.failed",
@@ -67,6 +73,7 @@ class PiTestConsumer:
                     timetoken=timetoken,
                     reason="pinned_auto_latest_rejected",
                 )
+            self.is_pinned = next_is_pinned
             self.current_message_id = message_id
             ack_type = "display.restored" if event_type == "display.restore_message" else "display.rendered"
             return self._acknowledgement(
@@ -76,8 +83,9 @@ class PiTestConsumer:
             )
 
         if event_type == "display.pin_message":
-            self.is_pinned = True
-            self.current_message_id = payload.get("currentMessageId", self.current_message_id)
+            display_state = payload.get("displayState", {})
+            self.is_pinned = bool(display_state.get("isPinned", True))
+            self.current_message_id = display_state.get("currentMessageId", self.current_message_id)
             return self._acknowledgement(
                 event_type="display.pinned",
                 in_reply_to_event_id=event_id,
@@ -85,8 +93,9 @@ class PiTestConsumer:
             )
 
         if event_type == "display.unpin_message":
-            self.is_pinned = False
-            self.current_message_id = payload.get("currentMessageId", self.current_message_id)
+            display_state = payload.get("displayState", {})
+            self.is_pinned = bool(display_state.get("isPinned", False))
+            self.current_message_id = display_state.get("currentMessageId", self.current_message_id)
             return self._acknowledgement(
                 event_type="display.unpinned",
                 in_reply_to_event_id=event_id,
@@ -94,8 +103,9 @@ class PiTestConsumer:
             )
 
         if event_type == "display.clear":
+            display_state = payload.get("displayState", {})
             self.current_message_id = None
-            self.is_pinned = False
+            self.is_pinned = bool(display_state.get("isPinned", False))
             return self._acknowledgement(
                 event_type="display.cleared",
                 in_reply_to_event_id=event_id,

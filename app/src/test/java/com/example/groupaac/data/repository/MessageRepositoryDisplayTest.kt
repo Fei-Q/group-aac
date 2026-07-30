@@ -10,6 +10,7 @@ import com.example.groupaac.data.entity.SessionMemberEntity
 import com.example.groupaac.data.entity.UserEntity
 import com.example.groupaac.data.realtime.reliability.NoOpOutboxDispatcher
 import com.example.groupaac.data.realtime.reliability.RealtimeReliabilityStore
+import com.example.groupaac.data.realtime.protocol.RealtimeChannels
 import com.example.groupaac.data.realtime.sync.NoOpSessionRealtimeSync
 import com.example.groupaac.data.realtime.sync.SessionRealtimeSync
 import com.example.groupaac.data.repository.ImmediateTransactionRunner
@@ -236,24 +237,56 @@ class MessageRepositoryDisplayTest {
         assertTrue(sync.pinCalls.all { it.displayMode == DisplayMode.APPROVAL_REQUIRED })
         assertEquals(DisplayMode.APPROVAL_REQUIRED, sync.clearMode)
     }
+
+    @Test
+    fun delegatedDisplayCommandsUseActingFacilitatorUid() = runTest {
+        val messageId = repository.sendText(
+            sessionId = "session1",
+            senderUserId = "participant1",
+            target = MessageTarget.GROUP,
+            text = "Delegated"
+        )
+        sync.showCalls.clear()
+        sync.pinCalls.clear()
+        sync.clearActorUserId = null
+
+        repository.displayMessage("session1", messageId, actorUserId = "facilitator1")
+        repository.restoreMessage("session1", messageId, actorUserId = "facilitator1")
+        repository.pinDisplayedMessage("session1", actorUserId = "facilitator1")
+        repository.unpinDisplayedMessage("session1", actorUserId = "facilitator1")
+        repository.clearDisplay("session1", actorUserId = "facilitator1")
+
+        assertEquals(
+            listOf("facilitator1", "facilitator1"),
+            sync.showCalls.map { it.actorUserId }
+        )
+        assertEquals(
+            listOf("facilitator1", "facilitator1"),
+            sync.pinCalls.map { it.actorUserId }
+        )
+        assertEquals("facilitator1", sync.clearActorUserId)
+    }
 }
 
 private class RecordingDisplayRealtimeSync : SessionRealtimeSync by NoOpSessionRealtimeSync {
     data class ShowCall(
         val displayMode: DisplayMode,
         val isPinned: Boolean,
-        val origin: DisplayCommandOrigin
+        val origin: DisplayCommandOrigin,
+        val actorUserId: String
     )
 
     data class PinCall(
         val displayMode: DisplayMode,
         val pinned: Boolean,
-        val origin: DisplayCommandOrigin?
+        val origin: DisplayCommandOrigin?,
+        val actorUserId: String
     )
 
     val showCalls = mutableListOf<ShowCall>()
     val pinCalls = mutableListOf<PinCall>()
     var clearMode: DisplayMode? = null
+    var clearActorUserId: String? = null
 
     override suspend fun publishDisplayShowMessage(
         eventId: String,
@@ -268,7 +301,8 @@ private class RecordingDisplayRealtimeSync : SessionRealtimeSync by NoOpSessionR
         showCalls += ShowCall(
             displayMode = session.displayMode,
             isPinned = isPinned,
-            origin = origin
+            origin = origin,
+            actorUserId = actorUserId
         )
     }
 
@@ -281,7 +315,7 @@ private class RecordingDisplayRealtimeSync : SessionRealtimeSync by NoOpSessionR
         displayMode: DisplayMode,
         origin: DisplayCommandOrigin?
     ) {
-        pinCalls += PinCall(displayMode, pinned, origin)
+        pinCalls += PinCall(displayMode, pinned, origin, actorUserId)
     }
 
     override suspend fun publishDisplayClear(
@@ -292,5 +326,6 @@ private class RecordingDisplayRealtimeSync : SessionRealtimeSync by NoOpSessionR
         origin: DisplayCommandOrigin?
     ) {
         clearMode = displayMode
+        clearActorUserId = actorUserId
     }
 }

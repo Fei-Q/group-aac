@@ -197,13 +197,14 @@ class DefaultSessionRealtimeSync(
 
     override suspend fun publishMemberJoined(
         session: SessionEntity,
-        member: SessionMemberEntity
+        member: SessionMemberEntity,
+        actorUserId: String
     ) {
         publishMemberEvent(
             type = RealtimeEventTypes.MEMBER_JOINED,
             session = session,
             member = member,
-            actorUserId = member.userId
+            actorUserId = actorUserId
         )
     }
 

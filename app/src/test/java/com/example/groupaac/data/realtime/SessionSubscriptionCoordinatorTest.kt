@@ -741,7 +741,8 @@ private class RecordingSessionRealtimeSync : SessionRealtimeSync {
 
     override suspend fun publishMemberJoined(
         session: SessionEntity,
-        member: SessionMemberEntity
+        member: SessionMemberEntity,
+        actorUserId: String
     ) = Unit
 
     override suspend fun publishMemberLeft(

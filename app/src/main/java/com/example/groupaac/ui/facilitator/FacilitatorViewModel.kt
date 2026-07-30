@@ -263,14 +263,6 @@ class FacilitatorViewModel(
         uiState.update { it.copy(selectedParticipantId = userId) }
     }
 
-    fun clearParticipantSignal(userId: String) {
-        val sessionId = uiState.value.sessionId ?: return
-
-        viewModelScope.launch {
-            signalRepository.clearCurrentSignal(sessionId, userId)
-        }
-    }
-
     fun toggleSnoozeParticipant(userId: String) {
         val facilitatorId = uiState.value.facilitator?.uid ?: return
         val signal = uiState.value.activeSignals
@@ -352,47 +344,73 @@ class FacilitatorViewModel(
 
     fun displayMessage(messageId: String) {
         val sessionId = uiState.value.sessionId ?: return
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
 
         viewModelScope.launch {
-            messageRepository.displayMessage(sessionId, messageId)
+            messageRepository.displayMessage(
+                sessionId = sessionId,
+                messageId = messageId,
+                actorUserId = facilitatorId
+            )
         }
     }
 
     fun restoreMessage(messageId: String) {
         val sessionId = uiState.value.sessionId ?: return
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
 
         viewModelScope.launch {
-            messageRepository.restoreMessage(sessionId, messageId)
+            messageRepository.restoreMessage(
+                sessionId = sessionId,
+                messageId = messageId,
+                actorUserId = facilitatorId
+            )
         }
     }
 
     fun deleteMessage(messageId: String) {
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
         viewModelScope.launch {
-            messageRepository.deleteMessage(messageId)
+            messageRepository.deleteMessage(
+                messageId = messageId,
+                actorUserId = facilitatorId
+            )
         }
     }
 
     fun clearDisplay() {
         val sessionId = uiState.value.sessionId ?: return
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
 
         viewModelScope.launch {
-            messageRepository.clearDisplay(sessionId)
+            messageRepository.clearDisplay(
+                sessionId = sessionId,
+                actorUserId = facilitatorId
+            )
         }
     }
 
     fun pinDisplayedMessage() {
         val sessionId = uiState.value.sessionId ?: return
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
 
         viewModelScope.launch {
-            messageRepository.pinDisplayedMessage(sessionId)
+            messageRepository.pinDisplayedMessage(
+                sessionId = sessionId,
+                actorUserId = facilitatorId
+            )
         }
     }
 
     fun unpinDisplayedMessage() {
         val sessionId = uiState.value.sessionId ?: return
+        val facilitatorId = uiState.value.facilitator?.uid ?: return
 
         viewModelScope.launch {
-            messageRepository.unpinDisplayedMessage(sessionId)
+            messageRepository.unpinDisplayedMessage(
+                sessionId = sessionId,
+                actorUserId = facilitatorId
+            )
         }
     }
 

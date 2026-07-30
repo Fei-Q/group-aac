@@ -946,10 +946,14 @@ class PiBindingStateMachine:
                 payload,
                 "display",
             )
+            message = _required_mapping(
+                display,
+                "message",
+            )
             self._state.current_message_id = (
                 _required_string(
-                    display,
-                    "currentMessageId",
+                    message,
+                    "id",
                 )
             )
             self._state.is_pinned = _required_bool(
@@ -976,26 +980,34 @@ class PiBindingStateMachine:
             )
 
         if event_type == "display.pin_message":
-            display = _required_mapping(
+            display_state = _required_mapping(
                 payload,
-                "display",
+                "displayState",
             )
+            state_session_id = _required_string(
+                display_state,
+                "sessionId",
+            )
+            if state_session_id != session_id:
+                raise ProtocolError(
+                    "session_id_mismatch"
+                )
             self._state.is_pinned = True
             self._state.display_mode = (
                 _required_string(
-                    display,
+                    display_state,
                     "displayMode",
                 )
             )
             self._state.command_origin = (
                 _required_optional_string(
-                    display,
+                    display_state,
                     "commandOrigin",
                 )
             )
             current_message_id = (
                 _required_optional_string(
-                    display,
+                    display_state,
                     "currentMessageId",
                 )
             )
@@ -1006,26 +1018,34 @@ class PiBindingStateMachine:
             return "display.pinned"
 
         if event_type == "display.unpin_message":
-            display = _required_mapping(
+            display_state = _required_mapping(
                 payload,
-                "display",
+                "displayState",
             )
+            state_session_id = _required_string(
+                display_state,
+                "sessionId",
+            )
+            if state_session_id != session_id:
+                raise ProtocolError(
+                    "session_id_mismatch"
+                )
             self._state.is_pinned = False
             self._state.display_mode = (
                 _required_string(
-                    display,
+                    display_state,
                     "displayMode",
                 )
             )
             self._state.command_origin = (
                 _required_optional_string(
-                    display,
+                    display_state,
                     "commandOrigin",
                 )
             )
             current_message_id = (
                 _required_optional_string(
-                    display,
+                    display_state,
                     "currentMessageId",
                 )
             )
@@ -1036,33 +1056,41 @@ class PiBindingStateMachine:
             return "display.unpinned"
 
         if event_type == "display.clear":
-            display = _required_mapping(
+            display_state = _required_mapping(
                 payload,
-                "display",
+                "displayState",
             )
+            state_session_id = _required_string(
+                display_state,
+                "sessionId",
+            )
+            if state_session_id != session_id:
+                raise ProtocolError(
+                    "session_id_mismatch"
+                )
             self._state.current_message_id = None
             self._state.is_pinned = False
             self._state.display_mode = (
                 _required_string(
-                    display,
+                    display_state,
                     "displayMode",
                 )
             )
             self._state.command_origin = (
                 _required_optional_string(
-                    display,
+                    display_state,
                     "commandOrigin",
                 )
             )
             return "display.cleared"
 
         if event_type == "display.mode_changed":
-            display = _required_mapping(
+            display_state = _required_mapping(
                 payload,
-                "display",
+                "displayState",
             )
             mode_session_id = _required_string(
-                display,
+                display_state,
                 "sessionId",
             )
             if mode_session_id != session_id:
@@ -1071,7 +1099,7 @@ class PiBindingStateMachine:
                 )
             self._state.display_mode = (
                 _required_string(
-                    display,
+                    display_state,
                     "displayMode",
                 )
             )

@@ -1524,7 +1524,9 @@ class SessionRepository(
                             session =
                                 currentSession,
                             member =
-                                member
+                                member,
+                            actorUserId =
+                                decidedByUserId
                         )
 
                     true

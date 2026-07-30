@@ -39,7 +39,8 @@ interface SessionRealtimeSync {
 
     suspend fun publishMemberJoined(
         session: SessionEntity,
-        member: SessionMemberEntity
+        member: SessionMemberEntity,
+        actorUserId: String = member.userId
     )
 
     suspend fun publishMemberLeft(
@@ -204,7 +205,7 @@ object NoOpSessionRealtimeSync : SessionRealtimeSync {
     override suspend fun publishSessionSettingsChanged(session: SessionEntity, actorUserId: String) = Unit
     override suspend fun publishSessionEnded(session: SessionEntity, actorUserId: String) = Unit
     override suspend fun publishSessionCancelled(session: SessionEntity, actorUserId: String) = Unit
-    override suspend fun publishMemberJoined(session: SessionEntity, member: SessionMemberEntity) = Unit
+    override suspend fun publishMemberJoined(session: SessionEntity, member: SessionMemberEntity, actorUserId: String) = Unit
     override suspend fun publishMemberLeft(session: SessionEntity, member: SessionMemberEntity, actorUserId: String) = Unit
     override suspend fun publishMemberRemoved(session: SessionEntity, member: SessionMemberEntity, actorUserId: String) = Unit
     override suspend fun publishMemberDisplayNameChanged(session: SessionEntity, member: SessionMemberEntity, actorUserId: String) = Unit

@@ -114,6 +114,47 @@ class DefaultSessionRealtimeSyncTest {
     }
 
     @Test
+    fun publishMemberJoinedUsesActingHostUidForOutboxDispatch() = runTest {
+        val session = SessionEntity(
+            id = "session-1",
+            name = "Planning",
+            joinCode = "1234-5678",
+            hostUserId = "host",
+            createdAt = 100L
+        )
+        val member = SessionMemberEntity(
+            sessionId = "session-1",
+            userId = "facilitator",
+            displayName = "Facilitator",
+            role = SessionRole.FACILITATOR,
+            joinedAt = 101L
+        )
+
+        sync.publishMemberJoined(
+            session = session,
+            member = member,
+            actorUserId = "host"
+        )
+
+        val hostRows = database.reliabilityDao().getRetryableOutboxEvents(
+            actorUserId = "host",
+            now = Long.MAX_VALUE,
+            maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
+            limit = 10
+        )
+        val facilitatorRows = database.reliabilityDao().getRetryableOutboxEvents(
+            actorUserId = "facilitator",
+            now = Long.MAX_VALUE,
+            maxAttempts = RealtimeReliabilityStore.MAX_ATTEMPTS,
+            limit = 10
+        )
+
+        assertEquals(1, hostRows.size)
+        assertEquals(RealtimeChannels.public("session-1"), hostRows.single().channel)
+        assertTrue(facilitatorRows.isEmpty())
+    }
+
+    @Test
     fun applySnapshotUpsertsRows() = runTest {
         val snapshot = SessionSnapshotPayload(
             session = SessionEntity(

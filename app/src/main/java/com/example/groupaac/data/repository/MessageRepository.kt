@@ -162,31 +162,44 @@ class MessageRepository(
     suspend fun saveMessage(messageId: String) =
         messageDao.saveMessage(messageId)
 
-    suspend fun displayMessage(sessionId: String, messageId: String) {
+    suspend fun displayMessage(
+        sessionId: String,
+        messageId: String,
+        actorUserId: String? = null
+    ) {
         transactionRunner.inTransaction {
             showOrRestoreMessage(
                 sessionId = sessionId,
                 messageId = messageId,
                 restore = false,
-                origin = DisplayCommandOrigin.MANUAL_SHOW
+                origin = DisplayCommandOrigin.MANUAL_SHOW,
+                actorUserId = actorUserId
             )
         }
         outboxDispatcher.requestImmediateDispatch()
     }
 
-    suspend fun restoreMessage(sessionId: String, messageId: String) {
+    suspend fun restoreMessage(
+        sessionId: String,
+        messageId: String,
+        actorUserId: String? = null
+    ) {
         transactionRunner.inTransaction {
             showOrRestoreMessage(
                 sessionId = sessionId,
                 messageId = messageId,
                 restore = true,
-                origin = DisplayCommandOrigin.MANUAL_RESTORE
+                origin = DisplayCommandOrigin.MANUAL_RESTORE,
+                actorUserId = actorUserId
             )
         }
         outboxDispatcher.requestImmediateDispatch()
     }
 
-    suspend fun pinDisplayedMessage(sessionId: String) {
+    suspend fun pinDisplayedMessage(
+        sessionId: String,
+        actorUserId: String? = null
+    ) {
         transactionRunner.inTransaction {
             val current = reliabilityDao.getDisplayState(sessionId)
             val messageId = current?.currentMessageId ?: return@inTransaction
@@ -204,12 +217,15 @@ class MessageRepository(
                 commandOrigin = current.commandOrigin,
                 now = now
             )
-            val actorUserId = session.hostUserId ?: messageDao.getMessage(messageId)?.senderUserId ?: return@inTransaction
+            val resolvedActorUserId = actorUserId
+                ?: session.hostUserId
+                ?: messageDao.getMessage(messageId)?.senderUserId
+                ?: return@inTransaction
             sessionRealtimeSync.publishDisplayPinState(
                 eventId = eventId,
                 sessionId = sessionId,
                 messageId = messageId,
-                actorUserId = actorUserId,
+                actorUserId = resolvedActorUserId,
                 pinned = true,
                 displayMode = session.displayMode,
                 origin = current.commandOrigin
@@ -218,7 +234,10 @@ class MessageRepository(
         outboxDispatcher.requestImmediateDispatch()
     }
 
-    suspend fun unpinDisplayedMessage(sessionId: String) {
+    suspend fun unpinDisplayedMessage(
+        sessionId: String,
+        actorUserId: String? = null
+    ) {
         transactionRunner.inTransaction {
             val current = reliabilityDao.getDisplayState(sessionId)
             val messageId = current?.currentMessageId ?: return@inTransaction
@@ -236,12 +255,15 @@ class MessageRepository(
                 commandOrigin = current.commandOrigin,
                 now = now
             )
-            val actorUserId = session.hostUserId ?: messageDao.getMessage(messageId)?.senderUserId ?: return@inTransaction
+            val resolvedActorUserId = actorUserId
+                ?: session.hostUserId
+                ?: messageDao.getMessage(messageId)?.senderUserId
+                ?: return@inTransaction
             sessionRealtimeSync.publishDisplayPinState(
                 eventId = eventId,
                 sessionId = sessionId,
                 messageId = messageId,
-                actorUserId = actorUserId,
+                actorUserId = resolvedActorUserId,
                 pinned = false,
                 displayMode = session.displayMode,
                 origin = current.commandOrigin
@@ -250,7 +272,10 @@ class MessageRepository(
         outboxDispatcher.requestImmediateDispatch()
     }
 
-    suspend fun clearDisplay(sessionId: String) {
+    suspend fun clearDisplay(
+        sessionId: String,
+        actorUserId: String? = null
+    ) {
         transactionRunner.inTransaction {
             val current = reliabilityDao.getDisplayState(sessionId)
             val session = sessionDao.getSession(sessionId) ?: return@inTransaction
@@ -266,11 +291,13 @@ class MessageRepository(
                 commandOrigin = null,
                 now = now
             )
-            val actorUserId = session.hostUserId ?: return@inTransaction
+            val resolvedActorUserId = actorUserId
+                ?: session.hostUserId
+                ?: return@inTransaction
             sessionRealtimeSync.publishDisplayClear(
                 eventId = eventId,
                 sessionId = sessionId,
-                actorUserId = actorUserId,
+                actorUserId = resolvedActorUserId,
                 displayMode = session.displayMode,
                 origin = current?.commandOrigin
             )
@@ -278,14 +305,18 @@ class MessageRepository(
         outboxDispatcher.requestImmediateDispatch()
     }
 
-    suspend fun deleteMessage(messageId: String) {
+    suspend fun deleteMessage(
+        messageId: String,
+        actorUserId: String? = null
+    ) {
         transactionRunner.inTransaction {
             val message = messageDao.getMessage(messageId)
                 ?: return@inTransaction
             messageDao.deleteMessage(messageId)
             sessionRealtimeSync.publishMessageDeleted(
                 message = message,
-                actorUserId = message.senderUserId
+                actorUserId = actorUserId
+                    ?: message.senderUserId
             )
         }
         outboxDispatcher.requestImmediateDispatch()
@@ -337,7 +368,8 @@ class MessageRepository(
         sessionId: String,
         messageId: String,
         restore: Boolean,
-        origin: DisplayCommandOrigin
+        origin: DisplayCommandOrigin,
+        actorUserId: String?
     ) {
         val session = sessionDao.getSession(sessionId) ?: return
         val message = messageDao.getMessage(messageId) ?: return
@@ -361,7 +393,9 @@ class MessageRepository(
             session = session,
             message = message,
             senderName = senderName,
-            actorUserId = session.hostUserId ?: message.senderUserId,
+            actorUserId = actorUserId
+                ?: session.hostUserId
+                ?: message.senderUserId,
             restore = restore,
             isPinned = current?.isPinned == true,
             origin = origin
