@@ -7,7 +7,7 @@ import com.pubnub.api.PubNubException
 import kotlinx.coroutines.CancellationException
 
 private const val DIRECTORY_METADATA_TYPE =
-    "group-aac-session-directory-v1"
+    "groupAacSessionDirectoryV1"
 
 private const val KEY_PROTOCOL_VERSION =
     "protocolVersion"

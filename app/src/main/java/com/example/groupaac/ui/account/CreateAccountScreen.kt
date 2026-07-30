@@ -12,8 +12,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.Icon
@@ -54,7 +59,11 @@ import com.example.groupaac.ui.theme.GroupAacTheme
 @Composable
 fun CreateAccountScreen(
     onBack: () -> Unit,
-    onCreate: (uid: String, displayName: String, homeExperience: HomeExperience) -> Unit,
+    onCreate: (
+        uid: String,
+        displayName: String,
+        homeExperience: HomeExperience
+    ) -> Unit,
     createAccountResult: CreateAccountResult? = null,
     onConsumeCreateAccountResult: () -> Unit = {}
 ) {
@@ -63,16 +72,20 @@ fun CreateAccountScreen(
     var homeExperience by remember {
         mutableStateOf(HomeExperience.SIMPLE)
     }
+
+    val scrollState = rememberScrollState()
     val normalizedUid = UserIdValidator.normalize(uid)
     val uidValidation = UserIdValidator.validate(normalizedUid)
+
     val displayNameError = if (displayName.trim().isBlank()) {
         "Display name is required."
     } else {
         null
     }
+
     val canCreate =
         uidValidation == UserIdValidationResult.Valid &&
-            displayNameError == null
+                displayNameError == null
 
     LaunchedEffect(createAccountResult) {
         if (createAccountResult is CreateAccountResult.Success) {
@@ -80,132 +93,245 @@ fun CreateAccountScreen(
         }
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(AacBackground).padding(24.dp)) {
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AacBackground)
+    ) {
         val isTablet = maxWidth >= 700.dp
         val stackChoices = maxWidth < 520.dp
+
         Column(
-            modifier = Modifier.fillMaxSize().then(if (isTablet) Modifier.padding(horizontal = 96.dp, vertical = 36.dp) else Modifier),
-            verticalArrangement = if (isTablet) Arrangement.Center else Arrangement.Top
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(24.dp)
+                .then(
+                    if (isTablet) {
+                        Modifier.padding(
+                            horizontal = 96.dp,
+                            vertical = 36.dp
+                        )
+                    } else {
+                        Modifier
+                    }
+                ),
+            verticalArrangement = if (isTablet) {
+                Arrangement.Center
+            } else {
+                Arrangement.Top
+            }
         ) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back") }
-            Text("Create account", style = if (isTablet) MaterialTheme.typography.displayLarge else MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.secondary)
-//            Text("This creates a local profile for the prototype.", style = MaterialTheme.typography.bodyLarge, color = AacTextSecondary)
+            IconButton(
+                onClick = onBack
+            ) {
+                Icon(
+                    imageVector =
+                        Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = "Back"
+                )
+            }
+
+            Text(
+                text = "Create account",
+                style = if (isTablet) {
+                    MaterialTheme.typography.displayLarge
+                } else {
+                    MaterialTheme.typography.headlineLarge
+                },
+                color = MaterialTheme.colorScheme.secondary
+            )
+
             Spacer(Modifier.height(24.dp))
+
             AppCard {
-                Column(verticalArrangement = Arrangement.spacedBy(22.dp)) {
-                    Text("Account", style = MaterialTheme.typography.titleLarge)
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(22.dp)
+                ) {
+                    Text(
+                        text = "Account",
+                        style = MaterialTheme.typography.titleLarge
+                    )
+
                     OutlinedTextField(
                         value = uid,
                         onValueChange = { input ->
-                            uid = UserIdValidator.sanitizeForInput(input)
+                            uid =
+                                UserIdValidator.sanitizeForInput(
+                                    input
+                                )
                         },
-                        label = { Text("UID") },
+                        label = {
+                            Text("UID")
+                        },
                         supportingText = {
                             val inlineValidation =
-                                uidValidation as? UserIdValidationResult.Invalid
+                                uidValidation as?
+                                        UserIdValidationResult.Invalid
+
                             Text(
                                 inlineValidation?.message
                                     ?: "3-24 chars, lowercase letters, digits, underscore."
                             )
                         },
-                        isError = uid.isNotBlank() && uidValidation is UserIdValidationResult.Invalid,
+                        isError =
+                            uid.isNotBlank() &&
+                                    uidValidation is
+                                            UserIdValidationResult.Invalid,
                         singleLine = true,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("create_account_uid")
                     )
+
                     OutlinedTextField(
                         value = displayName,
-                        onValueChange = { displayName = it },
-                        label = { Text("Display name") },
+                        onValueChange = {
+                            displayName = it
+                        },
+                        label = {
+                            Text("Display name")
+                        },
                         supportingText = {
                             if (displayNameError != null) {
                                 Text(displayNameError)
                             }
                         },
-                        isError = displayName.isNotBlank() && displayNameError != null,
+                        isError =
+                            displayName.isNotBlank() &&
+                                    displayNameError != null,
                         singleLine = true,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .testTag("create_account_display_name")
+                            .testTag(
+                                "create_account_display_name"
+                            )
                     )
+
                     when (val result = createAccountResult) {
-                        CreateAccountResult.AlreadyTaken -> Text(
-                            text = "That UID is already taken on this device.",
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        is CreateAccountResult.Failure -> Text(
-                            text = result.message,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        is CreateAccountResult.Invalid -> Text(
-                            text = result.message,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                        is CreateAccountResult.Success -> Unit
+                        CreateAccountResult.AlreadyTaken -> {
+                            Text(
+                                text =
+                                    "That UID is already taken on this device.",
+                                color =
+                                    MaterialTheme.colorScheme.error
+                            )
+                        }
+
+                        is CreateAccountResult.Failure -> {
+                            Text(
+                                text = result.message,
+                                color =
+                                    MaterialTheme.colorScheme.error
+                            )
+                        }
+
+                        is CreateAccountResult.Invalid -> {
+                            Text(
+                                text = result.message,
+                                color =
+                                    MaterialTheme.colorScheme.error
+                            )
+                        }
+
+                        is CreateAccountResult.Success,
                         null -> Unit
                     }
+
                     Text(
-                        "How will you use this app?",
+                        text = "How will you use this app?",
                         style = MaterialTheme.typography.titleLarge
                     )
+
                     if (stackChoices) {
                         Column(
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalArrangement =
+                                Arrangement.spacedBy(16.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             HomeExperienceCard(
                                 title = "Join sessions",
-                                description = "Join and take part.",
-                                iconRole = UserRole.PARTICIPANT,
-                                selected = homeExperience == HomeExperience.SIMPLE,
+                                description =
+                                    "Join and take part.",
+                                iconRole =
+                                    UserRole.PARTICIPANT,
+                                selected =
+                                    homeExperience ==
+                                            HomeExperience.SIMPLE,
                                 onClick = {
-                                    homeExperience = HomeExperience.SIMPLE
+                                    homeExperience =
+                                        HomeExperience.SIMPLE
                                 },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier =
+                                    Modifier.fillMaxWidth()
                             )
+
                             HomeExperienceCard(
                                 title = "Manage sessions",
-                                description = "Create and organize sessions.",
-                                iconRole = UserRole.FACILITATOR,
-                                selected = homeExperience == HomeExperience.ADVANCED,
+                                description =
+                                    "Create and organize sessions.",
+                                iconRole =
+                                    UserRole.FACILITATOR,
+                                selected =
+                                    homeExperience ==
+                                            HomeExperience.ADVANCED,
                                 onClick = {
-                                    homeExperience = HomeExperience.ADVANCED
+                                    homeExperience =
+                                        HomeExperience.ADVANCED
                                 },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier =
+                                    Modifier.fillMaxWidth()
                             )
                         }
                     } else {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(16.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             HomeExperienceCard(
                                 title = "Join sessions",
-                                description = "Join and take part.",
-                                iconRole = UserRole.PARTICIPANT,
-                                selected = homeExperience == HomeExperience.SIMPLE,
+                                description =
+                                    "Join and take part.",
+                                iconRole =
+                                    UserRole.PARTICIPANT,
+                                selected =
+                                    homeExperience ==
+                                            HomeExperience.SIMPLE,
                                 onClick = {
-                                    homeExperience = HomeExperience.SIMPLE
+                                    homeExperience =
+                                        HomeExperience.SIMPLE
                                 },
                                 modifier = Modifier.weight(1f)
                             )
+
                             HomeExperienceCard(
                                 title = "Manage sessions",
-                                description = "Create and organize sessions.",
-                                iconRole = UserRole.FACILITATOR,
-                                selected = homeExperience == HomeExperience.ADVANCED,
+                                description =
+                                    "Create and organize sessions.",
+                                iconRole =
+                                    UserRole.FACILITATOR,
+                                selected =
+                                    homeExperience ==
+                                            HomeExperience.ADVANCED,
                                 onClick = {
-                                    homeExperience = HomeExperience.ADVANCED
+                                    homeExperience =
+                                        HomeExperience.ADVANCED
                                 },
                                 modifier = Modifier.weight(1f)
                             )
                         }
                     }
+
                     Text(
-                        "You can change this later in Settings.",
+                        text =
+                            "You can change this later in Settings.",
                         color = AacTextSecondary
                     )
+
                     PrimaryButton(
                         text = "Create account",
                         onClick = {
@@ -218,6 +344,7 @@ fun CreateAccountScreen(
                         enabled = canCreate,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 56.dp)
                             .testTag("create_account_submit")
                     )
                 }
@@ -236,7 +363,9 @@ private fun HomeExperienceCard(
     modifier: Modifier = Modifier,
     minHeight: Dp = 96.dp
 ) {
-    val borderColor = if (selected) AacBlue else AacBorder
+    val borderColor =
+        if (selected) AacBlue else AacBorder
+
     val backgroundColor = if (selected) {
         AacBlue.copy(alpha = 0.12f)
     } else {
@@ -259,34 +388,50 @@ private fun HomeExperienceCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                .padding(
+                    horizontal = 18.dp,
+                    vertical = 16.dp
+                ),
+            horizontalArrangement =
+                Arrangement.spacedBy(16.dp),
+            verticalAlignment =
+                androidx.compose.ui.Alignment.CenterVertically
         ) {
             Icon(
-                painter = painterResource(roleIconRes(iconRole)),
+                painter = painterResource(
+                    roleIconRes(iconRole)
+                ),
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(44.dp)
             )
+
             Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement =
+                    Arrangement.spacedBy(4.dp)
             ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium
+                    style =
+                        MaterialTheme.typography.titleMedium
                 )
+
                 Text(
                     text = description,
                     color = AacTextSecondary,
-                    style = MaterialTheme.typography.bodyMedium
+                    style =
+                        MaterialTheme.typography.bodyMedium
                 )
             }
         }
     }
 }
 
-@Preview(showBackground = true, widthDp = 1000, heightDp = 800)
+@Preview(
+    showBackground = true,
+    widthDp = 1000,
+    heightDp = 800
+)
 @Composable
 fun CreateAccountScreenTabletPreview() {
     GroupAacTheme {
@@ -297,7 +442,11 @@ fun CreateAccountScreenTabletPreview() {
     }
 }
 
-@Preview(showBackground = true, widthDp = 360, heightDp = 640)
+@Preview(
+    showBackground = true,
+    widthDp = 360,
+    heightDp = 640
+)
 @Composable
 fun CreateAccountScreenPhonePreview() {
     GroupAacTheme {
