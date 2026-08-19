@@ -29,7 +29,7 @@ The Android application uses a local-first architecture with Room for persistent
 
 **Tech stack:** Kotlin · Jetpack Compose · Room · DataStore · Hilt · PubNub · WorkManager · Kotlin Coroutines · Raspberry Pi · Python
 
-A detailed illustration of the interface and usage workflow can be found here 
+A detailed illustration of the interface and usage workflow can be found [here](figures.pdf).
 
 ## Research
 
