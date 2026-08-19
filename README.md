@@ -12,8 +12,8 @@ The current prototype has moved from a custom backend architecture to a peer-bas
 
 ```text
 Participant Android apps ─┐
-Facilitator Android app  ─┼── PubNub ── Raspberry Pi display client
-Room on each Android app ─┘
+                         ─┼── PubNub ── Raspberry Pi display client
+Facilitator Android apps ─┘
 ```
 
 Current manual integration status:
