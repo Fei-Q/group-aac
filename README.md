@@ -242,27 +242,3 @@ The simulator does not open a graphical display window. Display behavior is veri
 8. From the facilitator, show, pin, unpin, clear, and restore messages.
 9. Verify Python terminal acknowledgements and `runtime/pi_state.json` transitions.
 10. End the session and confirm the Pi returns to `PAIRING_AVAILABLE` with a new pairing QR.
-
-## Known limitations and next priorities
-
-- The Python Pi simulator is headless and does not render the final shared-display UI.
-- The production C++ Pi client has not yet been integrated or validated.
-- The Pi does not yet render a participant invitation QR and join code after session launch.
-- The facilitator currently has no in-session settings page, so display mode and other session configuration cannot be changed while a session is active. This is a planned UI refinement.
-- Attachment metadata is synchronized, but cross-device binary attachment transfer is not yet implemented.
-- PubNub Access Manager tokens, production authentication, server-enforced authorization, and formal Pi enrollment are deferred.
-- Local accounts and Room data are suitable for prototype testing, not protected clinical records.
-- The display acknowledgement channel should be flattened to remove the current Wildcard Subscribe restriction.
-- Rich connected-device instrumentation and production-scale multi-session testing remain incomplete.
-
-## Research prototype scope
-
-The current system assumes:
-
-- controlled research or demonstration sessions;
-- a small number of simultaneous groups;
-- development identities rather than production authentication;
-- internet connectivity;
-- a facilitator device that remains connected during the session.
-
-Do not use this build for clinical deployment, emergency communication, protected long-term records, or unsupervised production use.
